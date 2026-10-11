@@ -2,7 +2,6 @@
  * McpLogger - 標準エラー出力（process.stderr）専用の構造化ロガー
  *
  * 根拠 / Source:
- *   MCP 仕様 2026-07-28 (SEP-2577): notifications/message によるプロトコルロギングは非推奨化
  *   実装指示書v1 §3, §5(B1):
  *     - MCPプロトコルのログ（notifications/message）の送出をやめる
  *     - Logging capability宣言を外す
