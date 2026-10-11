@@ -24,6 +24,3 @@ export const SUPPORT_EMAIL = "dev@sugu-kuru.co.jp";
 
 /** GCPプロジェクトID - 人の決定待ち */
 export const GCP_PROJECT_ID = "TBD";
-
-/** 顧問税理士による文言確認ステータス - 人の確認待ち */
-export const TAX_ACCOUNTANT_REVIEW_STATUS = "未";
