@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * @sugukuru/mcp-houjin-bangou - HTTP entrypoint
+ * @sugukuru/mcp-houjin-bangou - Server entrypoint
  *
- * Express + StreamableHTTPServerTransport (stateless mode)
+ * stdio (CLI / Claude Desktop) + Streamable HTTP (stateless mode)
  *
  * 根拠 / Source:
- *   MCP 公式 "Streamable HTTP" transport
- *   Transport WG (Dec 2025) stateless direction
- *   国税庁 Web-API 仕様書 第一編 §5 (アプリケーションID)
+ *   MCP 公式 "Streamable HTTP" transport & "stdio" transport
+ *   MCP 仕様 2026-07-28 (SEP-2577): notifications/message によるプロトコルロギング非推奨化
+ *   実装指示書v1 §3, §5(B1):
+ *     - アプリのログはすべて標準エラー出力（stderr）へ
+ *     - Logging capability宣言を外す
+ *     - stdioでは標準出力がJSON-RPC通信路のため標準出力へのログ出力を排除
+ *     - アクセスログに入力された法人番号・登録番号・検索語を残さない
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -15,30 +19,103 @@ import cors from 'cors';
 import helmet from 'helmet';
 import pino from 'pino';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from './lib/env.js';
 import { createNtaClient } from './api/nta-client.js';
 import { createServer } from './mcp.js';
 import { VERSION } from './version.js';
 
-export async function bootstrap(): Promise<void> {
+/**
+ * 起動トランスポートの判定
+ */
+export function resolveTransport(): 'stdio' | 'http' {
+  if (process.argv.includes('--stdio') || process.env.MCP_TRANSPORT === 'stdio') {
+    return 'stdio';
+  }
+  if (process.argv.includes('--http') || process.env.MCP_TRANSPORT === 'http') {
+    return 'http';
+  }
+  // Cloud Run (K_SERVICE) や PORT 明示指定がある場合は HTTP
+  if (process.env.K_SERVICE || process.env.PORT) {
+    return 'http';
+  }
+  // デフォルトは stdio (Claude Desktop / CLI)
+  return 'stdio';
+}
+
+/**
+ * stdio トランスポートでの起動
+ */
+export async function bootstrapStdio(): Promise<void> {
   const env = getEnv();
 
-  const logger = pino({
-    level: env.LOG_LEVEL,
-    redact: {
-      paths: [
-        'req.headers.authorization',
-        'req.headers["x-api-key"]',
-        'req.query.id',
-        'NTA_APPLICATION_ID',
-      ],
-      censor: '***REDACTED***',
+  // アプリのログはすべて標準エラー出力 (process.stderr) へ
+  const logger = pino(
+    {
+      level: env.LOG_LEVEL,
+      formatters: {
+        level: (label) => ({ level: label }),
+      },
     },
-    formatters: {
-      level: (label) => ({ level: label }),
+    process.stderr,
+  );
+
+  const ntaClient = createNtaClient({
+    applicationId: env.NTA_APPLICATION_ID,
+    baseUrl: env.NTA_BASE_URL,
+    timeoutMs: env.NTA_TIMEOUT_MS,
+    rps: env.NTA_RATE_LIMIT_RPS,
+    userAgent: `@sugukuru/mcp-houjin-bangou/${VERSION}`,
+    onBackoff: (waitMs) => {
+      logger.warn({ waitMs }, 'NTA API rate limit hit, backoff applied');
     },
   });
+
+  const mcpServer = createServer({ ntaClient });
+  const transport = new StdioServerTransport();
+
+  process.on('SIGINT', async () => {
+    logger.info('Received SIGINT, closing stdio server');
+    await mcpServer.close();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    logger.info('Received SIGTERM, closing stdio server');
+    await mcpServer.close();
+    process.exit(0);
+  });
+
+  await mcpServer.connect(transport);
+  logger.info('@sugukuru/mcp-houjin-bangou stdio transport connected');
+}
+
+/**
+ * HTTP トランスポートでの起動
+ */
+export async function bootstrapHttp(): Promise<void> {
+  const env = getEnv();
+
+  // アプリのログはすべて標準エラー出力 (process.stderr) へ
+  const logger = pino(
+    {
+      level: env.LOG_LEVEL,
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers["x-api-key"]',
+          'req.query.id',
+          'NTA_APPLICATION_ID',
+        ],
+        censor: '***REDACTED***',
+      },
+      formatters: {
+        level: (label) => ({ level: label }),
+      },
+    },
+    process.stderr,
+  );
 
   const ntaClient = createNtaClient({
     applicationId: env.NTA_APPLICATION_ID,
@@ -154,6 +231,18 @@ export async function bootstrap(): Promise<void> {
   });
 }
 
+/**
+ * サーバー起動エントリポイント
+ */
+export async function bootstrap(): Promise<void> {
+  const transport = resolveTransport();
+  if (transport === 'stdio') {
+    await bootstrapStdio();
+  } else {
+    await bootstrapHttp();
+  }
+}
+
 function buildServerCard(): object {
   return {
     name: '@sugukuru/mcp-houjin-bangou',
@@ -176,7 +265,6 @@ function buildServerCard(): object {
       resources: { listChanged: true, subscribe: false },
       prompts: { listChanged: true },
       completions: {},
-      logging: {},
     },
     primitives: {
       tools: [
@@ -221,7 +309,6 @@ function buildServerCard(): object {
       'SEP-2127 Server Card (Draft)',
       'SEP-1303 Input Validation as Tool Errors',
       'SEP-986 Tool Name Format',
-      'RFC 5424 (Logging severity)',
     ],
   };
 }

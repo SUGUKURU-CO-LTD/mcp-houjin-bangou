@@ -13,7 +13,6 @@ async function setupClient(): Promise<Client> {
       capabilities: {
         prompts: { listChanged: false },
         completions: {},
-        logging: {},
       },
     },
   );

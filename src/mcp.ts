@@ -23,7 +23,6 @@ export function createServer(deps: { ntaClient: NtaClient }): McpServer {
         resources: { listChanged: true, subscribe: false },
         prompts: { listChanged: true },
         completions: {},
-        logging: {},
       },
       instructions: [
         "This server provides access to Japan's National Corporate Number (法人番号) public database.",
