@@ -31,6 +31,7 @@ export function registerCorporateResourceTemplate(
       mimeType: 'application/json',
     },
     async (uri, variables) => {
+      const startTime = performance.now();
       const rawNumber = Array.isArray(variables['corporate_number'])
         ? variables['corporate_number'][0]
         : variables['corporate_number'];
@@ -40,6 +41,11 @@ export function registerCorporateResourceTemplate(
 
       const validation = normalizeAndValidateCorporateNumber(rawNumber);
       if (!validation.isValid) {
+        deps.logger.warn('resource_access', {
+          resource: 'corp://{corporate_number}',
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: 'invalid_corporate_number',
+        });
         return {
           contents: [
             {
@@ -61,10 +67,6 @@ export function registerCorporateResourceTemplate(
         };
       }
 
-      deps.logger.info('resource.corporate.read', {
-        corporate_number: validation.normalized,
-      });
-
       const result = await deps.ntaClient.lookupByNumber({
         numbers: [validation.normalized],
         history: '0',
@@ -72,6 +74,11 @@ export function registerCorporateResourceTemplate(
 
       if (Result.isErr(result)) {
         const err = result.error;
+        deps.logger.error('resource_access', {
+          resource: 'corp://{corporate_number}',
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: err.code,
+        });
         return {
           contents: [
             {
@@ -96,6 +103,12 @@ export function registerCorporateResourceTemplate(
 
       const parsed = result.value;
       const corporation = parsed.corporations[0] ?? null;
+
+      deps.logger.info('resource_access', {
+        resource: 'corp://{corporate_number}',
+        count: corporation !== null ? 1 : 0,
+        duration_ms: Math.round(performance.now() - startTime),
+      });
 
       return {
         contents: [

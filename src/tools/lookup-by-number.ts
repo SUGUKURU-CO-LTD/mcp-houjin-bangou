@@ -92,6 +92,7 @@ export function registerLookupByNumberTool(
       },
     },
     async (args) => {
+      const startTime = performance.now();
       const input = InputSchema.parse(args);
 
       const validInputs: string[] = [];
@@ -110,6 +111,12 @@ export function registerLookupByNumberTool(
       }
 
       if (validInputs.length === 0) {
+        deps.logger.warn('tool_access', {
+          tool: 'lookup_corporate_by_number',
+          count: 0,
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: 'invalid_input',
+        });
         const output: LookupByNumberOutput = {
           corporations: [],
           not_found: [],
@@ -128,11 +135,6 @@ export function registerLookupByNumberTool(
         };
       }
 
-      deps.logger.info('tool.lookup_corporate_by_number', {
-        count: validInputs.length,
-        include_history: input.include_history,
-      });
-
       const apiResult = await deps.ntaClient.lookupByNumber({
         numbers: validInputs,
         history: input.include_history ? '1' : '0',
@@ -140,10 +142,10 @@ export function registerLookupByNumberTool(
 
       if (Result.isErr(apiResult)) {
         const err = apiResult.error;
-        deps.logger.error('tool.lookup_corporate_by_number.api_error', {
-          code: err.code,
-          httpStatus: err.httpStatus,
-          message: err.message,
+        deps.logger.error('tool_access', {
+          tool: 'lookup_corporate_by_number',
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: err.code,
         });
         return {
           isError: true,
@@ -170,6 +172,12 @@ export function registerLookupByNumberTool(
       const parsed = apiResult.value;
       const foundNumbers = new Set(parsed.corporations.map((c) => c.corporate_number));
       const notFound = validInputs.filter((n) => !foundNumbers.has(n));
+
+      deps.logger.info('tool_access', {
+        tool: 'lookup_corporate_by_number',
+        count: parsed.corporations.length,
+        duration_ms: Math.round(performance.now() - startTime),
+      });
 
       const output: LookupByNumberOutput = {
         corporations: parsed.corporations,

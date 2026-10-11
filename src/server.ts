@@ -5,9 +5,13 @@
  * Express + StreamableHTTPServerTransport (stateless mode)
  *
  * 根拠 / Source:
- *   MCP 公式 "Streamable HTTP" transport
+ *   MCP 公式 "Streamable HTTP" transport (ADR 0002)
  *   Transport WG (Dec 2025) stateless direction
  *   国税庁 Web-API 仕様書 第一編 §5 (アプリケーションID)
+ *   実装指示書v1 §3, §5(B1):
+ *     - アプリのログはすべて標準エラー出力（stderr）へ
+ *     - Logging capability宣言を外す
+ *     - アクセスログに入力された法人番号・登録番号・検索語を残さない
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -24,21 +28,25 @@ import { VERSION } from './version.js';
 export async function bootstrap(): Promise<void> {
   const env = getEnv();
 
-  const logger = pino({
-    level: env.LOG_LEVEL,
-    redact: {
-      paths: [
-        'req.headers.authorization',
-        'req.headers["x-api-key"]',
-        'req.query.id',
-        'NTA_APPLICATION_ID',
-      ],
-      censor: '***REDACTED***',
+  // アプリのログはすべて標準エラー出力 (process.stderr) へ
+  const logger = pino(
+    {
+      level: env.LOG_LEVEL,
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers["x-api-key"]',
+          'req.query.id',
+          'NTA_APPLICATION_ID',
+        ],
+        censor: '***REDACTED***',
+      },
+      formatters: {
+        level: (label) => ({ level: label }),
+      },
     },
-    formatters: {
-      level: (label) => ({ level: label }),
-    },
-  });
+    process.stderr,
+  );
 
   const ntaClient = createNtaClient({
     applicationId: env.NTA_APPLICATION_ID,
@@ -176,7 +184,6 @@ function buildServerCard(): object {
       resources: { listChanged: true, subscribe: false },
       prompts: { listChanged: true },
       completions: {},
-      logging: {},
     },
     primitives: {
       tools: [
@@ -221,7 +228,6 @@ function buildServerCard(): object {
       'SEP-2127 Server Card (Draft)',
       'SEP-1303 Input Validation as Tool Errors',
       'SEP-986 Tool Name Format',
-      'RFC 5424 (Logging severity)',
     ],
   };
 }

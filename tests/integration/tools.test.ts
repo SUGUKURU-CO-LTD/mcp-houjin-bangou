@@ -10,7 +10,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerAllTools } from '../../src/tools/index.js';
 import { registerAllResources } from '../../src/resources/index.js';
 import { registerCompletionHandler } from '../../src/completion/handler.js';
-import { createMcpLogger } from '../../src/lib/mcp-logger.js';
+import { createMcpLogger, type McpLogger } from '../../src/lib/mcp-logger.js';
 import type { NtaClient } from '../../src/api/nta-client.js';
 import { Result } from '../../src/lib/result.js';
 
@@ -71,7 +71,7 @@ const mockNtaClient: NtaClient = {
   },
 };
 
-async function setupClient(): Promise<Client> {
+async function setupClient(customLogger?: McpLogger): Promise<Client> {
   const server = new McpServer(
     { name: 'test-server', version: '0.0.1' },
     {
@@ -79,11 +79,10 @@ async function setupClient(): Promise<Client> {
         tools: { listChanged: false },
         resources: { listChanged: false, subscribe: false },
         completions: {},
-        logging: {},
       },
     },
   );
-  const logger = createMcpLogger(server.server, 'info');
+  const logger = customLogger ?? createMcpLogger(server.server, 'info');
   registerAllTools(server, { ntaClient: mockNtaClient, logger });
   registerAllResources(server, { ntaClient: mockNtaClient, logger });
   registerCompletionHandler(server.server, { logger });
@@ -347,3 +346,64 @@ describe('MCP Completion integration', () => {
     expect(result.completion.values).toEqual([]);
   });
 });
+
+describe('Privacy-preserving access logging in tools', () => {
+  it('lookup_corporate_by_number logs tool, count, duration_ms and never the corporate number', async () => {
+    const logEntries: Array<{ level: string; logger: string; data?: Record<string, unknown> }> = [];
+    const spyLogger: McpLogger = {
+      setLevel: () => {},
+      getLevel: () => 'info',
+      log: (level, logger, data) => logEntries.push({ level, logger, data }),
+      debug: (logger, data) => logEntries.push({ level: 'debug', logger, data }),
+      info: (logger, data) => logEntries.push({ level: 'info', logger, data }),
+      warn: (logger, data) => logEntries.push({ level: 'warn', logger, data }),
+      warning: (logger, data) => logEntries.push({ level: 'warn', logger, data }),
+      error: (logger, data) => logEntries.push({ level: 'error', logger, data }),
+    };
+
+    const client = await setupClient(spyLogger);
+    const targetNumber = '5111101000006';
+    await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_numbers: [targetNumber] },
+    });
+
+    const accessLog = logEntries.find((e) => e.logger === 'tool_access');
+    expect(accessLog).toBeDefined();
+    expect(accessLog?.data?.tool).toBe('lookup_corporate_by_number');
+    expect(accessLog?.data?.count).toBe(1);
+    expect(typeof accessLog?.data?.duration_ms).toBe('number');
+    // 法人番号が含まれていないことを検証
+    expect(JSON.stringify(accessLog?.data)).not.toContain(targetNumber);
+  });
+
+  it('search_corporate_by_name logs tool, count, duration_ms and never the query word', async () => {
+    const logEntries: Array<{ level: string; logger: string; data?: Record<string, unknown> }> = [];
+    const spyLogger: McpLogger = {
+      setLevel: () => {},
+      getLevel: () => 'info',
+      log: (level, logger, data) => logEntries.push({ level, logger, data }),
+      debug: (logger, data) => logEntries.push({ level: 'debug', logger, data }),
+      info: (logger, data) => logEntries.push({ level: 'info', logger, data }),
+      warn: (logger, data) => logEntries.push({ level: 'warn', logger, data }),
+      warning: (logger, data) => logEntries.push({ level: 'warn', logger, data }),
+      error: (logger, data) => logEntries.push({ level: 'error', logger, data }),
+    };
+
+    const client = await setupClient(spyLogger);
+    const queryWord = 'テスト企業名検索ワード';
+    await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: queryWord },
+    });
+
+    const accessLog = logEntries.find((e) => e.logger === 'tool_access');
+    expect(accessLog).toBeDefined();
+    expect(accessLog?.data?.tool).toBe('search_corporate_by_name');
+    expect(accessLog?.data?.count).toBe(1);
+    expect(typeof accessLog?.data?.duration_ms).toBe('number');
+    // 検索語が含まれていないことを検証
+    expect(JSON.stringify(accessLog?.data)).not.toContain(queryWord);
+  });
+});
+

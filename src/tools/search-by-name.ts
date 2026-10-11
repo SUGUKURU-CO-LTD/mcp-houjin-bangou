@@ -120,6 +120,7 @@ export function registerSearchByNameTool(
       },
     },
     async (args) => {
+      const startTime = performance.now();
       const input = InputSchema.parse(args);
 
       const cursorPayload = decodeCursor(input.cursor);
@@ -128,14 +129,6 @@ export function registerSearchByNameTool(
       const mode = input.match_mode === 'prefix' ? '1' : '2';
       const target =
         input.search_target === 'fuzzy' ? '1' : input.search_target === 'exact' ? '2' : '3';
-
-      deps.logger.info('tool.search_corporate_by_name', {
-        name_length: input.name.length,
-        mode,
-        target,
-        prefecture: input.prefecture ?? 'any',
-        divide,
-      });
 
       const apiResult = await deps.ntaClient.searchByName({
         name: input.name,
@@ -150,10 +143,10 @@ export function registerSearchByNameTool(
 
       if (Result.isErr(apiResult)) {
         const err = apiResult.error;
-        deps.logger.error('tool.search_corporate_by_name.api_error', {
-          code: err.code,
-          httpStatus: err.httpStatus,
-          ntaErrorCode: err.ntaErrorCode,
+        deps.logger.error('tool_access', {
+          tool: 'search_corporate_by_name',
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: err.code,
         });
         return {
           isError: true,
@@ -184,6 +177,12 @@ export function registerSearchByNameTool(
       }
 
       const parsed = apiResult.value;
+
+      deps.logger.info('tool_access', {
+        tool: 'search_corporate_by_name',
+        count: parsed.corporations.length,
+        duration_ms: Math.round(performance.now() - startTime),
+      });
 
       const queryKey = JSON.stringify([
         input.name,
