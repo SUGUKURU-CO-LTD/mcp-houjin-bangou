@@ -3,7 +3,7 @@
 - **作成日**: 2026-10-12 JST (v1.4更新)
 - **対象ブランチ**: `a-kabe/corp-check-b0c-v1-4`
 - **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.4（確認待ち）
+- **ステータス**: v1.4（承認済み・凍結）
 
 ---
 
@@ -198,7 +198,7 @@
        - 番号を順に試して一覧を作る行為を防ぐため、IP単位の利用上限を設け、超えた場合は `RATE_LIMITED` を返す（B6）
        - DBへのアクセス権は、取り込み処理とツールの読み取りに必要な最小限とする（B6）
 - **名前**: `lookup_invoice_issuer`
-- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人の場合は公表商号・所在地）を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
+- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
 - **説明文（英語）**: Look up registered invoice issuer status by T-number (T+13 digits) from NTA public records with optional reference date. Returns factual registration status only without tax advice.
 - **アノテーション**:
   - `title`: "Lookup Registered Invoice Issuer by T-number"
@@ -432,7 +432,7 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 全ツール共通のレスポンス形式を定めます。
 
-- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。要約には `data_as_of` と出典表示を含めます。
+- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。
 - **失敗時**: `isError: true` とし、`structuredContent` は次の形にします。
   ```json
   {
@@ -608,5 +608,6 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 - B2：カーソルは `data_as_of` に結び付ける。データが更新された後の古いカーソルは `INVALID_INPUT` で返し、再検索を促す
 - B4：名前検索の一致方式（前方一致・部分一致など）を決め、`search_corporate_by_name` の説明文に書く
 - B5：`tax_disclaimer` の文言を決める。提出前に顧問税理士が確認する
+- 凍結時の修正：3.1節の対象ツールの明確化、1.3節の日本語説明文をF4に合わせた
 
 
