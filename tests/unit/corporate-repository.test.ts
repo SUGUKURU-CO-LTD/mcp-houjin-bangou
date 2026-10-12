@@ -11,10 +11,27 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
+import {
+  DbCorporateDataProvider,
+  escapeLikeWildcards,
+} from '../../src/repository/corporate-repository.js';
 import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
 import type { DbClient } from '../../src/db/client.js';
+
+describe('escapeLikeWildcards (LIKE/ILIKE特殊文字エスケープ)', () => {
+  it('%、_、\\ をエスケープすること', () => {
+    expect(escapeLikeWildcards('100%')).toBe('100\\%');
+    expect(escapeLikeWildcards('A_B')).toBe('A\\_B');
+    expect(escapeLikeWildcards('C\\D')).toBe('C\\\\D');
+    expect(escapeLikeWildcards('50%_OFF\\SALE')).toBe('50\\%\\_OFF\\\\SALE');
+  });
+
+  it('特殊文字を含まない通常の文字列はそのまま維持されること', () => {
+    expect(escapeLikeWildcards('スグクル株式会社')).toBe('スグクル株式会社');
+    expect(escapeLikeWildcards('Test-Company. 123')).toBe('Test-Company. 123');
+  });
+});
 
 describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
   const currentDataAsOf = '2026-10-01';

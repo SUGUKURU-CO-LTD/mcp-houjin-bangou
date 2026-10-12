@@ -20,6 +20,17 @@ import {
 } from '../lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../lib/tool-response.js';
 
+/**
+ * PostgreSQL LIKE / ILIKE 検索用ワイルドカード文字のエスケープ
+ * %, _, \ をエスケープして通常のリテラル文字として解釈させる。
+ */
+export function escapeLikeWildcards(input: string): string {
+  return input
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+
 export interface CorporationInfo {
   corporate_number: string;
   name: string;
@@ -185,10 +196,10 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       offset = validation.payload.offset;
     }
 
-    // 検索条件: 部分一致 (LIKE '%name%' / ILIKE) + 都道府県コード (任意) + activeバージョン
+    const escaped = escapeLikeWildcards(name);
     const conditions = [
       eq(corporateNumbers.datasetVersionId, activeVersion.id),
-      ilike(corporateNumbers.name, `%${name}%`),
+      ilike(corporateNumbers.name, `%${escaped}%`),
     ];
 
     if (prefecture) {

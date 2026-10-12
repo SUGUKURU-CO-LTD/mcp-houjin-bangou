@@ -93,8 +93,13 @@ export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
  * インボイス公表CSV行のパース
  *
  * 【重要設計制約】
- * 個人事業者の氏名・屋号は一切保持・抽出しない。
+ * 国税庁のダウンロードデータでは個人事業者の氏名等は削除されている（国税庁インボイスQ&A 問21）。
+ * 念のため、パーサーでも除外している。
  * 法人（01）および人格のない社団等（03）の公表商号・所在地のみ抽出する。
+ *
+ * 事業者区分（kind）の出典:
+ * 国税庁適格請求書発行事業者公表システム「リソース定義書（全件データ・差分データ）」
+ * （01: 法人、02: 個人事業者、03: 人格のない社団等）
  */
 export function parseInvoiceCsvLine(line: string): InvoiceCsvRow | null {
   const trimmed = line.trim();
@@ -117,7 +122,7 @@ export function parseInvoiceCsvLine(line: string): InvoiceCsvRow | null {
   // 項番3: 処理区分
   // 項番4: 訂正区分
   // 項番5: 更新年月日
-  // 項番6: 事業者区分 (01:法人, 02:個人事業者, 03:人格のない社団等)
+  // 項番6: 事業者区分 (01:法人, 02:個人事業者, 03:人格のない社団等 - 出典: リソース定義書)
   // 項番7: 商号又は名称 (法人・社団等)
   // 項番8: 国内所在地（都道府県）
   // 項番9: 国内所在地（市区町村）

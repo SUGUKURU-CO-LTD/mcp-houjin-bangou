@@ -9,6 +9,7 @@
  *     - 新しいデータは別の場所に取り込み、全件そろってから切り替える。途中で失敗した場合は、前のデータと前の data_as_of のまま動き続ける
  */
 
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   serial,
@@ -83,6 +84,7 @@ export const corporateNumbers = pgTable(
     primaryKey({ columns: [table.corporateNumber, table.datasetVersionId] }),
     index('idx_corporate_numbers_number').on(table.corporateNumber),
     index('idx_corporate_numbers_name').on(table.name),
+    index('idx_corporate_numbers_name_trgm').using('gin', sql`${table.name} gin_trgm_ops`),
     index('idx_corporate_numbers_prefecture').on(table.prefectureCode),
     index('idx_corporate_numbers_version').on(table.datasetVersionId),
   ],
@@ -136,8 +138,14 @@ export const corporateNumbersStaging = pgTable(
  * 3. インボイス発行事業者テーブル (本番)
  *
  * 【重要設計制約】
- * 個人事業者の氏名・屋号の列は一切作成しない（設計レベルでの非保持）。
+ * 国税庁のダウンロードデータでは個人事業者の氏名等は削除されている（国税庁インボイスQ&A 問21）。
+ * 念のため、パーサーでも除外している。
+ * テーブルスキーマでも個人事業者の氏名・屋号の列は作成しない（設計レベルでの非保持）。
  * 法人・人格のない社団等の公表商号・所在地のみを保持する。
+ *
+ * 事業者区分（kind）の出典:
+ * 国税庁適格請求書発行事業者公表システム「リソース定義書（全件データ・差分データ）」
+ * （01: 法人、02: 個人事業者、03: 人格のない社団等）
  */
 export const invoiceIssuers = pgTable(
   'invoice_issuers',
@@ -145,7 +153,7 @@ export const invoiceIssuers = pgTable(
     registrationNumber: varchar('registration_number', { length: 14 }).notNull(), // T + 13桁
     process: varchar('process', { length: 2 }), // 処理区分: 01:新規, etc.
     correct: varchar('correct', { length: 1 }), // 訂正区分
-    kind: varchar('kind', { length: 2 }).notNull(), // 事業者区分: 01:法人, 02:個人事業者, 03:人格のない社団等
+    kind: varchar('kind', { length: 2 }).notNull(), // 事業者区分 (01:法人, 02:個人事業者, 03:人格のない社団等)
     corporateNumber: varchar('corporate_number', { length: 13 }), // 法人番号 (法人のみ)
     legalName: varchar('legal_name', { length: 300 }), // 法人・人格のない社団等の公表名称 (個人事業者はNULL)
     prefectureName: varchar('prefecture_name', { length: 10 }), // 法人所在地（都道府県）
