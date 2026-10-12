@@ -53,40 +53,19 @@ export function registerCompletionHandler(server: Server, deps: { logger: McpLog
 /**
  * Prompt 引数の補完
  *
- * - business-card-to-database: target_database_format (enum)
- * - sales-list-enrichment: output_format (enum)
- * - customer-master-dedup: dedup_criteria (enum)
+ * 会社名引数に対して normalizeCompanyName による候補提示をサポート
  */
 function completePromptArgument(
-  promptName: string,
+  _promptName: string,
   argName: string,
   value: string,
 ): CompleteResult {
-  const enumMap: Record<string, Record<string, string[]>> = {
-    'business-card-to-database': {
-      target_database_format: ['crm_json', 'salesforce_csv', 'hubspot_properties', 'plain_summary'],
-    },
-    'sales-list-enrichment': {
-      output_format: ['markdown_table', 'csv', 'jsonl'],
-    },
-    'customer-master-dedup': {
-      dedup_criteria: ['strict_corporate_number', 'fuzzy_name_address', 'conservative_flag_only'],
-    },
-  };
-
-  const enumValues = enumMap[promptName]?.[argName];
-  if (enumValues !== undefined) {
-    const filtered = enumValues.filter((v) => v.startsWith(value));
-    return {
-      completion: {
-        values: filtered,
-        total: filtered.length,
-        hasMore: false,
-      },
-    };
-  }
-
-  if (argName === 'company_name' || argName === 'name' || argName === 'raw_input') {
+  if (
+    argName === 'company_name' ||
+    argName === 'target_company_name' ||
+    argName === 'name' ||
+    argName === 'raw_input'
+  ) {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       return { completion: { values: [], total: 0, hasMore: false } };

@@ -1,27 +1,29 @@
 /**
  * Prompt: customer-master-dedup
  *
- * 顧客マスタの重複検知と法人番号による名寄せワークフロー。
- * 表記揺れのある会社名エントリが同一法人であるかを判定。
+ * 既存の顧客・取引先マスタの社名・住所から、国税庁の公表法人情報と突合して
+ * 正式名称・法人番号を特定し、名寄せ・表記ゆれの統一を支援するワークフロー。
+ *
+ * 根拠 / Source: docs/plan/corp-check-interface-v1.md §2.2 (v1.4 凍結仕様)
+ * - 「名刺」「登記」の語を含まない
+ * - 個人の連絡先情報（PII）を入力項目・出力項目から除外
  */
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { NTA_CORPORATE_WEB_API_ATTRIBUTION } from '../lib/tool-response.js';
 
 const argsSchema = z.object({
-  records: z
+  target_company_name: z
     .string()
     .min(1)
-    .max(15000)
-    .describe(
-      'JSON Lines (JSONL) 形式の顧客レコード。各行: {"id":"...","name":"...","address":"..."}',
-    ),
-  dedup_criteria: z
-    .enum(['strict_corporate_number', 'fuzzy_name_address', 'conservative_flag_only'])
-    .default('strict_corporate_number')
-    .describe(
-      'strict_corporate_number=同じ法人番号のみ重複判定 / fuzzy_name_address=名寄せ+住所一致で重複判定 / conservative_flag_only=疑わしきは削除しない',
-    ),
+    .max(500)
+    .describe('名寄せ対象の会社名 / Target company name for deduplication'),
+  current_address: z
+    .string()
+    .max(300)
+    .optional()
+    .describe('照合用の住所 / Optional current address for matching'),
 });
 
 export function registerCustomerMasterDedupPrompt(server: McpServer): void {
@@ -30,57 +32,42 @@ export function registerCustomerMasterDedupPrompt(server: McpServer): void {
     {
       title: 'Customer master dedup via NTA corporate number',
       description:
-        '顧客マスタの重複検知: T7 で表記揺れを吸収し、国税庁法人番号で名寄せ。マージ推奨ペアを提示。',
+        '既存の顧客・取引先マスタの社名・住所から、国税庁の公表法人情報と突合して正式名称・法人番号を特定し、名寄せ・表記ゆれの統一を支援します。※個人の連絡先情報は入力しないでください。',
       argsSchema: argsSchema.shape,
     },
     (args) => {
       const parsed = argsSchema.parse(args);
+      const addressPart = parsed.current_address ? `\n照合用住所: ${parsed.current_address}` : '';
+
       return {
         messages: [
           {
             role: 'user',
             content: {
               type: 'text',
-              text: `以下の顧客レコード (JSONL) の重複を検知し、マージ推奨ペアを提示してください。
+              text: `以下の取引先情報の社名・住所を国税庁公表情報と突合し、名寄せ・表記ゆれの統一支援を行ってください。
 
-【顧客レコード】
-"""
-${parsed.records}
-"""
-
-【重複判定基準】
-${parsed.dedup_criteria}
+【照合対象】
+会社名: ${parsed.target_company_name}${addressPart}
 
 【実行手順】
+1. normalize_company_name ツールに対象会社名を渡し、商号の正規化候補を取得
+2. search_corporate_by_name ツールで正規化候補を検索（照合用住所がある場合は所在地の一致状況を確認）
+3. 候補法人の lookup_corporate_by_number ツールで公表情報を取得し、照合用住所や商号と照らし合わせて同定
+4. 以下の構成で照合結果を出力:
+   - 照合判定 (特定完了 / 候補複数・要確認 / 該当なし)
+   - 法人番号 (13桁)
+   - 公表正式名称 (国税庁公表商号)
+   - 本店所在地
+   - 法人の状態 (active: 存続中 / closed: 閉鎖等)
+   - 表記ゆれの差分（略称展開、旧商号・新商号の差異、住所の変更等の指摘）
+   - データの時点 (data_as_of)
+5. 末尾に必ず次の出典表示を記載:
+   ${NTA_CORPORATE_WEB_API_ATTRIBUTION}
 
-1. 各レコードから会社名 (name) を抽出
-2. normalize_company_name で正規化候補を生成
-3. search_corporate_by_name で上位候補を国税庁照会、法人番号 (corporate_number) を取得
-4. ${
-                parsed.dedup_criteria === 'strict_corporate_number'
-                  ? 'SAME corporate_number を持つレコード群を「確定重複」として扱う'
-                  : parsed.dedup_criteria === 'fuzzy_name_address'
-                    ? '法人番号 一致 OR 正規化名 + 住所一致 を重複候補とする'
-                    : '法人番号 一致のみ重複扱い、それ以外は "要確認" として残す'
-              }
-5. 以下を出力:
-   - 重複グループ一覧 (各グループ: レコード ID 配列 + 確定法人番号 + マージ推奨の主レコード)
-   - 特定できなかったレコード (国税庁に該当なし)
-   - 国税庁情報と乖離があるレコード (住所変更歴ありの可能性)
-6. 必ず出典 (attribution.data_source + service_disclaimer) を末尾に明示
-
-【マージ推奨ルール】
-
-- 最も情報量の多いレコード (メール・電話・住所が揃っている) を主レコードに
-- 国税庁の正式表記を正とする
-- 旧登記住所があれば「履歴」として保持、現行は国税庁の最新で上書き
-- LLM が判断に迷ったら "HUMAN_REVIEW_REQUIRED" フラグを立てる (勝手にマージしない)
-
-【Human-in-the-Loop】
-本システムは重複を提案するのみで、実際のマージはユーザーの承認を得てから実施してください。誤マージは顧客データの損失につながる可能性があります。
-
-出典: 国税庁法人番号公表サイト（国税庁）https://www.houjin-bangou.nta.go.jp/
-このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。
+【注意事項】
+- 個人の連絡先情報（氏名・役職・電話番号・メールアドレス等）は取り扱いません。
+- 本機能は名寄せの提案を行うものであり、マスタデータの統合や更新の確定は利用者の判断に基づいて行ってください。
 `,
             },
           },
