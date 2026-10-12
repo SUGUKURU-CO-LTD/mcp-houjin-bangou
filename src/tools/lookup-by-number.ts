@@ -58,17 +58,28 @@ const OutputSchema = z.object({
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
+import type { DbCorporateDataProvider } from '../repository/corporate-repository.js';
+import type { DataSourceMode } from '../domain/tool-annotations.js';
+
 export type LookupByNumberInput = z.infer<typeof InputSchema>;
 export type LookupByNumberOutput = z.infer<typeof OutputSchema>;
 
 const DESCRIPTION_JA =
   '13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。';
 
-export function registerLookupByNumberTool(
-  server: McpServer,
-  deps: { ntaClient: NtaClient; logger: McpLogger },
-): void {
-  const annotations = getToolAnnotations('lookup_corporate_by_number', 'web-api');
+export interface LookupByNumberDeps {
+  ntaClient?: NtaClient;
+  dbProvider?: DbCorporateDataProvider;
+  dataSource?: DataSourceMode;
+  logger: McpLogger;
+}
+
+export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumberDeps): void {
+  const isDb =
+    deps.dataSource === 'db' ||
+    deps.dataSource === 'database' ||
+    (deps.dbProvider !== undefined && deps.ntaClient === undefined);
+  const annotations = getToolAnnotations('lookup_corporate_by_number', isDb ? 'db' : 'web-api');
 
   server.registerTool(
     'lookup_corporate_by_number',
@@ -120,6 +131,56 @@ export function registerLookupByNumberTool(
           'INVALID_INPUT',
           'チェックデジットが一致しません。入力された法人番号をご確認ください。',
         );
+      }
+
+      // ホスト版 (自社 PostgreSQL DB 参照) モード
+      if (isDb) {
+        if (!deps.dbProvider) {
+          deps.logger.error('tool_access', {
+            tool: 'lookup_corporate_by_number',
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: 'INTERNAL_ERROR',
+          });
+          return createErrorResponse('INTERNAL_ERROR', 'Database provider is not initialized');
+        }
+
+        const dbResult = await deps.dbProvider.lookupByNumber(corporate_number);
+        if (!dbResult.ok) {
+          const err = dbResult.error;
+          deps.logger.info('tool_access', {
+            tool: 'lookup_corporate_by_number',
+            count: 0,
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: err.code,
+          });
+          return createErrorResponse(
+            err.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'DATA_UNAVAILABLE',
+            err.message,
+          );
+        }
+
+        const val = dbResult.value;
+        deps.logger.info('tool_access', {
+          tool: 'lookup_corporate_by_number',
+          count: 1,
+          duration_ms: Math.round(performance.now() - startTime),
+        });
+
+        const output: LookupByNumberOutput = {
+          corporation: val.corporation,
+          data_as_of: val.data_as_of,
+          attribution: val.attribution,
+        };
+
+        const statusLabel = val.corporation.status === 'closed' ? '（閉鎖）' : '';
+        const summaryText = `${val.corporation.name}${statusLabel}（法人番号: ${corporate_number}）の公表情報を取得しました。所在地: ${val.corporation.location}`;
+
+        return createSuccessResponse(summaryText, output);
+      }
+
+      // ローカル版 (国税庁 Web-API 直接呼出) モード
+      if (!deps.ntaClient) {
+        return createErrorResponse('INTERNAL_ERROR', 'NTA client is not initialized');
       }
 
       const apiResult = await deps.ntaClient.lookupByNumber({

@@ -74,3 +74,18 @@ export function createErrorResponse(
  */
 export const NTA_CORPORATE_WEB_API_ATTRIBUTION =
   'このサービスは、国税庁法人番号システムWeb-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない';
+
+/**
+ * 国税庁 法人番号公表サイト利用規約 に基づく出典表示文言 (ホスト版 自社DB保持データ)
+ * 根拠: docs/plan/corp-check-interface-v1.md §6.1, [出典-A8]
+ */
+export const NTA_CORPORATE_HOST_ATTRIBUTION =
+  '出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/ ）。同サイトの公表データをもとにスグクル株式会社が加工して作成';
+
+/**
+ * 国税庁 適格請求書発行事業者公表サイト 利用規約 に基づく出典表示文言 (ホスト版 自社DB保持データ)
+ * 根拠: docs/plan/corp-check-interface-v1.md §6.1, [出典-A7]
+ */
+export const NTA_INVOICE_HOST_ATTRIBUTION =
+  '出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html ）。同サイトの公表データをもとにスグクル株式会社が加工して作成';
+

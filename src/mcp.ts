@@ -11,7 +11,16 @@ import { registerCompletionHandler } from './completion/handler.js';
 import { createMcpLogger } from './lib/mcp-logger.js';
 import { SERVER_NAME, VERSION } from './version.js';
 
-export function createServer(deps: { ntaClient: NtaClient }): McpServer {
+import type { DbCorporateDataProvider } from './repository/corporate-repository.js';
+import type { DataSourceMode } from './domain/tool-annotations.js';
+
+export interface ServerDeps {
+  ntaClient?: NtaClient;
+  dbProvider?: DbCorporateDataProvider;
+  dataSource?: DataSourceMode;
+}
+
+export function createServer(deps: ServerDeps): McpServer {
   const mcpServer = new McpServer(
     {
       name: SERVER_NAME,
@@ -46,7 +55,12 @@ export function createServer(deps: { ntaClient: NtaClient }): McpServer {
 
   const logger = createMcpLogger(mcpServer.server, 'info');
 
-  registerAllTools(mcpServer, { ntaClient: deps.ntaClient, logger });
+  registerAllTools(mcpServer, {
+    ntaClient: deps.ntaClient,
+    dbProvider: deps.dbProvider,
+    dataSource: deps.dataSource,
+    logger,
+  });
   registerAllResources(mcpServer, { ntaClient: deps.ntaClient, logger });
   registerAllPrompts(mcpServer);
   registerCompletionHandler(mcpServer.server, { logger });

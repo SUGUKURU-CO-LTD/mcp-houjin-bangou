@@ -12,6 +12,9 @@ import { Result } from '../src/lib/result.js';
 
 async function main(): Promise<void> {
   const env = getEnv();
+  if (!env.NTA_APPLICATION_ID) {
+    throw new Error('NTA_APPLICATION_ID is required for keepalive script');
+  }
   const client = createNtaClient({
     applicationId: env.NTA_APPLICATION_ID,
     baseUrl: env.NTA_BASE_URL,

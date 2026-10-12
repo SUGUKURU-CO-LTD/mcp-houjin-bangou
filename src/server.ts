@@ -24,6 +24,8 @@ import { getEnv } from './lib/env.js';
 import { createNtaClient } from './api/nta-client.js';
 import { createServer } from './mcp.js';
 import { VERSION } from './version.js';
+import { getDb } from './db/client.js';
+import { DbCorporateDataProvider } from './repository/corporate-repository.js';
 
 export async function bootstrap(): Promise<void> {
   const env = getEnv();
@@ -48,16 +50,25 @@ export async function bootstrap(): Promise<void> {
     process.stderr,
   );
 
-  const ntaClient = createNtaClient({
-    applicationId: env.NTA_APPLICATION_ID,
-    baseUrl: env.NTA_BASE_URL,
-    timeoutMs: env.NTA_TIMEOUT_MS,
-    rps: env.NTA_RATE_LIMIT_RPS,
-    userAgent: `@sugukuru/mcp-houjin-bangou/${VERSION}`,
-    onBackoff: (waitMs) => {
-      logger.warn({ waitMs }, 'NTA API rate limit hit, backoff applied');
-    },
-  });
+  let dbProvider: DbCorporateDataProvider | undefined;
+  if (env.DATA_SOURCE === 'db') {
+    const db = getDb(env.DATABASE_URL);
+    dbProvider = new DbCorporateDataProvider(db);
+  }
+
+  const ntaClient =
+    env.DATA_SOURCE === 'web-api' && env.NTA_APPLICATION_ID
+      ? createNtaClient({
+          applicationId: env.NTA_APPLICATION_ID,
+          baseUrl: env.NTA_BASE_URL,
+          timeoutMs: env.NTA_TIMEOUT_MS,
+          rps: env.NTA_RATE_LIMIT_RPS,
+          userAgent: `@sugukuru/mcp-houjin-bangou/${VERSION}`,
+          onBackoff: (waitMs) => {
+            logger.warn({ waitMs }, 'NTA API rate limit hit, backoff applied');
+          },
+        })
+      : undefined;
 
   const app = express();
   app.disable('x-powered-by');
@@ -100,7 +111,11 @@ export async function bootstrap(): Promise<void> {
   // MCP endpoint
   app.post('/mcp', async (req, res) => {
     try {
-      const mcpServer = createServer({ ntaClient });
+      const mcpServer = createServer({
+        ntaClient,
+        dbProvider,
+        dataSource: env.DATA_SOURCE,
+      });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined, // stateless mode
         enableJsonResponse: true,
