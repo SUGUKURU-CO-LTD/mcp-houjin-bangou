@@ -1,89 +1,94 @@
 /**
  * Prompt: sales-list-enrichment
  *
- * 不完全な営業リスト (CSV や Excel) の会社名欄を、
- * 国税庁公表サイトで enrich して完全な法人情報にするワークフロー。
+ * 企業名のリストから法人番号・所在地・法人種別を一括検索し、
+ * 企業リストを補完するワークフロー（1回あたり最大20社）。
+ *
+ * 根拠 / Source: docs/plan/corp-check-interface-v1.md §2.3 (v1.4 凍結仕様)
+ * - 1回あたり最大20社。21社以上はエラー
+ * - 「名刺」「登記」の語を含まない
+ * - 個人の連絡先情報（PII）を入力項目・出力項目から除外
  */
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { NTA_CORPORATE_WEB_API_ATTRIBUTION } from '../lib/tool-response.js';
+
+export function parseCompanyList(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
 
 const argsSchema = z.object({
-  company_names: z
+  company_list_text: z
     .string()
-    .min(1)
-    .max(10000)
-    .describe('改行区切りの会社名リスト (最大50件推奨、多すぎるとレート制限に抵触)'),
-  prefecture_filter: z
-    .string()
-    .regex(/^(?:\d{2}|\d{5})?$/)
-    .optional()
-    .describe('絞り込み用の都道府県コード (2桁 or 5桁 JIS)、不要なら省略'),
-  output_format: z
-    .enum(['markdown_table', 'csv', 'jsonl'])
-    .default('markdown_table')
-    .describe('出力形式'),
+    .min(1, '企業名リストを入力してください / company_list_text must not be empty')
+    .refine(
+      (text: string) => parseCompanyList(text).length <= 20,
+      {
+        message: '一度に指定できる企業数は最大20社です。 / Maximum 20 companies allowed per request.',
+      },
+    )
+    .describe('企業名一覧。1行に1社、最大20社 / Company name list (one per line, max 20)'),
 });
 
 export function registerSalesListEnrichmentPrompt(server: McpServer): void {
   server.registerPrompt(
     'sales-list-enrichment',
     {
-      title: 'Bulk sales list → NTA enrichment with attribution',
+      title: 'Bulk sales list enrichment via NTA corporate number (max 20 companies)',
       description:
-        '不完全な営業リストの会社名を、国税庁公表サイトで一括 enrich し、正確な法人番号・本店所在地を付加したリストを生成する。',
+        '企業名のリストから法人番号・所在地・法人種別を一括検索し、企業リストを補完します（1回あたり最大20社）。※個人の連絡先情報は入力しないでください。',
       argsSchema: argsSchema.shape,
     },
     (args) => {
       const parsed = argsSchema.parse(args);
+      const companies = parseCompanyList(parsed.company_list_text);
+
+      if (companies.length === 0) {
+        throw new Error('有効な企業名が指定されていません。1行に1社入力してください。 / No valid company names provided.');
+      }
+      if (companies.length > 20) {
+        throw new Error(
+          `一度に指定できる企業数は最大20社です。現在${companies.length}社指定されています。 / Maximum 20 companies allowed per request (received ${companies.length}).`,
+        );
+      }
+
+      const formattedList = companies.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
       return {
         messages: [
           {
             role: 'user',
             content: {
               type: 'text',
-              text: `以下の会社名リストを、国税庁公表サイトの情報で enrich してください。
+              text: `以下の企業名リスト（全${companies.length}社、最大20社）を国税庁公表サイトの情報で補完し、企業リストを作成してください。
 
-【会社名リスト】
-"""
-${parsed.company_names}
-"""
-
-${
-  parsed.prefecture_filter !== undefined && parsed.prefecture_filter !== ''
-    ? `【都道府県フィルタ】\nJIS コード: ${parsed.prefecture_filter}\n`
-    : ''
-}
+【対象企業名一覧】
+${formattedList}
 
 【実行手順】
+1. リストの各企業名について順次実行:
+   a. normalize_company_name ツールで商号を正規化
+   b. search_corporate_by_name ツールで法人番号を検索
+   c. 該当する法人の公表情報を取得（必要に応じて lookup_corporate_by_number ツールで詳細照会）
+2. 以下の構成の一覧表（マークダウン形式）で出力:
+   - 入力企業名
+   - 法人番号 (13桁)
+   - 公表正式名称
+   - 本店所在地
+   - 法人種別
+   - 法人の状態 (active / closed)
+   - 補完結果ステータス (特定完了 / 候補複数・要確認 / 該当なし)
+   - データの時点 (data_as_of)
+3. 末尾に必ず次の出典表示を記載:
+   ${NTA_CORPORATE_WEB_API_ATTRIBUTION}
 
-1. リストを会社名ごとに分割
-2. 各会社名について:
-   a. normalize_company_name で正規化候補を取得 (1 件あたり最大 3 秒)
-   b. 上位候補 1 つで search_corporate_by_name を叩く
-   c. ${parsed.prefecture_filter !== undefined && parsed.prefecture_filter !== '' ? `prefecture=${parsed.prefecture_filter} を適用` : '都道府県フィルタなし'}
-   d. 1 件ヒットしたら enrich 成功、複数ヒットは上位1件を採用し「要確認」マーク
-   e. 0 件なら第 2 候補で再試行
-   f. それでも 0 件なら「未特定」マーク
-3. レート制限に配慮し、順次処理 (並列呼出し禁止)
-4. ${parsed.output_format} 形式で出力:
-   - 入力会社名 / 法人番号 / 正式名称 / 本店所在地 / 法人種別 / ステータス (enrich 成功/要確認/未特定)
-5. 末尾に出典情報 (attribution) を必ず記載
-
-【ヒント】
-- normalize_company_name の suggested_target を素直に使う
-- 結果件数 0 の場合、match_mode を 'partial' にして再試行する価値あり
-- include_closed=true (デフォルト) で登記閉鎖済み法人もヒットさせる
-- 大量処理で 403 エラーが出たら、本 MCP は自動で 30s→1m→5m→30m の指数バックオフを適用する
-
-【出力例 (markdown_table)】
-| 入力 | 法人番号 | 正式名称 | 本店所在地 | 状態 |
-|---|---|---|---|---|
-| （株）高橋商事 | 1234567890123 | 株式会社高橋商事 | 鹿児島県鹿児島市... | ✅ |
-| XYZ商事 | - | - | - | ❌ 未特定 |
-
-出典: 国税庁法人番号公表サイト（国税庁）https://www.houjin-bangou.nta.go.jp/
-このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。
+【注意事項】
+- 個人の連絡先情報（氏名・役職・電話番号・メールアドレス等）は取り扱いません。
+- 1回あたり最大20社まで対応しています。
 `,
             },
           },
