@@ -1,9 +1,9 @@
-# 取引先確認MCP インターフェース仕様書 v1.3
+# 取引先確認MCP インターフェース仕様書 v1.4
 
-- **作成日**: 2026-10-12 JST (v1.3更新)
-- **対象ブランチ**: `a-kabe/corp-check-b0b-sync-v1-3`
+- **作成日**: 2026-10-12 JST (v1.4更新)
+- **対象ブランチ**: `a-kabe/corp-check-b0c-v1-4`
 - **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.3（確認待ち）
+- **ステータス**: v1.4（承認済み・凍結）
 
 ---
 
@@ -28,10 +28,10 @@
 - **既存の扱い**: 変更あり
   - 変更内容: 内部メタデータ（リクエストID、トレースID、内部タイムスタンプ）を除外し、データの時点（`data_as_of`）および出典表示（`attribution`）を標準形式で返却する。インボイス確認は `lookup_invoice_issuer` に一本化し、本ツールの出力スキーマには含めない（M2）。
 - **名前**: `lookup_corporate_by_number`
-- **説明文（日本語）**: 国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日。データの時点を併せて返す。
-- **説明文（英語）**: Corporate basic information published by Japan's National Tax Agency (name, location, corporate number), with the dataset date.
+- **説明文（日本語）**: 13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。
+- **説明文（英語）**: Given a 13-digit corporate number, returns corporate basic information published by Japan's National Tax Agency (name, location, corporate number), legal type, last update date and closure status, with the dataset date.
 - **アノテーション**:
-  - `title`: "Lookup Corporate Registry by 13-digit Number"
+  - `title`: "Look up Corporation by Corporate Number"
   - `readOnlyHint`: `true`
     - **設定理由**: 公表データを参照するのみであり、外部リソースの作成・変更・削除を行わないため。
   - `destructiveHint`: `false`
@@ -69,7 +69,9 @@
           "location": { "type": "string" },
           "post_code": { "type": ["string", "null"] },
           "update_date": { "type": "string" },
-          "status": { "type": "string" }
+          "status": { "type": "string", "enum": ["active", "closed"] },
+          "close_date": { "type": ["string", "null"], "description": "Date of closure (YYYY-MM-DD); null if active" },
+          "close_cause": { "type": ["string", "null"], "description": "Reason for closure as published (e.g., liquidation, merger); null if active" }
         },
         "required": ["corporate_number", "name", "legal_type", "location", "update_date", "status"]
       },
@@ -151,9 +153,10 @@
             "name": { "type": "string" },
             "legal_type": { "type": "string" },
             "location": { "type": "string" },
-            "update_date": { "type": "string" }
+            "update_date": { "type": "string" },
+            "status": { "type": "string", "enum": ["active", "closed"] }
           },
-          "required": ["corporate_number", "name", "legal_type", "location", "update_date"]
+          "required": ["corporate_number", "name", "legal_type", "location", "update_date", "status"]
         }
       },
       "total_count": {
@@ -190,8 +193,12 @@
     3. 利用者が入力した登録番号および検索内容は、サーバーログに記録しない。
     4. 個人事業者の場合は氏名・屋号を返却しない [出典-A5]。
     5. 税理士法に配慮し、仕入税額控除の可否等の税務上の判断は返却しない [出典-A6]。
+    6. ホスト版は、個人事業者の登録番号を含む公表データを自社DBに保持する（出典-A7により個人情報として扱う）。そのため次を行う。
+       - 利用目的（受け取った請求書等の登録番号の有効性確認）を、プライバシーポリシーで公表する（B8）
+       - 番号を順に試して一覧を作る行為を防ぐため、IP単位の利用上限を設け、超えた場合は `RATE_LIMITED` を返す（B6）
+       - DBへのアクセス権は、取り込み処理とツールの読み取りに必要な最小限とする（B6）
 - **名前**: `lookup_invoice_issuer`
-- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人の場合は公表商号・所在地）を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
+- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
 - **説明文（英語）**: Look up registered invoice issuer status by T-number (T+13 digits) from NTA public records with optional reference date. Returns factual registration status only without tax advice.
 - **アノテーション**:
   - `title`: "Lookup Registered Invoice Issuer by T-number"
@@ -236,7 +243,7 @@
       "business_type": {
         "type": "string",
         "enum": ["corporation", "individual", "other", "unknown"],
-        "description": "Classification of issuer"
+        "description": "Classification of issuer. 'unknown' is used only when status is 'not_found'."
       },
       "registration_date": {
         "type": ["string", "null"],
@@ -252,11 +259,11 @@
       },
       "corporate_name": {
         "type": ["string", "null"],
-        "description": "Public corporation name if business_type is corporation; null for individuals"
+        "description": "Published name for corporations and other entities (e.g., unincorporated associations). Always null for individuals."
       },
       "location": {
         "type": ["string", "null"],
-        "description": "Public corporation location if business_type is corporation; null for individuals"
+        "description": "Published location for corporations. For other entities, included only when present in the public dataset. Always null for individuals."
       },
       "was_registered_on_reference_date": {
         "type": ["boolean", "null"],
@@ -382,7 +389,7 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 ### 2.1 `company-master-record`（旧 `business-card-to-database` より改名）
 
 - **変更内容**: 会社名から取引先マスタのレコードを作るプロンプトとし、「名刺」の語を説明文から外す。個人の氏名・役職・電話番号・メールアドレス等の個人情報（PII）を入力項目から除外する。
-- **説明文**: 会社名から法人番号や登記情報を検索・照合し、社内データベース用の取引先企業マスタレコードを生成します。※個人の連絡先情報は入力しないでください。
+- **説明文**: 会社名から法人番号や公表情報を検索・照合し、社内データベース用の取引先企業マスタレコードを生成します。※個人の連絡先情報は入力しないでください。
 - **引数（Arguments）**:
   - `company_name`: string（必須。対象の会社名・商号）
   - `location_hint`: string（任意。名寄せの絞り込みに用いる都道府県や市区町村）
@@ -397,8 +404,8 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 ### 2.3 `sales-list-enrichment`
 
-- **変更内容**: 営業先企業リストの法人番号・登記情報補完。1回あたりの検索規模と応答サイズを抑えるため、上限20社を明記する。
-- **説明文**: 企業名のリストから法人番号・登記上の所在地・法人種別を一括検索し、企業リストを補完します（1回あたり最大20社）。※個人の連絡先情報は入力しないでください。
+- **変更内容**: 営業先企業リストの法人番号・公表情報補完。1回あたりの検索規模と応答サイズを抑えるため、上限20社を明記する。
+- **説明文**: 企業名のリストから法人番号・所在地・法人種別を一括検索し、企業リストを補完します（1回あたり最大20社）。※個人の連絡先情報は入力しないでください。
 - **引数（Arguments）**:
   - `company_list_text`: string（必須。企業名一覧。1行に1社、最大20社）
 
@@ -410,7 +417,7 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 | ツール名 | 返却するUIリソースURI | 内容 |
 | :--- | :--- | :--- |
-| `lookup_corporate_by_number` | `ui://corporate-card/mcp-app.html` | 法人の商号、法人番号、所在地、登記更新日等の詳細カード表示 |
+| `lookup_corporate_by_number` | `ui://corporate-card/mcp-app.html` | 法人の商号、法人番号、所在地、更新年月日等の詳細カード表示 |
 | `search_corporate_by_name` | `ui://search-results/mcp-app.html` | 検索結果一覧（既定10件、最大20件）のリスト表示 |
 | `lookup_invoice_issuer` | なし（構造化テキストのみ） | UI非対応クライアントでもテキストのみで用が足りる設計とする |
 | `validate_corporate_number` | なし | 判定結果（真偽値）のみ |
@@ -418,6 +425,24 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 - **UI下部のクレジット表示**:
   - 実装指示書 v1 §4 の仮定数に従い、案(a) `UI_CREDIT = "提供：スグクル株式会社"`（リンクなし）を仮置きする。
+
+---
+
+## 3.1 共通の返し方（F3）
+
+全ツール共通のレスポンス形式を定めます。
+
+- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。
+- **失敗時**: `isError: true` とし、`structuredContent` は次の形にします。
+  ```json
+  {
+    "error": {
+      "code": "INVALID_INPUT",
+      "message": "利用者が読める短い説明"
+    }
+  }
+  ```
+  `code` は第4節の5種類のいずれかとします。`message` にスタックトレース・SQL文・内部ファイルパスは含めません。
 
 ---
 
@@ -447,12 +472,18 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 > 法人番号による基本情報の照会、商号による検索、チェックデジットの計算検証、およびインボイス登録番号の登録状態の確認が可能です。
 > 本サーバーが提供する情報は公表データの客観的事実の確認に限られ、税理士法第2条に定める税務相談・仕入税額控除の可否等の税務上の判断は行いません。
 > 個人の連絡先情報やプライバシーに関わるデータの入力は避けてください。
+> 公表データの内容を回答に示すときは、データの時点（data_as_of）と出典表示を併せて示してください。
+> 登録番号（T＋13桁）の確認には lookup_invoice_issuer を使ってください。
+> lookup_invoice_issuer の not_found は、公表データに該当がないことを示すもので、登録されていないことを確定するものではありません。
 
 ### 5.2 英語説明文（Instructions）
 > This server provides tools to look up and verify Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan.
-> You can retrieve official basic corporate records by corporate number, search corporations by name, validate check digits, and confirm registration status of invoice issuer numbers.
+> You can retrieve published basic corporate information by corporate number, search corporations by name, validate check digits, and confirm registration status of invoice issuer numbers.
 > All returned data is limited to objective facts from public records; this service does not provide tax consultation or determine eligibility for consumption tax purchase credits under Japanese law.
 > Please refrain from providing personal contact details or private personal information in queries.
+> When presenting public data in a response, include the dataset date (data_as_of) and the attribution.
+> Use lookup_invoice_issuer to check invoice registration numbers (T followed by 13 digits).
+> A 'not_found' result from lookup_invoice_issuer means no matching record in the public dataset; it does not establish that the entity is unregistered.
 
 ---
 
@@ -466,8 +497,8 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 | データ | ホスト版（ダウンロードデータ） | ローカル版（Web-API） |
 | :--- | :--- | :--- |
-| 法人番号 | 国税庁法人番号公表サイト利用規約（公共データ利用規約（第1.0版）準拠）に基づき、「国税庁法人番号公表サイト（国税庁）（当該ページのURL）を加工して作成」と表示（出典-A8）。※国が作成したかのような表示は行わない | 法人番号システムWeb-API機能利用規約 第6条（出典-A1） |
-| インボイス | 国税庁適格請求書発行事業者公表サイト利用規約（公共データ利用規約（第1.0版）準拠）に基づき、「国税庁適格請求書発行事業者公表サイト（国税庁）（当該ページのURL）をもとにスグクル株式会社作成」と表示（出典-A7）。※国が作成したかのような表示は行わない | 適格請求書発行事業者公表システムWeb-API機能利用規約 第6条（出典-A3） |
+| 法人番号 | 「出典：国税庁法人番号公表サイト（国税庁）（ダウンロードページのURL）。同サイトの公表データをもとにスグクル株式会社が加工して作成」。ダウンロードページのURLはB4で確定する（要確認）（出典-A8） | 法人番号システムWeb-API機能利用規約 第6条（出典-A1） |
+| インボイス | 「出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html）。同サイトの公表データをもとにスグクル株式会社が加工して作成」（出典-A7） | 適格請求書発行事業者公表システムWeb-API機能利用規約 第6条（出典-A3） |
 
 ※ホスト版において公表データを加工して利用する場合、国税庁が作成したかのような表示を行わない設計とします（出典-A7, 出典-A8）。
 
@@ -547,4 +578,36 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
   - 第7節の出典一覧に [出典-A8] を追加し、要確認を解除しました。現行Webページの文言突合はB4着手時に実施します。
 - **3. ステータスの更新**:
   - ステータスを「v1.3（確認待ち）」へ更新しました。壁代表の承認後に「承認済み・凍結」へ更新します。
+
+---
+
+## 11. v1.4の変更点
+
+2026-10-12のB0凍結前修正指示（v1.4）に基づき、構造上の課題（F1〜F6）および文言（T1〜T3）の修正を反映しました。
+
+- **F1（`lookup_corporate_by_number` の閉鎖法人対応）**:
+  - `corporation.status` を `["active", "closed"]` の列挙型に変更し、閉鎖日 `close_date` および閉鎖事由 `close_cause` を追加しました。
+- **F2（`search_corporate_by_name` 各件の状態追加）**:
+  - `results.items` に `status`（`["active", "closed"]`）を追加し、required に設定しました。
+- **F3（共通の返し方の制定）**:
+  - 新たに「共通の返し方」の節を設け、成功時（`structuredContent` と要約テキスト）および失敗時（`isError: true` とエラーオブジェクト）の返却形式を統一しました。
+- **F4（`lookup_invoice_issuer` の人格のない社団等対応）**:
+  - `corporate_name`、`location`、`business_type` の英語説明文を修正し、法人・個人以外の団体（人格のない社団等）の扱いおよび `unknown` の条件を明記しました。
+- **F5（出典表示文言の修正）**:
+  - 公表サイト利用規約に基づき、出典の記載と加工した旨の記載の双方を含む文言へ改め、インボイスダウンロードページのURLを反映しました。法人番号ダウンロードページのURLはB4で定めます。
+- **F6（個人事業者の登録番号保持に伴う安全管理措置の明記）**:
+  - ホスト版で自社DBに保持する個人事業者の登録番号の保護のため、プライバシーポリシーでの利用目的公表（B8）、IP単位のレート制限（B6）、DBアクセス権の最小化（B6）を設計制約に追加しました。
+- **T1（「登記」「Registry」「official」の修正）**:
+  - 1.1 の `title`、2.1 / 2.3 の説明文、UIリソース表、サーバー英語説明文に残っていた登記・公的誤認表現を修正しました。
+- **T2（`lookup_corporate_by_number` 説明文への入力記載）**:
+  - 日本語・英語の説明文に入力パラメータ（13桁の法人番号）を明記しました。
+- **T3（サーバー説明文への指示追加）**:
+  - 日・英のサーバー説明文の末尾に、データの時点・出典表示の回答への含有指示、インボイス照会ツールの指定、`not_found` の解釈を追記しました。
+
+### 後続バッチで決めること
+- B2：カーソルは `data_as_of` に結び付ける。データが更新された後の古いカーソルは `INVALID_INPUT` で返し、再検索を促す
+- B4：名前検索の一致方式（前方一致・部分一致など）を決め、`search_corporate_by_name` の説明文に書く
+- B5：`tax_disclaimer` の文言を決める。提出前に顧問税理士が確認する
+- 凍結時の修正：3.1節の対象ツールの明確化、1.3節の日本語説明文をF4に合わせた
+
 
