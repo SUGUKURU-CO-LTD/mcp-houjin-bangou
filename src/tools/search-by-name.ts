@@ -77,17 +77,28 @@ const OutputSchema = z.object({
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
+import type { DbCorporateDataProvider } from '../repository/corporate-repository.js';
+import type { DataSourceMode } from '../domain/tool-annotations.js';
+
 export type SearchByNameInput = z.infer<typeof InputSchema>;
 export type SearchByNameOutput = z.infer<typeof OutputSchema>;
 
 const DESCRIPTION_JA =
-  '法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。';
+  '法人名（商号）の部分一致で法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。';
 
-export function registerSearchByNameTool(
-  server: McpServer,
-  deps: { ntaClient: NtaClient; logger: McpLogger },
-): void {
-  const annotations = getToolAnnotations('search_corporate_by_name', 'web-api');
+export interface SearchByNameDeps {
+  ntaClient?: NtaClient;
+  dbProvider?: DbCorporateDataProvider;
+  dataSource?: DataSourceMode;
+  logger: McpLogger;
+}
+
+export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDeps): void {
+  const isDb =
+    deps.dataSource === 'db' ||
+    deps.dataSource === 'database' ||
+    (deps.dbProvider !== undefined && deps.ntaClient === undefined);
+  const annotations = getToolAnnotations('search_corporate_by_name', isDb ? 'db' : 'web-api');
 
   server.registerTool(
     'search_corporate_by_name',
@@ -125,6 +136,66 @@ export function registerSearchByNameTool(
       }
 
       const { name, prefecture, cursor, limit } = parsedArgs.data;
+
+      // ホスト版 (自社 PostgreSQL DB 参照) モード
+      if (isDb) {
+        if (!deps.dbProvider) {
+          deps.logger.error('tool_access', {
+            tool: 'search_corporate_by_name',
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: 'INTERNAL_ERROR',
+          });
+          return createErrorResponse('INTERNAL_ERROR', 'Database provider is not initialized');
+        }
+
+        const dbResult = await deps.dbProvider.searchByName(name, prefecture, cursor, limit);
+        if (!dbResult.ok) {
+          const err = dbResult.error;
+          deps.logger.error('tool_access', {
+            tool: 'search_corporate_by_name',
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: err.code,
+          });
+          return createErrorResponse(
+            err.code === 'INVALID_INPUT' ? 'INVALID_INPUT' : 'DATA_UNAVAILABLE',
+            err.message,
+          );
+        }
+
+        const val = dbResult.value;
+        deps.logger.info('tool_access', {
+          tool: 'search_corporate_by_name',
+          count: val.results.length,
+          duration_ms: Math.round(performance.now() - startTime),
+        });
+
+        const output: SearchByNameOutput = {
+          results: val.results.map((r) => ({
+            corporate_number: r.corporate_number,
+            name: r.name,
+            legal_type: r.legal_type,
+            location: r.location,
+            update_date: r.update_date,
+            status: r.status,
+          })),
+          total_count: null,
+          next_cursor: val.next_cursor,
+          data_as_of: val.data_as_of,
+          attribution: val.attribution,
+        };
+
+        const summaryText =
+          val.results.length === 0
+            ? `「${name}」に一致する法人は見つかりませんでした。`
+            : `「${name}」で ${val.results.length} 件の法人が見つかりました。`;
+
+        return createSuccessResponse(summaryText, output);
+      }
+
+      // ローカル版 (国税庁 Web-API 直接呼出) モード
+      if (!deps.ntaClient) {
+        return createErrorResponse('INTERNAL_ERROR', 'NTA client is not initialized');
+      }
 
       // カーソルが指定されている場合、事前構文チェック
       let requestedOffset = 0;

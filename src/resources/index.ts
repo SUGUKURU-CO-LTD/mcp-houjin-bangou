@@ -5,7 +5,7 @@ import { registerUiResources } from './ui-resources.js';
 
 export function registerAllResources(
   server: McpServer,
-  _deps: { ntaClient: NtaClient; logger: McpLogger },
+  _deps?: { ntaClient?: NtaClient; logger?: McpLogger },
 ): void {
   // リソースはUIリソースのみとする (v1.5 仕様)
   registerUiResources(server);

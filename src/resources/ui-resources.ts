@@ -30,10 +30,7 @@ export function registerUiResources(server: McpServer): void {
       server,
       resource.name,
       resource.uri,
-      {
-        title: resource.name,
-        description: resource.description,
-      },
+      {},
       async () => {
         let html: string;
         try {

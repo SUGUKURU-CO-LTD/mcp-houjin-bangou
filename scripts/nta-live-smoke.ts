@@ -17,6 +17,9 @@ const SAMPLE_CORPORATE_NUMBER = '7000012050002';
 
 async function main(): Promise<void> {
   const env = getEnv();
+  if (!env.NTA_APPLICATION_ID) {
+    throw new Error('NTA_APPLICATION_ID is required for live smoke script');
+  }
   const client = createNtaClient({
     applicationId: env.NTA_APPLICATION_ID,
     baseUrl: env.NTA_BASE_URL,

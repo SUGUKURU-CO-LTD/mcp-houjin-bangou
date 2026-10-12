@@ -14,8 +14,13 @@ import { registerSearchByNameTool } from './search-by-name.js';
 import { registerValidateCheckDigitTool } from './validate-check-digit.js';
 import { registerNormalizeCompanyNameTool } from './normalize-company-name.js';
 
+import type { DbCorporateDataProvider } from '../repository/corporate-repository.js';
+import type { DataSourceMode } from '../domain/tool-annotations.js';
+
 export interface ToolDeps {
-  ntaClient: NtaClient;
+  ntaClient?: NtaClient;
+  dbProvider?: DbCorporateDataProvider;
+  dataSource?: DataSourceMode;
   logger: McpLogger;
 }
 

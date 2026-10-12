@@ -36,7 +36,8 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
