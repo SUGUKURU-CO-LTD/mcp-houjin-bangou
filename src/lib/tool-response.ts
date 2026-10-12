@@ -73,4 +73,4 @@ export function createErrorResponse(
  * 根拠: docs/plan/corp-check-interface-v1.md §6.1, [出典-A1]
  */
 export const NTA_CORPORATE_WEB_API_ATTRIBUTION =
-  'このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。';
+  'このサービスは、国税庁法人番号システムWeb-API機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。';

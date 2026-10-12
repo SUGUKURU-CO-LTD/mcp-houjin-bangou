@@ -193,9 +193,8 @@ function buildServerCard(): object {
         'normalize_company_name',
       ],
       prompts: ['business-card-to-database', 'sales-list-enrichment', 'customer-master-dedup'],
-      resource_templates: ['corp://{corporate_number}'],
+      resource_templates: [],
       resources: [
-        'attribution://houjin-bangou',
         'ui://corporate-card/mcp-app.html',
         'ui://search-results/mcp-app.html',
       ],

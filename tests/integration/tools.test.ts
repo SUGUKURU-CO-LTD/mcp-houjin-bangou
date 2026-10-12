@@ -480,32 +480,30 @@ describe('MCP Tools integration (via in-memory transport)', () => {
 });
 
 describe('MCP Resources integration', () => {
-  it('resources/list returns attribution resource', async () => {
+  it('resources/list returns UI resources only', async () => {
     const client = await setupClient();
     const result = await client.listResources();
     const names = result.resources.map((r) => r.uri);
-    expect(names).toContain('attribution://houjin-bangou');
+    expect(names).not.toContain('attribution://houjin-bangou');
     expect(names).toContain('ui://corporate-card/mcp-app.html');
     expect(names).toContain('ui://search-results/mcp-app.html');
+    expect(result.resources).toHaveLength(2);
   });
 
-  it('resources/templates/list returns corp template', async () => {
+  it('resources/templates/list returns empty list', async () => {
     const client = await setupClient();
     const result = await client.listResourceTemplates();
-    const templates = result.resourceTemplates.map((t) => t.uriTemplate);
-    expect(templates).toContain('corp://{corporate_number}');
+    expect(result.resourceTemplates).toEqual([]);
   });
 
-  it('resources/read attribution://houjin-bangou returns JSON', async () => {
+  it('resources/read on unregistered resources rejects', async () => {
     const client = await setupClient();
-    const result = await client.readResource({ uri: 'attribution://houjin-bangou' });
-    expect(result.contents.length).toBeGreaterThan(0);
-    const first = result.contents[0];
-    if (first === undefined || !('text' in first) || typeof first.text !== 'string') {
-      throw new Error('Expected text resource');
-    }
-    const parsed = JSON.parse(first.text) as { service_disclaimer: string };
-    expect(parsed.service_disclaimer).toContain('国税庁法人番号システム');
+    await expect(
+      client.readResource({ uri: 'attribution://houjin-bangou' }),
+    ).rejects.toThrow();
+    await expect(
+      client.readResource({ uri: 'corp://5111101000006' }),
+    ).rejects.toThrow();
   });
 
   it('resources/read ui://corporate-card/mcp-app.html returns MCP App HTML', async () => {
@@ -529,34 +527,13 @@ describe('MCP Resources integration', () => {
     expect(first.mimeType).toContain('text/html');
     expect(first.text).toContain('Search Results');
   });
-
-  it('resources/read corp://{number} with valid number returns corporation', async () => {
-    const client = await setupClient();
-    const result = await client.readResource({ uri: 'corp://5111101000006' });
-    const first = result.contents[0];
-    if (first === undefined || !('text' in first) || typeof first.text !== 'string') {
-      throw new Error('Expected text resource');
-    }
-    const parsed = JSON.parse(first.text) as { corporation: { name: string } | null };
-    expect(parsed.corporation?.name).toBe('株式会社検索対象除外');
-  });
 });
 
 describe('MCP Completion integration', () => {
-  it('completion/complete on corp template with company name returns candidates', async () => {
+  it('completion/complete on unregistered resource returns empty values', async () => {
     const client = await setupClient();
     const result = await client.complete({
-      ref: { type: 'ref/resource', uri: 'corp://{corporate_number}' },
-      argument: { name: 'corporate_number', value: '株式会社スグクル' },
-    });
-    expect(result.completion.values.length).toBeGreaterThan(0);
-    expect(result.completion.values).toContain('株式会社スグクル');
-  });
-
-  it('completion/complete on corp template with partial digits returns empty (no partial number search)', async () => {
-    const client = await setupClient();
-    const result = await client.complete({
-      ref: { type: 'ref/resource', uri: 'corp://{corporate_number}' },
+      ref: { type: 'ref/resource', uri: 'corp://5111101000006' },
       argument: { name: 'corporate_number', value: '511' },
     });
     expect(result.completion.values).toEqual([]);
