@@ -105,6 +105,17 @@ const mockNtaClient: NtaClient = {
     });
   },
   async searchByName(params) {
+    if (params.name === '多数件') {
+      const corps = Array.from({ length: 25 }, (_, i) => ({
+        ...sampleActiveCorporation,
+        corporateNumber: String(1000000000000 + i),
+        name: `テスト法人第${i + 1}号`,
+      }));
+      return Result.ok({
+        header: { lastUpdateDate: '2026-10-12', count: 25, divideNumber: 1, divideSize: 1 },
+        corporations: corps,
+      });
+    }
     if (params.name === '複数件') {
       return Result.ok({
         header: { lastUpdateDate: '2026-10-12', count: 2, divideNumber: 1, divideSize: 1 },
@@ -345,6 +356,48 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     };
     expect(structured.error.code).toBe('INVALID_INPUT');
     expect(structured.error.message).toContain('公表データが更新されたため');
+  });
+
+  it('search_corporate_by_name enforces result size upper bound and limit rules (default 10, max 20, rejects limit > 20 with INVALID_INPUT)', async () => {
+    const client = await setupClient();
+
+    // 1. limit 未指定 (既定値 10 件上限)
+    const defaultRes = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '多数件' },
+    });
+    expect(defaultRes.isError).toBeFalsy();
+    const defaultStructured = defaultRes.structuredContent as {
+      total_count: number;
+      next_cursor: string | null;
+      results: Array<unknown>;
+    };
+    expect(defaultStructured.total_count).toBe(25);
+    expect(defaultStructured.results.length).toBe(10);
+    expect(defaultStructured.next_cursor).not.toBeNull();
+
+    // 2. limit: 20 (最大値 20 件上限)
+    const maxRes = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '多数件', limit: 20 },
+    });
+    expect(maxRes.isError).toBeFalsy();
+    const maxStructured = maxRes.structuredContent as {
+      total_count: number;
+      next_cursor: string | null;
+      results: Array<unknown>;
+    };
+    expect(maxStructured.results.length).toBe(20);
+    expect(maxStructured.next_cursor).not.toBeNull();
+
+    // 3. limit: 21 (上限 20 件の超過は INVALID_INPUT で拒否)
+    const invalidRes = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '多数件', limit: 21 },
+    });
+    expect(invalidRes.isError).toBe(true);
+    const contentText = (invalidRes.content as Array<{ text: string }>)[0]?.text;
+    expect(contentText).toMatch(/20|too_big|INVALID_INPUT/);
   });
 
   it('validate_corporate_number — valid case (no API call)', async () => {
