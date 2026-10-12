@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { encodeCursor, decodeCursor, computeNextCursor } from '../../src/lib/pagination.js';
+import {
+  encodeCursor,
+  decodeCursor,
+  computeNextCursor,
+  encodeNameSearchCursor,
+  decodeNameSearchCursor,
+  validateNameSearchCursor,
+} from '../../src/lib/pagination.js';
 
 describe('pagination cursor', () => {
   it('encode/decode round-trip', () => {
@@ -37,5 +44,54 @@ describe('pagination cursor', () => {
     const decoded = decodeCursor(next!);
     expect(decoded?.divide).toBe(2);
     expect(decoded?.queryKey).toBe('key');
+  });
+});
+
+describe('NameSearchCursor (B2 spec)', () => {
+  it('encode/decode round-trip preserves offset and data_as_of', () => {
+    const encoded = encodeNameSearchCursor({
+      offset: 10,
+      data_as_of: '2026-10-12',
+      divide: 1,
+      queryKey: 'tokyo-search',
+    });
+    const decoded = decodeNameSearchCursor(encoded);
+    expect(decoded?.offset).toBe(10);
+    expect(decoded?.data_as_of).toBe('2026-10-12');
+    expect(decoded?.divide).toBe(1);
+    expect(decoded?.queryKey).toBe('tokyo-search');
+  });
+
+  it('validateNameSearchCursor accepts valid cursor matching data_as_of', () => {
+    const encoded = encodeNameSearchCursor({
+      offset: 20,
+      data_as_of: '2026-10-12',
+    });
+    const result = validateNameSearchCursor(encoded, '2026-10-12');
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.payload.offset).toBe(20);
+    }
+  });
+
+  it('validateNameSearchCursor detects stale cursor when data_as_of differs', () => {
+    const encoded = encodeNameSearchCursor({
+      offset: 10,
+      data_as_of: '2026-10-01',
+    });
+    const result = validateNameSearchCursor(encoded, '2026-10-12');
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toBe('stale');
+      expect(result.message).toContain('公表データが更新されたため');
+    }
+  });
+
+  it('validateNameSearchCursor detects invalid cursor string', () => {
+    const result = validateNameSearchCursor('bad-format-string', '2026-10-12');
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toBe('malformed');
+    }
   });
 });

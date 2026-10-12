@@ -1,5 +1,9 @@
 /**
  * Tool registration orchestrator
+ *
+ * 根拠 / Source: docs/plan/corp-check-interface-v1.md §1 (v1.4 凍結仕様)
+ * - 提出対象ツール: lookup_corporate_by_number, search_corporate_by_name, validate_corporate_number, normalize_company_name
+ *   (lookup_invoice_issuer は B5 で追加、get_attribution は O1 により削除)
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -8,7 +12,6 @@ import type { McpLogger } from '../lib/mcp-logger.js';
 import { registerLookupByNumberTool } from './lookup-by-number.js';
 import { registerSearchByNameTool } from './search-by-name.js';
 import { registerValidateCheckDigitTool } from './validate-check-digit.js';
-import { registerGetAttributionTool } from './get-attribution.js';
 import { registerNormalizeCompanyNameTool } from './normalize-company-name.js';
 
 export interface ToolDeps {
@@ -20,6 +23,5 @@ export function registerAllTools(server: McpServer, deps: ToolDeps): void {
   registerLookupByNumberTool(server, deps);
   registerSearchByNameTool(server, deps);
   registerValidateCheckDigitTool(server);
-  registerGetAttributionTool(server);
   registerNormalizeCompanyNameTool(server);
 }

@@ -191,7 +191,6 @@ function buildServerCard(): object {
         'search_corporate_by_name',
         'validate_corporate_number',
         'normalize_company_name',
-        'get_attribution',
       ],
       prompts: ['business-card-to-database', 'sales-list-enrichment', 'customer-master-dedup'],
       resource_templates: ['corp://{corporate_number}'],

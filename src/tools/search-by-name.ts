@@ -1,144 +1,160 @@
 /**
  * T2: search_corporate_by_name
- * 法人名で国税庁公表サイトから法人情報を検索 (ページング対応)
+ * 法人名（商号）から法人番号や所在地を検索 (ページネーション対応)
  *
- * 根拠 / Source: 国税庁仕様書 第六編 §4, 第二編 §4
- * エンドポイント: GET /4/name?id=...&name=<UTF-8 URLenc>&type=02&...
+ * 根拠 / Source:
+ *   docs/plan/corp-check-interface-v1.md §1.2, §3.1, §4, §6.1, §6.2, §11 (v1.4 凍結仕様)
+ *   国税庁仕様書 第六編 §4, 第二編 §4
+ *   国税庁仕様書 第二編 別紙1 項番15 (法人種別), 項番26 (登記記録の閉鎖等の事由)
+ *   国税庁 法人番号システムWeb-API機能利用規約 第6条 [出典-A1]
  */
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { NtaClient } from '../api/nta-client.js';
 import type { McpLogger } from '../lib/mcp-logger.js';
+import { kindLabel } from '../domain/kind-codes.js';
+import { getToolAnnotations } from '../domain/tool-annotations.js';
 import {
-  AttributionSchema,
-  CorporationSchema,
-  buildAttribution,
-} from '../domain/corporate-number.js';
+  encodeNameSearchCursor,
+  decodeNameSearchCursor,
+  validateNameSearchCursor,
+} from '../lib/pagination.js';
+import {
+  createSuccessResponse,
+  createErrorResponse,
+  NTA_CORPORATE_WEB_API_ATTRIBUTION,
+} from '../lib/tool-response.js';
 import { Result } from '../lib/result.js';
-import { computeNextCursor, decodeCursor } from '../lib/pagination.js';
 
 const InputSchema = z
   .object({
     name: z
       .string()
-      .min(1)
-      .max(150)
-      .describe('商号又は名称 (日本語 150文字以内 / 英語 300文字以内)。UTF-8。'),
-    match_mode: z
-      .enum(['prefix', 'partial'])
-      .default('prefix')
-      .describe(
-        '検索方式。prefix=前方一致 (法人種別を除いた先頭から、mode=1)、partial=部分一致 (法人種別を含めて全体から、mode=2)。',
-      ),
-    search_target: z
-      .enum(['fuzzy', 'exact', 'english'])
-      .default('fuzzy')
-      .describe(
-        '検索対象。fuzzy=JIS第一・第二水準のあいまい検索 (target=1、ひらがな↔カタカナ・英大小文字・中点空白無視)、exact=JIS第一〜第四水準の完全一致 (target=2)、english=英語表記検索 (target=3)。',
-      ),
+      .min(1, '検索する法人名を指定してください')
+      .max(100, '法人名は100文字以内で指定してください')
+      .describe("Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')"),
     prefecture: z
       .string()
-      .regex(/^(?:\d{2}|\d{5})$/)
+      .regex(/^(0[1-9]|[1-3][0-9]|4[0-7])$/, '都道府県コードは01〜47の2桁で指定してください')
       .optional()
-      .describe(
-        '都道府県コード (2桁 JIS X 0401、01-47 or 99=国外) または 都道府県+市区町村 (5桁)。',
-      ),
-    kind: z
-      .array(z.enum(['01', '02', '03', '04']))
-      .max(4)
-      .optional()
-      .describe(
-        '法人種別フィルタ。01=国の機関, 02=地方公共団体, 03=設立登記法人, 04=外国会社等・その他。最大4件。',
-      ),
-    include_history: z
-      .boolean()
-      .default(false)
-      .describe('過去情報を検索対象に含めるか (change=1)。最新情報のみなら false。'),
-    include_closed: z
-      .boolean()
-      .default(true)
-      .describe('登記記録の閉鎖等があった法人も含めるか (close=1、デフォルト true)。'),
+      .describe('Optional 2-digit prefecture code (01-47)'),
     cursor: z
       .string()
       .optional()
-      .describe('ページング用の不透明カーソル (MCP 仕様準拠、opaque string)。'),
+      .describe('Opaque cursor for pagination returned from previous search'),
+    limit: z
+      .number()
+      .int()
+      .min(1, '1件以上を指定してください')
+      .max(20, '最大20件まで指定できます')
+      .default(10)
+      .describe('Number of results to return (default: 10, max: 20)'),
   })
   .strict();
 
-const OutputSchema = z
-  .object({
-    total: z.number().int().nonnegative().describe('該当件数 (国税庁レスポンスヘッダ count)'),
-    page_number: z.number().int().positive(),
-    page_size: z.number().int().positive(),
-    corporations: z.array(CorporationSchema),
-    next_cursor: z.string().nullable().describe('次ページの cursor (最終ページなら null)'),
-    last_update_date: z.string().describe('国税庁公表DB の最終更新日 (YYYY-MM-DD)'),
-    attribution: AttributionSchema,
-  })
-  .strict();
+export const SearchResultItemSchema = z.object({
+  corporate_number: z.string(),
+  name: z.string(),
+  legal_type: z.string(),
+  location: z.string(),
+  update_date: z.string(),
+  status: z.enum(['active', 'closed']),
+});
+
+const OutputSchema = z.object({
+  results: z.array(SearchResultItemSchema),
+  total_count: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Total number of matched corporations if known'),
+  next_cursor: z
+    .string()
+    .nullable()
+    .describe('Cursor token for fetching the next page; null if no more items'),
+  data_as_of: z.string().describe('Date of the public dataset (YYYY-MM-DD)'),
+  attribution: z.string().describe('Attribution text required by NTA terms of service'),
+});
 
 export type SearchByNameInput = z.infer<typeof InputSchema>;
 export type SearchByNameOutput = z.infer<typeof OutputSchema>;
 
-const DESCRIPTION = `会社名で国税庁公表サイトから法人情報を検索します。国税庁 API 内蔵のあいまい検索 (target=1) が ひらがな↔カタカナ・英大小文字・中点削除 を自動で処理するので、多少の表記揺れは吸収できます。
-
-USE THIS WHEN:
-- 会社名 (日本語・英語) だけ分かっていて法人番号・住所を知りたい
-- 「鹿児島県の○○商事」を全部探したい (prefecture で絞り込み)
-- 営業リストを一括で enrich したい
-
-DO NOT USE WHEN:
-- 法人番号 (13桁) が分かっている → lookup_corporate_by_number を使う方が速くて確実
-- (株)/K.K./Co.,Ltd. などの表記揺れが激しい → まず normalize_company_name で候補化
-- 検索結果が多すぎる場合 (国税庁エラー 400-180): prefecture や kind で絞り込む
-
-ページング: 2000件超過時は国税庁側で分割レスポンスになります。次ページは next_cursor で取得。
-
-根拠: 国税庁 法人番号 Web-API 仕様書 第六編 §4、第二編 §4.6.1・§4.6.2 (target=1 内蔵あいまい検索の挙動)`;
+const DESCRIPTION_JA =
+  '法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。';
 
 export function registerSearchByNameTool(
   server: McpServer,
   deps: { ntaClient: NtaClient; logger: McpLogger },
 ): void {
+  const annotations = getToolAnnotations('search_corporate_by_name', 'web-api');
+
   server.registerTool(
     'search_corporate_by_name',
     {
-      title: 'Search Japanese corporations by name',
-      description: DESCRIPTION,
+      title: annotations.title,
+      description: DESCRIPTION_JA,
       inputSchema: InputSchema.shape,
       outputSchema: OutputSchema.shape,
       _meta: {
         ui: { resourceUri: 'ui://search-results/mcp-app.html' },
       },
       annotations: {
-        title: 'Search Japanese corporations by name',
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
+        title: annotations.title,
+        readOnlyHint: annotations.readOnlyHint,
+        destructiveHint: annotations.destructiveHint,
+        idempotentHint: annotations.idempotentHint,
+        openWorldHint: annotations.openWorldHint,
       },
     },
     async (args) => {
       const startTime = performance.now();
-      const input = InputSchema.parse(args);
 
-      const cursorPayload = decodeCursor(input.cursor);
-      const divide = cursorPayload?.divide ?? 1;
+      const parsedArgs = InputSchema.safeParse(args);
+      if (!parsedArgs.success) {
+        deps.logger.warn('tool_access', {
+          tool: 'search_corporate_by_name',
+          count: 0,
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: 'invalid_input',
+        });
+        return createErrorResponse(
+          'INVALID_INPUT',
+          `入力パラメータが不正です: ${parsedArgs.error.issues.map((e) => e.message).join(', ')}`,
+        );
+      }
 
-      const mode = input.match_mode === 'prefix' ? '1' : '2';
-      const target =
-        input.search_target === 'fuzzy' ? '1' : input.search_target === 'exact' ? '2' : '3';
+      const { name, prefecture, cursor, limit } = parsedArgs.data;
+
+      // カーソルが指定されている場合、事前構文チェック
+      let requestedOffset = 0;
+      let requestedDivide = 1;
+      if (cursor !== undefined && cursor !== '') {
+        const decoded = decodeNameSearchCursor(cursor);
+        if (decoded === null) {
+          deps.logger.warn('tool_access', {
+            tool: 'search_corporate_by_name',
+            count: 0,
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: 'invalid_cursor',
+          });
+          return createErrorResponse(
+            'INVALID_INPUT',
+            'カーソルの形式が無効です。',
+          );
+        }
+        requestedOffset = decoded.offset;
+        requestedDivide = decoded.divide ?? 1;
+      }
 
       const apiResult = await deps.ntaClient.searchByName({
-        name: input.name,
-        mode,
-        target,
-        ...(input.prefecture !== undefined && { address: input.prefecture }),
-        ...(input.kind !== undefined && input.kind.length > 0 && { kind: input.kind.join(',') }),
-        change: input.include_history ? '1' : '0',
-        close: input.include_closed ? '1' : '0',
-        divide,
+        name,
+        mode: '1', // 前方一致
+        target: '1', // JIS1-2水準あいまい検索
+        ...(prefecture !== undefined && { address: prefecture }),
+        change: '0',
+        close: '1', // 閉鎖法人も含めて検索
+        divide: requestedDivide,
       });
 
       if (Result.isErr(apiResult)) {
@@ -148,76 +164,107 @@ export function registerSearchByNameTool(
           duration_ms: Math.round(performance.now() - startTime),
           error_type: err.code,
         });
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(
-                {
-                  error: {
-                    code: err.code,
-                    message: err.message,
-                    httpStatus: err.httpStatus,
-                    guidance:
-                      err.httpStatus === 400
-                        ? '検索結果が多すぎる可能性があります。prefecture や kind で絞り込んでください。'
-                        : err.httpStatus === 403
-                          ? 'レート制限中。しばらく待ってから再試行してください。'
-                          : undefined,
-                  },
-                  attribution: buildAttribution(),
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
+
+        if (err.httpStatus === 429) {
+          return createErrorResponse(
+            'RATE_LIMITED',
+            '利用上限（レート制限）に達しました。しばらく待ってから再試行してください。',
+          );
+        }
+        if (err.httpStatus === 400) {
+          return createErrorResponse(
+            'INVALID_INPUT',
+            '検索条件に該当する法人が多すぎるか、指定条件が無効です。都道府県などで絞り込んでください。',
+          );
+        }
+        return createErrorResponse(
+          'DATA_UNAVAILABLE',
+          '国税庁公表データの検索に失敗しました。時間をおいて再試行してください。',
+        );
       }
 
       const parsed = apiResult.value;
+      const dataAsOf = parsed.header.lastUpdateDate;
+
+      // カーソルの data_as_of 検証 (データ更新後の古いカーソルは INVALID_INPUT で返す)
+      if (cursor !== undefined && cursor !== '') {
+        const validation = validateNameSearchCursor(cursor, dataAsOf);
+        if (!validation.valid) {
+          deps.logger.warn('tool_access', {
+            tool: 'search_corporate_by_name',
+            count: 0,
+            duration_ms: Math.round(performance.now() - startTime),
+            error_type: 'stale_cursor',
+          });
+          return createErrorResponse('INVALID_INPUT', validation.message);
+        }
+      }
+
+      const corporations = parsed.corporations;
+      const totalCount = parsed.header.count;
+
+      // 該当ページ内でのスライス取得
+      const pageSlice = corporations.slice(requestedOffset, requestedOffset + limit);
+
+      let nextCursor: string | null = null;
+      if (requestedOffset + limit < corporations.length) {
+        // 同じ Web-API 応答内に次がある場合
+        nextCursor = encodeNameSearchCursor({
+          offset: requestedOffset + limit,
+          data_as_of: dataAsOf,
+          divide: requestedDivide,
+        });
+      } else if (parsed.header.divideNumber < parsed.header.divideSize) {
+        // 次の Web-API 分割 (divide) がある場合
+        nextCursor = encodeNameSearchCursor({
+          offset: 0,
+          data_as_of: dataAsOf,
+          divide: parsed.header.divideNumber + 1,
+        });
+      }
+
+      const results: SearchByNameOutput['results'] = pageSlice.map((raw) => {
+        const isClosed =
+          (raw.close_date && raw.close_date.trim() !== '') ||
+          (raw.close_cause && raw.close_cause.trim() !== '');
+
+        const location =
+          raw.address_outside && raw.address_outside.trim() !== ''
+            ? raw.address_outside.trim()
+            : `${raw.prefecture_name ?? ''}${raw.city_name ?? ''}${raw.street_number ?? ''}`;
+
+        return {
+          corporate_number: raw.corporate_number,
+          name: raw.name,
+          legal_type: kindLabel(raw.kind, 'ja'),
+          location,
+          update_date: raw.update_date,
+          status: isClosed ? 'closed' : 'active',
+        };
+      });
 
       deps.logger.info('tool_access', {
         tool: 'search_corporate_by_name',
-        count: parsed.corporations.length,
+        count: results.length,
         duration_ms: Math.round(performance.now() - startTime),
       });
 
-      const queryKey = JSON.stringify([
-        input.name,
-        mode,
-        target,
-        input.prefecture,
-        input.kind,
-        input.include_history,
-        input.include_closed,
-      ]);
-      const nextCursor = computeNextCursor(
-        parsed.header.divideNumber,
-        parsed.header.divideSize,
-        queryKey,
-      );
-
-      const output: SearchByNameOutput = {
-        total: parsed.header.count,
-        page_number: parsed.header.divideNumber,
-        page_size: parsed.header.divideSize,
-        corporations: parsed.corporations,
+      const structuredContent: SearchByNameOutput = {
+        results,
+        total_count: totalCount,
         next_cursor: nextCursor,
-        last_update_date: parsed.header.lastUpdateDate,
-        attribution: buildAttribution(),
+        data_as_of: dataAsOf,
+        attribution: NTA_CORPORATE_WEB_API_ATTRIBUTION,
       };
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(output, null, 2),
-          },
-        ],
-        structuredContent: output,
-      };
+      const summary = [
+        `「${name}」の検索結果です（全 ${totalCount} 件中 ${results.length} 件を表示）。`,
+        ...(nextCursor ? ['※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。'] : []),
+        `データ時点: ${dataAsOf}`,
+        `出典: ${NTA_CORPORATE_WEB_API_ATTRIBUTION}`,
+      ].join('\n');
+
+      return createSuccessResponse(summary, structuredContent);
     },
   );
 }

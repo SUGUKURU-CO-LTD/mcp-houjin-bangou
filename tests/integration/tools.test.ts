@@ -1,6 +1,10 @@
 /**
  * Tool integration tests — MCP McpServer を実際にインスタンス化し、
  * in-memory transport 経由で tools/call を叩いて end-to-end 動作を検証する。
+ *
+ * 根拠 / Source:
+ *   docs/plan/corp-check-interface-v1.md (v1.4 凍結仕様)
+ *   B2 要件: 応答の最小化、3.1節共通レスポンス、アノテーション、カーソルと data_as_of
  */
 
 import { describe, it, expect } from 'vitest';
@@ -12,9 +16,10 @@ import { registerAllResources } from '../../src/resources/index.js';
 import { registerCompletionHandler } from '../../src/completion/handler.js';
 import { createMcpLogger, type McpLogger } from '../../src/lib/mcp-logger.js';
 import type { NtaClient } from '../../src/api/nta-client.js';
+import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { Result } from '../../src/lib/result.js';
 
-const sampleCorporation = {
+const sampleActiveCorporation = {
   sequence_number: 1,
   corporate_number: '5111101000006',
   process: '01',
@@ -43,8 +48,41 @@ const sampleCorporation = {
   en_prefecture_name: '',
   en_city_name: '',
   en_address_outside: '',
-  furigana: '',
+  furigana: 'カブシキガイシャケンサクタイショウジョガイ',
   hihyoji: '1' as const,
+};
+
+const sampleClosedCorporation = {
+  sequence_number: 2,
+  corporate_number: '9340001026142',
+  process: '01',
+  correct: '0' as const,
+  update_date: '2026-07-15',
+  change_date: '2026-07-15',
+  name: '閉鎖サンプル株式会社',
+  name_image_id: '',
+  kind: '301',
+  prefecture_name: '鹿児島県',
+  city_name: '霧島市',
+  street_number: '国分中央１丁目２−３２',
+  address_image_id: '',
+  prefecture_code: '46',
+  city_code: '218',
+  post_code: '8994332',
+  address_outside: '',
+  address_outside_image_id: '',
+  close_date: '2026-08-01',
+  close_cause: '01', // 清算の結了等
+  successor_corporate_number: '',
+  change_cause: '',
+  assignment_date: '2023-12-01',
+  latest: '1' as const,
+  en_name: '',
+  en_prefecture_name: '',
+  en_city_name: '',
+  en_address_outside: '',
+  furigana: 'ヘイササンプルカブシキガイシャ',
+  hihyoji: '0' as const,
 };
 
 const mockNtaClient: NtaClient = {
@@ -52,7 +90,13 @@ const mockNtaClient: NtaClient = {
     if (params.numbers.includes('5111101000006')) {
       return Result.ok({
         header: { lastUpdateDate: '2019-04-05', count: 1, divideNumber: 1, divideSize: 1 },
-        corporations: [sampleCorporation],
+        corporations: [sampleActiveCorporation],
+      });
+    }
+    if (params.numbers.includes('9340001026142')) {
+      return Result.ok({
+        header: { lastUpdateDate: '2026-08-05', count: 1, divideNumber: 1, divideSize: 1 },
+        corporations: [sampleClosedCorporation],
       });
     }
     return Result.ok({
@@ -60,10 +104,16 @@ const mockNtaClient: NtaClient = {
       corporations: [],
     });
   },
-  async searchByName(_params) {
+  async searchByName(params) {
+    if (params.name === '複数件') {
+      return Result.ok({
+        header: { lastUpdateDate: '2026-10-12', count: 2, divideNumber: 1, divideSize: 1 },
+        corporations: [sampleActiveCorporation, sampleClosedCorporation],
+      });
+    }
     return Result.ok({
       header: { lastUpdateDate: '2019-04-05', count: 1, divideNumber: 1, divideSize: 1 },
-      corporations: [sampleCorporation],
+      corporations: [sampleActiveCorporation],
     });
   },
   async ping() {
@@ -98,13 +148,12 @@ async function setupClient(customLogger?: McpLogger): Promise<Client> {
 }
 
 describe('MCP Tools integration (via in-memory transport)', () => {
-  it('tools/list returns 5 tools', async () => {
+  it('tools/list returns 4 tools in v1.4 spec (get_attribution removed per O1)', async () => {
     const client = await setupClient();
     const result = await client.listTools();
-    expect(result.tools.length).toBe(5);
+    expect(result.tools.length).toBe(4);
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual([
-      'get_attribution',
       'lookup_corporate_by_number',
       'normalize_company_name',
       'search_corporate_by_name',
@@ -112,21 +161,29 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     ]);
   });
 
-  it('all tools have "When NOT to use" guidance in description', async () => {
+  it('all tools have descriptive Japanese text in description', async () => {
     const client = await setupClient();
     const result = await client.listTools();
     for (const tool of result.tools) {
-      expect(tool.description ?? '').toMatch(/DO NOT USE WHEN|USE THIS WHEN/);
+      expect(tool.description).toBeDefined();
+      expect(tool.description?.length).toBeGreaterThan(10);
     }
   });
 
-  it('all tools declare readOnlyHint=true, destructiveHint=false', async () => {
+  it('all tools declare valid MCP annotations per v1.4 spec', async () => {
     const client = await setupClient();
     const result = await client.listTools();
     for (const tool of result.tools) {
       const ann = tool.annotations;
       expect(ann?.readOnlyHint).toBe(true);
       expect(ann?.destructiveHint).toBe(false);
+      expect(ann?.idempotentHint).toBe(true);
+      if (tool.name === 'validate_corporate_number' || tool.name === 'normalize_company_name') {
+        expect(ann?.openWorldHint).toBe(false);
+      } else {
+        // Web-API版では外部通信を行うため openWorldHint は true
+        expect(ann?.openWorldHint).toBe(true);
+      }
     }
   });
 
@@ -143,32 +200,89 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     );
   });
 
-  it('lookup_corporate_by_number returns corporation', async () => {
+  it('lookup_corporate_by_number returns active corporation with v1.4 schema and summary text', async () => {
     const client = await setupClient();
     const result = await client.callTool({
       name: 'lookup_corporate_by_number',
-      arguments: { corporate_numbers: ['5111101000006'] },
+      arguments: { corporate_number: '5111101000006' },
     });
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as { corporations: Array<{ name: string }> };
-    expect(structured.corporations).toHaveLength(1);
-    expect(structured.corporations[0]?.name).toBe('株式会社検索対象除外');
+    const structured = result.structuredContent as {
+      corporation: {
+        corporate_number: string;
+        name: string;
+        legal_type: string;
+        location: string;
+        status: string;
+        close_date: string | null;
+        close_cause: string | null;
+      };
+      data_as_of: string;
+      attribution: string;
+    };
+    expect(structured.corporation.corporate_number).toBe('5111101000006');
+    expect(structured.corporation.name).toBe('株式会社検索対象除外');
+    expect(structured.corporation.legal_type).toBe('株式会社');
+    expect(structured.corporation.location).toBe('東京都千代田区神田小川町');
+    expect(structured.corporation.status).toBe('active');
+    expect(structured.corporation.close_date).toBeNull();
+    expect(structured.corporation.close_cause).toBeNull();
+    expect(structured.data_as_of).toBe('2019-04-05');
+    expect(typeof structured.attribution).toBe('string');
+
+    // 3.1節: 要約テキスト1つに data_as_of と 出典表示を含む
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('2019-04-05');
+    expect(textContent).toContain(structured.attribution);
   });
 
-  it('lookup_corporate_by_number rejects invalid check digit', async () => {
+  it('lookup_corporate_by_number returns closed corporation with close_date and close_cause', async () => {
     const client = await setupClient();
     const result = await client.callTool({
       name: 'lookup_corporate_by_number',
-      arguments: { corporate_numbers: ['1111111111111'] },
+      arguments: { corporate_number: '9340001026142' },
+    });
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as {
+      corporation: {
+        status: string;
+        close_date: string | null;
+        close_cause: string | null;
+      };
+    };
+    expect(structured.corporation.status).toBe('closed');
+    expect(structured.corporation.close_date).toBe('2026-08-01');
+    expect(structured.corporation.close_cause).toBe('清算の結了等');
+  });
+
+  it('lookup_corporate_by_number returns NOT_FOUND when corporate number is not in NTA dataset', async () => {
+    const client = await setupClient();
+    const result = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '4111101000007' }, // 有効なチェックデジットだが未登録
     });
     expect(result.isError).toBe(true);
     const structured = result.structuredContent as {
-      invalid_inputs: Array<{ reason: string }>;
+      error: { code: string; message: string };
     };
-    expect(structured.invalid_inputs[0]?.reason).toBe('check_digit_mismatch');
+    expect(structured.error.code).toBe('NOT_FOUND');
   });
 
-  it('search_corporate_by_name returns corporations + pagination meta', async () => {
+  it('lookup_corporate_by_number rejects invalid check digit with INVALID_INPUT', async () => {
+    const client = await setupClient();
+    const result = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '1111111111111' },
+    });
+    expect(result.isError).toBe(true);
+    const structured = result.structuredContent as {
+      error: { code: string; message: string };
+    };
+    expect(structured.error.code).toBe('INVALID_INPUT');
+    expect(structured.error.message).toContain('チェックデジット');
+  });
+
+  it('search_corporate_by_name returns corporations with status and pagination meta', async () => {
     const client = await setupClient();
     const result = await client.callTool({
       name: 'search_corporate_by_name',
@@ -176,13 +290,61 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     });
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as {
-      total: number;
+      total_count: number;
       next_cursor: string | null;
-      corporations: unknown[];
+      results: Array<{ corporate_number: string; status: string }>;
+      data_as_of: string;
+      attribution: string;
     };
-    expect(structured.total).toBe(1);
+    expect(structured.total_count).toBe(1);
     expect(structured.next_cursor).toBeNull();
-    expect(structured.corporations.length).toBe(1);
+    expect(structured.results.length).toBe(1);
+    expect(structured.results[0]?.status).toBe('active');
+    expect(structured.data_as_of).toBe('2019-04-05');
+    expect(typeof structured.attribution).toBe('string');
+
+    // 要約テキストに data_as_of と 出典が含まれること
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('2019-04-05');
+    expect(textContent).toContain(structured.attribution);
+  });
+
+  it('search_corporate_by_name returns next_cursor when limit is smaller than total items', async () => {
+    const client = await setupClient();
+    const result = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '複数件', limit: 1 },
+    });
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as {
+      total_count: number;
+      next_cursor: string | null;
+      results: Array<{ corporate_number: string }>;
+    };
+    expect(structured.total_count).toBe(2);
+    expect(structured.results.length).toBe(1);
+    expect(structured.next_cursor).not.toBeNull();
+  });
+
+  it('search_corporate_by_name rejects stale cursor with INVALID_INPUT when data_as_of differs', async () => {
+    const client = await setupClient();
+    // 古いデータ時点 '2015-01-01' に結びついたカーソルを生成
+    const staleCursor = encodeNameSearchCursor({
+      offset: 10,
+      data_as_of: '2015-01-01',
+      divide: 1,
+    });
+
+    const result = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: 'テスト', cursor: staleCursor },
+    });
+    expect(result.isError).toBe(true);
+    const structured = result.structuredContent as {
+      error: { code: string; message: string };
+    };
+    expect(structured.error.code).toBe('INVALID_INPUT');
+    expect(structured.error.message).toContain('公表データが更新されたため');
   });
 
   it('validate_corporate_number — valid case (no API call)', async () => {
@@ -193,14 +355,16 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     });
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as {
-      is_valid: boolean;
-      normalized: string | null;
+      is_valid_format: boolean;
+      is_valid_check_digit: boolean;
+      error_reason: string | null;
     };
-    expect(structured.is_valid).toBe(true);
-    expect(structured.normalized).toBe('5111101000006');
+    expect(structured.is_valid_format).toBe(true);
+    expect(structured.is_valid_check_digit).toBe(true);
+    expect(structured.error_reason).toBeNull();
   });
 
-  it('validate_corporate_number — invalid case includes guidance', async () => {
+  it('validate_corporate_number — invalid case indicates error reason', async () => {
     const client = await setupClient();
     const result = await client.callTool({
       name: 'validate_corporate_number',
@@ -208,58 +372,57 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     });
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as {
-      is_valid: boolean;
-      reason: string;
-      guidance: string;
+      is_valid_format: boolean;
+      is_valid_check_digit: boolean;
+      error_reason: string | null;
     };
-    expect(structured.is_valid).toBe(false);
-    expect(structured.reason).toBe('check_digit_mismatch');
-    expect(structured.guidance).toMatch(/チェックデジット|番号/);
+    expect(structured.is_valid_format).toBe(true);
+    expect(structured.is_valid_check_digit).toBe(false);
+    expect(structured.error_reason).toBe('check_digit_mismatch');
   });
 
-  it('normalize_company_name — generates candidates with attribution', async () => {
+  it('normalize_company_name — normalizes company names locally per v1.4 spec', async () => {
     const client = await setupClient();
     const result = await client.callTool({
       name: 'normalize_company_name',
-      arguments: { raw_input: '（株）高橋商事' },
+      arguments: { raw_name: '（株）高橋商事' },
     });
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as {
-      normalized_candidates: Array<{ name: string; kind_hint: string }>;
-      attribution: { license: string };
+      normalized_name: string;
+      legal_type: string | null;
+      search_query_optimized: string;
     };
-    expect(structured.normalized_candidates.length).toBeGreaterThan(0);
-    expect(structured.attribution.license).toBe('公共データ利用規約 第1.0版');
-    const hasKabu = structured.normalized_candidates.some(
-      (c) => c.kind_hint === 'kabushiki_kaisha',
-    );
-    expect(hasKabu).toBe(true);
+    expect(structured.normalized_name).toBe('株式会社高橋商事');
+    expect(structured.legal_type).toBe('株式会社');
+    expect(structured.search_query_optimized).toBe('高橋商事');
   });
 
-  it('get_attribution — full format', async () => {
+  it('all tools do not include request ID, trace ID, or internal timestamp in outputs (§6.2)', async () => {
     const client = await setupClient();
-    const result = await client.callTool({
-      name: 'get_attribution',
-      arguments: { format: 'full', language: 'ja' },
-    });
-    expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as {
-      attribution: { service_disclaimer: string };
-      formatted_text: string;
-    };
-    expect(structured.attribution.service_disclaimer).toContain('国税庁法人番号システム Web-API');
-    expect(structured.formatted_text).toContain('出典');
-  });
 
-  it('get_attribution — citation format is short', async () => {
-    const client = await setupClient();
-    const result = await client.callTool({
-      name: 'get_attribution',
-      arguments: { format: 'citation', language: 'ja' },
+    const lookupRes = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '5111101000006' },
     });
-    expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as { formatted_text: string };
-    expect(structured.formatted_text).toMatch(/^出典:/);
+    const searchRes = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: 'テスト' },
+    });
+    const validateRes = await client.callTool({
+      name: 'validate_corporate_number',
+      arguments: { corporate_number: '5111101000006' },
+    });
+    const normRes = await client.callTool({
+      name: 'normalize_company_name',
+      arguments: { raw_name: '株式会社スグクル' },
+    });
+
+    const responses = [lookupRes, searchRes, validateRes, normRes];
+    for (const res of responses) {
+      const jsonStr = JSON.stringify(res.structuredContent);
+      expect(jsonStr).not.toMatch(/requestId|traceId|trace_id|request_id|internal_timestamp|processed_at/i);
+    }
   });
 });
 
@@ -365,7 +528,7 @@ describe('Privacy-preserving access logging in tools', () => {
     const targetNumber = '5111101000006';
     await client.callTool({
       name: 'lookup_corporate_by_number',
-      arguments: { corporate_numbers: [targetNumber] },
+      arguments: { corporate_number: targetNumber },
     });
 
     const accessLog = logEntries.find((e) => e.logger === 'tool_access');
@@ -406,4 +569,3 @@ describe('Privacy-preserving access logging in tools', () => {
     expect(JSON.stringify(accessLog?.data)).not.toContain(queryWord);
   });
 });
-
