@@ -8,7 +8,7 @@
  *     - 名前検索の一致方式: 部分一致 (Partial match)
  */
 
-import { eq, and, ilike, desc, count, asc } from 'drizzle-orm';
+import { eq, and, ilike, desc, asc } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { datasetVersions, corporateNumbers } from '../db/schema.js';
 import { Result } from '../lib/result.js';
@@ -184,9 +184,13 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
           message: 'データベースの検索が上限時間を超過しました。時間をおいて再試行してください。',
         });
       }
+      console.error(
+        '[CorporateRepository] Database query error in lookupByNumber:',
+        err instanceof Error ? err.stack ?? err.message : err,
+      );
       return Result.err({
         code: 'INTERNAL_ERROR',
-        message: err instanceof Error ? err.message : 'Database query error',
+        message: 'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
       });
     }
   }
@@ -244,23 +248,10 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       const rows = hasNext ? fetchedRows.slice(0, limit) : fetchedRows;
 
       // total_count の計算:
-      // 取得件数が limit 以下なら offset + fetchedRows.length で確定（COUNT クエリ不要）。
-      // 次ページがある場合は COUNT(*) を試行するが、大量ヒット時など数えるのが重い場合は null を返す（凍結仕様の範囲内）。
-      let totalCount: number | null = null;
-      if (!hasNext) {
-        totalCount = offset + fetchedRows.length;
-      } else {
-        try {
-          const countRows = await this.db
-            .select({ total: count() })
-            .from(corporateNumbers)
-            .where(and(...conditions));
-          totalCount = countRows[0]?.total ?? null;
-        } catch {
-          // タイムアウトや重い集計時は安全に null を返す
-          totalCount = null;
-        }
-      }
+      // 次ページが存在する場合（hasNext === true）は、大量ヒット時の COUNT(*) 負荷（約1秒）を防止するため
+      // 数えずに null を返す（凍結仕様 docs/plan/corp-check-interface-v1.md §1.2 準拠: total_count?: number | null）。
+      // 次ページがない場合（!hasNext）は、offset + fetchedRows.length で確定できるため、追加クエリ不要で正確な件数を返す。
+      const totalCount: number | null = hasNext ? null : offset + fetchedRows.length;
 
       const items: SearchCorporationItem[] = rows.map((row) => {
         const isClosed = Boolean(row.closeDate || row.closeCause);
@@ -304,9 +295,13 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
             'データベースの検索が上限時間を超過しました。検索条件を絞り込んで再試行してください。',
         });
       }
+      console.error(
+        '[CorporateRepository] Database query error in searchByName:',
+        err instanceof Error ? err.stack ?? err.message : err,
+      );
       return Result.err({
         code: 'INTERNAL_ERROR',
-        message: err instanceof Error ? err.message : 'Database query error',
+        message: 'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
       });
     }
   }

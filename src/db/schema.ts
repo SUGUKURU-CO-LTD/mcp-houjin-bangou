@@ -74,6 +74,7 @@ export const corporateNumbers = pgTable(
     enCityName: varchar('en_city_name', { length: 50 }),
     enAddressOutside: varchar('en_address_outside', { length: 300 }),
     furigana: varchar('furigana', { length: 500 }),
+    hihyoji: varchar('hihyoji', { length: 1 }).notNull().default('0'), // 検索対象除外 (0: 検索対象, 1: 検索対象除外)
     datasetVersionId: integer('dataset_version_id')
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),
@@ -123,6 +124,7 @@ export const corporateNumbersStaging = pgTable(
     enCityName: varchar('en_city_name', { length: 50 }),
     enAddressOutside: varchar('en_address_outside', { length: 300 }),
     furigana: varchar('furigana', { length: 500 }),
+    hihyoji: varchar('hihyoji', { length: 1 }).notNull().default('0'), // 検索対象除外 (0: 検索対象, 1: 検索対象除外)
     datasetVersionId: integer('dataset_version_id')
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),

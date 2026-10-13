@@ -34,6 +34,7 @@ export interface CorporateCsvRow {
   enCityName?: string; // 項番27: 国内所在地（市区町村）（英語表記）
   enAddressOutside?: string; // 項番28: 国外所在地（英語表記）
   furigana?: string; // 項番29: フリガナ
+  hihyoji?: string; // 項番30: 検索対象除外 (0: 検索対象, 1: 検索対象除外)
 }
 
 export interface InvoiceCsvRow {

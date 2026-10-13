@@ -40,14 +40,25 @@ export function parseCsvLine(line: string): string[] {
 
 /**
  * 法人番号公表基本3情報 CSV行のパース
+ *
+ * 根拠 / Source:
+ *   国税庁 基本3情報ダウンロードCSV仕様・リソース定義書 4.0版 (全30項目)
+ *   項番30: 検索対象除外（hihyoji） (0:検索対象, 1:検索対象外)
+ *   処理区分「99（削除）」は一連番号・法人番号・更新年月日以外が空欄となる場合に対応
  */
 export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
 
   const cols = parseCsvLine(trimmed);
-  if (cols.length < 12) {
-    return null; // 最低限の必須カラム数不足
+  // 最低限の必須カラム: 一連番号, 法人番号, 処理区分, 訂正区分, 更新年月日
+  if (cols.length < 5) {
+    return null;
+  }
+
+  const corporateNumber = cols[1]?.trim() || '';
+  if (!corporateNumber) {
+    return null;
   }
 
   const clean = (val?: string) => {
@@ -58,7 +69,7 @@ export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
 
   return {
     sequenceNumber: cols[0] || '',
-    corporateNumber: cols[1]?.trim() || '',
+    corporateNumber,
     process: clean(cols[2]),
     correct: clean(cols[3]),
     updateDate: cols[4]?.trim() || '',
@@ -86,6 +97,7 @@ export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
     enCityName: clean(cols[26]),
     enAddressOutside: clean(cols[27]),
     furigana: clean(cols[28]),
+    hihyoji: clean(cols[29]) ?? '0',
   };
 }
 
