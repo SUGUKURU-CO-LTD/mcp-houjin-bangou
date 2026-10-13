@@ -42,10 +42,7 @@ export const CorporationInfoSchema = z.object({
   post_code: z.string().nullable(),
   update_date: z.string(),
   status: z.enum(['active', 'closed']),
-  close_date: z
-    .string()
-    .nullable()
-    .describe('Date of closure (YYYY-MM-DD); null if active'),
+  close_date: z.string().nullable().describe('Date of closure (YYYY-MM-DD); null if active'),
   close_cause: z
     .string()
     .nullable()

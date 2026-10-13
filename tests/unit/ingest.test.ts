@@ -11,10 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  parseCorporateCsvLine,
-  parseInvoiceCsvLine,
-} from '../../src/ingest/parser.js';
+import { parseCorporateCsvLine, parseInvoiceCsvLine } from '../../src/ingest/parser.js';
 import { createIngestLogger } from '../../src/ingest/logger.js';
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import type { DbClient } from '../../src/db/client.js';
@@ -144,31 +141,32 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
         const mockTx = {
           select: () => ({
             from: () => ({
-              where: () => Promise.resolve([
-                {
-                  corporateNumber: '1000000000001',
-                  process: '01',
-                  correct: '1',
-                  updateDate: '2026-04-01',
-                  changeDate: '2026-04-01',
-                  name: 'テスト株式会社',
-                  nameImageId: null,
-                  kind: '301',
-                  prefectureName: '北海道',
-                  cityName: '札幌市中央区',
-                  streetNumber: '北一条西一丁目',
-                  addressImageId: null,
-                  prefectureCode: '01',
-                  cityCode: '101',
-                  postCode: '0600001',
-                  addressOutside: null,
-                  addressOutsideImageId: null,
-                  closeDate: null,
-                  closeCause: null,
-                  furigana: null,
-                  hihyoji: '0',
-                },
-              ]),
+              where: () =>
+                Promise.resolve([
+                  {
+                    corporateNumber: '1000000000001',
+                    process: '01',
+                    correct: '1',
+                    updateDate: '2026-04-01',
+                    changeDate: '2026-04-01',
+                    name: 'テスト株式会社',
+                    nameImageId: null,
+                    kind: '301',
+                    prefectureName: '北海道',
+                    cityName: '札幌市中央区',
+                    streetNumber: '北一条西一丁目',
+                    addressImageId: null,
+                    prefectureCode: '01',
+                    cityCode: '101',
+                    postCode: '0600001',
+                    addressOutside: null,
+                    addressOutsideImageId: null,
+                    closeDate: null,
+                    closeCause: null,
+                    furigana: null,
+                    hihyoji: '0',
+                  },
+                ]),
             }),
           }),
           insert: () => ({
@@ -235,9 +233,7 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     const importer = new DatasetImporter(mockDb);
     const testCsv = ['invalid line that triggers error'];
 
-    await expect(
-      importer.importCorporateDataset(testCsv, '2026-10-01', 10),
-    ).rejects.toThrow();
+    await expect(importer.importCorporateDataset(testCsv, '2026-10-01', 10)).rejects.toThrow();
 
     // 途中で失敗した版は failed となり、前の active 版には影響を与えない
     expect(failedVersionStatus).toBe('failed');

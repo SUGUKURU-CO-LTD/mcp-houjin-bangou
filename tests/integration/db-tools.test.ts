@@ -79,13 +79,12 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
             }
 
             return {
-              limit: (limitCount: number) => Promise.resolve(mockCorporateData.slice(0, limitCount)),
+              limit: (limitCount: number) =>
+                Promise.resolve(mockCorporateData.slice(0, limitCount)),
               orderBy: () => ({
                 limit: (limitCount: number) => ({
                   offset: (offsetCount: number) =>
-                    Promise.resolve(
-                      mockCorporateData.slice(offsetCount, offsetCount + limitCount),
-                    ),
+                    Promise.resolve(mockCorporateData.slice(offsetCount, offsetCount + limitCount)),
                 }),
               }),
             };

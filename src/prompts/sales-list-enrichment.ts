@@ -25,12 +25,9 @@ const argsSchema = z.object({
   company_list_text: z
     .string()
     .min(1, '企業名リストを入力してください / company_list_text must not be empty')
-    .refine(
-      (text: string) => parseCompanyList(text).length <= 20,
-      {
-        message: '一度に指定できる企業数は最大20社です。 / Maximum 20 companies allowed per request.',
-      },
-    )
+    .refine((text: string) => parseCompanyList(text).length <= 20, {
+      message: '一度に指定できる企業数は最大20社です。 / Maximum 20 companies allowed per request.',
+    })
     .describe('企業名一覧。1行に1社、最大20社 / Company name list (one per line, max 20)'),
 });
 
@@ -48,7 +45,9 @@ export function registerSalesListEnrichmentPrompt(server: McpServer): void {
       const companies = parseCompanyList(parsed.company_list_text);
 
       if (companies.length === 0) {
-        throw new Error('有効な企業名が指定されていません。1行に1社入力してください。 / No valid company names provided.');
+        throw new Error(
+          '有効な企業名が指定されていません。1行に1社入力してください。 / No valid company names provided.',
+        );
       }
       if (companies.length > 20) {
         throw new Error(

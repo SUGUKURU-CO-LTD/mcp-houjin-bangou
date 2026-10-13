@@ -49,7 +49,6 @@ export function registerCompletionHandler(server: Server, deps: { logger: McpLog
   );
 }
 
-
 /**
  * Prompt 引数の補完
  *

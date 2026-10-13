@@ -38,7 +38,6 @@ const EnvSchema = z
 
 export type Env = z.infer<typeof EnvSchema>;
 
-
 let cachedEnv: Env | undefined;
 
 /**

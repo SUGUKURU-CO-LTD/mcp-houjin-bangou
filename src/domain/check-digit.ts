@@ -95,7 +95,4 @@ export function normalizeAndValidateCorporateNumber(
 }
 
 export type ValidationReason =
-  | 'not_13_digits'
-  | 'check_digit_mismatch'
-  | 'invalid_characters'
-  | 'first_digit_zero';
+  'not_13_digits' | 'check_digit_mismatch' | 'invalid_characters' | 'first_digit_zero';

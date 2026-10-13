@@ -12,14 +12,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 export type LogLevel =
-  | 'debug'
-  | 'info'
-  | 'notice'
-  | 'warning'
-  | 'error'
-  | 'critical'
-  | 'alert'
-  | 'emergency';
+  'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 7,
@@ -99,7 +92,10 @@ function sanitizeLogData(data: Record<string, unknown>): Record<string, unknown>
  * 標準エラー出力（process.stderr）へ出力するロガーを作成する
  * MCP protocol の notifications/message は送出しない
  */
-export function createMcpLogger(_server?: Server | unknown, initialLevel: LogLevel = 'info'): McpLogger {
+export function createMcpLogger(
+  _server?: Server | unknown,
+  initialLevel: LogLevel = 'info',
+): McpLogger {
   let currentLevel = initialLevel;
 
   function shouldEmit(level: LogLevel): boolean {
