@@ -42,7 +42,11 @@ function resolvePoolConfig(config?: DbConfig, forIngest = false): pg.PoolConfig 
   const isProd = process.env.NODE_ENV === 'production';
   const connStr = config?.connectionString ?? process.env.DATABASE_URL;
 
-  if (isProd && !connStr && (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD)) {
+  if (
+    isProd &&
+    !connStr &&
+    (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD)
+  ) {
     throw new Error(
       'Database configuration error: In production, DATABASE_URL or (DB_HOST, DB_USER, DB_PASSWORD) must be explicitly specified.',
     );
@@ -52,13 +56,15 @@ function resolvePoolConfig(config?: DbConfig, forIngest = false): pg.PoolConfig 
   const statementTimeout =
     config?.statementTimeoutMs ??
     (forIngest
-      ? (process.env.DB_INGEST_TIMEOUT_MS ? parseInt(process.env.DB_INGEST_TIMEOUT_MS, 10) : 0)
-      : (process.env.DB_STATEMENT_TIMEOUT_MS ? parseInt(process.env.DB_STATEMENT_TIMEOUT_MS, 10) : 5000));
+      ? process.env.DB_INGEST_TIMEOUT_MS
+        ? parseInt(process.env.DB_INGEST_TIMEOUT_MS, 10)
+        : 0
+      : process.env.DB_STATEMENT_TIMEOUT_MS
+        ? parseInt(process.env.DB_STATEMENT_TIMEOUT_MS, 10)
+        : 5000);
 
   // SSL設定: rejectUnauthorized: false は使用せず、安全なTLS検証を有効化
-  const ssl =
-    config?.ssl ??
-    (process.env.DB_SSL === 'true' ? true : undefined);
+  const ssl = config?.ssl ?? (process.env.DB_SSL === 'true' ? true : undefined);
 
   if (connStr) {
     return {
@@ -124,7 +130,9 @@ export function getDb(connStr?: string): DbClient {
 export function getIngestDbClient(connStr?: string): { pool: pg.Pool; db: DbClient } {
   if (!cachedIngestPool || !cachedIngestDb) {
     const targetConnStr = connStr ?? process.env.DATABASE_URL;
-    const client = createIngestDbClient(targetConnStr ? { connectionString: targetConnStr } : undefined);
+    const client = createIngestDbClient(
+      targetConnStr ? { connectionString: targetConnStr } : undefined,
+    );
     cachedIngestPool = client.pool;
     cachedIngestDb = client.db;
   }

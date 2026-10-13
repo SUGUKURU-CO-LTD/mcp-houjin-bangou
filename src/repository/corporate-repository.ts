@@ -186,7 +186,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       }
       console.error(
         '[CorporateRepository] Database query error in lookupByNumber:',
-        err instanceof Error ? err.stack ?? err.message : err,
+        err instanceof Error ? (err.stack ?? err.message) : err,
       );
       return Result.err({
         code: 'INTERNAL_ERROR',
@@ -297,7 +297,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       }
       console.error(
         '[CorporateRepository] Database query error in searchByName:',
-        err instanceof Error ? err.stack ?? err.message : err,
+        err instanceof Error ? (err.stack ?? err.message) : err,
       );
       return Result.err({
         code: 'INTERNAL_ERROR',

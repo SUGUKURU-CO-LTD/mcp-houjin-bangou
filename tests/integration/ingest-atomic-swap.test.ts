@@ -400,9 +400,9 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
       '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（新規）","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
     ];
 
-    await expect(
-      importer.importCorporateDataset(brokenDataset, '2026-10-01', 10),
-    ).rejects.toThrow('Database transaction failure');
+    await expect(importer.importCorporateDataset(brokenDataset, '2026-10-01', 10)).rejects.toThrow(
+      'Database transaction failure',
+    );
 
     // v2 は failed にマークされていること
     const failedVersion = dbSim.versions.find((v) => v.id === 2);
