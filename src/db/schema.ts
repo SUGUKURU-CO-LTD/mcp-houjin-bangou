@@ -36,9 +36,7 @@ export const datasetVersions = pgTable(
     status: varchar('status', { length: 20 }).notNull().default('staging'), // 'staging' | 'active' | 'superseded' | 'failed'
     recordCount: integer('record_count').notNull().default(0),
   },
-  (table) => [
-    index('idx_dataset_versions_source_status').on(table.sourceType, table.status),
-  ],
+  (table) => [index('idx_dataset_versions_source_status').on(table.sourceType, table.status)],
 );
 
 /**
@@ -129,9 +127,7 @@ export const corporateNumbersStaging = pgTable(
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),
   },
-  (table) => [
-    primaryKey({ columns: [table.corporateNumber, table.datasetVersionId] }),
-  ],
+  (table) => [primaryKey({ columns: [table.corporateNumber, table.datasetVersionId] })],
 );
 
 /**
@@ -202,7 +198,5 @@ export const invoiceIssuersStaging = pgTable(
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),
   },
-  (table) => [
-    primaryKey({ columns: [table.registrationNumber, table.datasetVersionId] }),
-  ],
+  (table) => [primaryKey({ columns: [table.registrationNumber, table.datasetVersionId] })],
 );

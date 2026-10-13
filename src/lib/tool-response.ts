@@ -10,11 +10,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type CommonErrorCode =
-  | 'INVALID_INPUT'
-  | 'NOT_FOUND'
-  | 'DATA_UNAVAILABLE'
-  | 'RATE_LIMITED'
-  | 'INTERNAL_ERROR';
+  'INVALID_INPUT' | 'NOT_FOUND' | 'DATA_UNAVAILABLE' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
 
 export interface ToolErrorResponse extends CallToolResult {
   isError: true;
@@ -47,10 +43,7 @@ export function createSuccessResponse<T extends Record<string, unknown>>(
   };
 }
 
-export function createErrorResponse(
-  code: CommonErrorCode,
-  message: string,
-): ToolErrorResponse {
+export function createErrorResponse(code: CommonErrorCode, message: string): ToolErrorResponse {
   return {
     isError: true,
     content: [
@@ -88,4 +81,3 @@ export const NTA_CORPORATE_HOST_ATTRIBUTION =
  */
 export const NTA_INVOICE_HOST_ATTRIBUTION =
   '出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html ）。同サイトの公表データをもとにスグクル株式会社が加工して作成';
-

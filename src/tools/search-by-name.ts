@@ -214,10 +214,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
             duration_ms: Math.round(performance.now() - startTime),
             error_type: 'invalid_cursor',
           });
-          return createErrorResponse(
-            'INVALID_INPUT',
-            'カーソルの形式が無効です。',
-          );
+          return createErrorResponse('INVALID_INPUT', 'カーソルの形式が無効です。');
         }
         requestedOffset = decoded.offset;
         requestedDivide = decoded.divide ?? 1;
@@ -335,7 +332,9 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
 
       const summary = [
         `「${name}」の検索結果です（全 ${totalCount} 件中 ${results.length} 件を表示）。`,
-        ...(nextCursor ? ['※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。'] : []),
+        ...(nextCursor
+          ? ['※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。']
+          : []),
         `データ時点: ${dataAsOf}`,
         `出典: ${NTA_CORPORATE_WEB_API_ATTRIBUTION}`,
       ].join('\n');

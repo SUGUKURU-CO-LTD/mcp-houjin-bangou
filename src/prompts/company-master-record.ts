@@ -14,16 +14,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { NTA_CORPORATE_WEB_API_ATTRIBUTION } from '../lib/tool-response.js';
 
 const argsSchema = z.object({
-  company_name: z
-    .string()
-    .min(1)
-    .max(500)
-    .describe('対象の会社名・商号 / Target company name'),
+  company_name: z.string().min(1).max(500).describe('対象の会社名・商号 / Target company name'),
   location_hint: z
     .string()
     .max(200)
     .optional()
-    .describe('名寄せの絞り込みに用いる都道府県や市区町村 / Optional location hint (prefecture or city)'),
+    .describe(
+      '名寄せの絞り込みに用いる都道府県や市区町村 / Optional location hint (prefecture or city)',
+    ),
 });
 
 export function registerCompanyMasterRecordPrompt(server: McpServer): void {
@@ -37,7 +35,9 @@ export function registerCompanyMasterRecordPrompt(server: McpServer): void {
     },
     (args) => {
       const parsed = argsSchema.parse(args);
-      const locationPart = parsed.location_hint ? `\n所在地の手がかり: ${parsed.location_hint}` : '';
+      const locationPart = parsed.location_hint
+        ? `\n所在地の手がかり: ${parsed.location_hint}`
+        : '';
 
       return {
         messages: [

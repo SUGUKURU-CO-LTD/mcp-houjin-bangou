@@ -36,11 +36,15 @@ describe('escapeLikeWildcards (LIKE/ILIKE特殊文字エスケープ)', () => {
 
 describe('isTimeoutError (PostgreSQL タイムアウトエラー判定)', () => {
   it('PostgreSQL エラーコード 57014 (query_canceled) を検知すること', () => {
-    expect(isTimeoutError({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(true);
+    expect(
+      isTimeoutError({ code: '57014', message: 'canceling statement due to statement timeout' }),
+    ).toBe(true);
   });
 
   it('statement timeout を含むエラーメッセージを検知すること', () => {
-    expect(isTimeoutError(new Error('Query failed: canceling statement due to statement timeout'))).toBe(true);
+    expect(
+      isTimeoutError(new Error('Query failed: canceling statement due to statement timeout')),
+    ).toBe(true);
   });
 
   it('タイムアウト以外のエラーは false を返すこと', () => {
@@ -118,9 +122,8 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
             if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
               return {
                 orderBy: () => ({
-                  limit: () => Promise.resolve(
-                    hasActiveVersion ? [{ id: 1, dataAsOf: currentDataAsOf }] : [],
-                  ),
+                  limit: () =>
+                    Promise.resolve(hasActiveVersion ? [{ id: 1, dataAsOf: currentDataAsOf }] : []),
                 }),
               };
             }

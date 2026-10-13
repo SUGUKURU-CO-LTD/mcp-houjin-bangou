@@ -26,37 +26,31 @@ const UI_RESOURCES = [
 
 export function registerUiResources(server: McpServer): void {
   for (const resource of UI_RESOURCES) {
-    registerAppResource(
-      server,
-      resource.name,
-      resource.uri,
-      {},
-      async () => {
-        let html: string;
-        try {
-          html = await readFile(resource.distPath, 'utf8');
-        } catch {
-          html = buildFallbackHtml(resource.name);
-        }
-        return {
-          contents: [
-            {
-              uri: resource.uri,
-              mimeType: RESOURCE_MIME_TYPE,
-              text: html,
-              _meta: {
-                ui: {
-                  csp: {
-                    resourceDomains: [],
-                    connectDomains: [],
-                  },
+    registerAppResource(server, resource.name, resource.uri, {}, async () => {
+      let html: string;
+      try {
+        html = await readFile(resource.distPath, 'utf8');
+      } catch {
+        html = buildFallbackHtml(resource.name);
+      }
+      return {
+        contents: [
+          {
+            uri: resource.uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: [],
+                  connectDomains: [],
                 },
               },
             },
-          ],
-        };
-      },
-    );
+          },
+        ],
+      };
+    });
   }
 }
 

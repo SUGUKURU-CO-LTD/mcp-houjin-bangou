@@ -47,7 +47,9 @@ export function createDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient
           user: config?.user ?? process.env.DB_USER ?? 'postgres',
           password: config?.password ?? process.env.DB_PASSWORD ?? 'postgres',
           database: config?.database ?? process.env.DB_NAME ?? 'corp_check',
-          ssl: config?.ssl ?? (process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined),
+          ssl:
+            config?.ssl ??
+            (process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined),
           max: config?.max ?? 10,
           statement_timeout: statementTimeout,
         },

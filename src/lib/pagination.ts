@@ -123,7 +123,8 @@ export function validateNameSearchCursor(
     return {
       valid: false,
       reason: 'stale',
-      message: '公表データが更新されたため、カーソルが無効になりました。最初から再検索してください。',
+      message:
+        '公表データが更新されたため、カーソルが無効になりました。最初から再検索してください。',
     };
   }
   return { valid: true, payload };

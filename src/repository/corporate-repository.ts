@@ -14,10 +14,7 @@ import { datasetVersions, corporateNumbers } from '../db/schema.js';
 import { Result } from '../lib/result.js';
 import { kindLabel } from '../domain/kind-codes.js';
 import { closeCauseLabel } from '../domain/close-cause-codes.js';
-import {
-  encodeNameSearchCursor,
-  validateNameSearchCursor,
-} from '../lib/pagination.js';
+import { encodeNameSearchCursor, validateNameSearchCursor } from '../lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../lib/tool-response.js';
 
 /**
@@ -25,10 +22,7 @@ import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../lib/tool-response.js';
  * %, _, \ をエスケープして通常のリテラル文字として解釈させる。
  */
 export function escapeLikeWildcards(input: string): string {
-  return input
-    .replace(/\\/g, '\\\\')
-    .replace(/%/g, '\\%')
-    .replace(/_/g, '\\_');
+  return input.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
 /**
@@ -306,7 +300,8 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       if (isTimeoutError(err)) {
         return Result.err({
           code: 'DATA_UNAVAILABLE',
-          message: 'データベースの検索が上限時間を超過しました。検索条件を絞り込んで再試行してください。',
+          message:
+            'データベースの検索が上限時間を超過しました。検索条件を絞り込んで再試行してください。',
         });
       }
       return Result.err({

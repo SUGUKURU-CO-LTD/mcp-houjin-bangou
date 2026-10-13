@@ -474,7 +474,9 @@ describe('MCP Tools integration (via in-memory transport)', () => {
     const responses = [lookupRes, searchRes, validateRes, normRes];
     for (const res of responses) {
       const jsonStr = JSON.stringify(res.structuredContent);
-      expect(jsonStr).not.toMatch(/requestId|traceId|trace_id|request_id|internal_timestamp|processed_at/i);
+      expect(jsonStr).not.toMatch(
+        /requestId|traceId|trace_id|request_id|internal_timestamp|processed_at/i,
+      );
     }
   });
 });
@@ -498,12 +500,8 @@ describe('MCP Resources integration', () => {
 
   it('resources/read on unregistered resources rejects', async () => {
     const client = await setupClient();
-    await expect(
-      client.readResource({ uri: 'attribution://houjin-bangou' }),
-    ).rejects.toThrow();
-    await expect(
-      client.readResource({ uri: 'corp://5111101000006' }),
-    ).rejects.toThrow();
+    await expect(client.readResource({ uri: 'attribution://houjin-bangou' })).rejects.toThrow();
+    await expect(client.readResource({ uri: 'corp://5111101000006' })).rejects.toThrow();
   });
 
   it('resources/read ui://corporate-card/mcp-app.html returns MCP App HTML', async () => {

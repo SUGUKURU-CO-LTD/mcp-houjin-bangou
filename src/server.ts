@@ -20,6 +20,8 @@ import helmet from 'helmet';
 import pino from 'pino';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getEnv } from './lib/env.js';
 import { createNtaClient } from './api/nta-client.js';
 import { createServer } from './mcp.js';
@@ -209,10 +211,7 @@ function buildServerCard(): object {
       ],
       prompts: ['business-card-to-database', 'sales-list-enrichment', 'customer-master-dedup'],
       resource_templates: [],
-      resources: [
-        'ui://corporate-card/mcp-app.html',
-        'ui://search-results/mcp-app.html',
-      ],
+      resources: ['ui://corporate-card/mcp-app.html', 'ui://search-results/mcp-app.html'],
     },
     attribution: {
       data_source: '国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)',
@@ -245,8 +244,18 @@ function buildServerCard(): object {
   };
 }
 
-const isMainModule = import.meta.url === `file://${process.argv[1]}`;
-if (isMainModule) {
+export function checkIsMainModule(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    const scriptPath = realpathSync(process.argv[1]);
+    const currentPath = realpathSync(fileURLToPath(import.meta.url));
+    return scriptPath === currentPath;
+  } catch {
+    return false;
+  }
+}
+
+if (checkIsMainModule()) {
   bootstrap().catch((err) => {
     process.stderr.write(`bootstrap failed: ${err instanceof Error ? err.stack : String(err)}\n`);
     process.exit(1);
