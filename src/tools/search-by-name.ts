@@ -178,16 +178,21 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
             update_date: r.update_date,
             status: r.status,
           })),
-          total_count: null,
+          total_count: val.total_count ?? null,
           next_cursor: val.next_cursor,
           data_as_of: val.data_as_of,
           attribution: val.attribution,
         };
 
+        const countText =
+          val.total_count !== null && val.total_count !== undefined
+            ? `（全 ${val.total_count} 件中 ${val.results.length} 件を表示）`
+            : `（${val.results.length} 件を表示）`;
+
         const summaryText =
           val.results.length === 0
             ? `「${name}」に一致する法人は見つかりませんでした。`
-            : `「${name}」で ${val.results.length} 件の法人が見つかりました。`;
+            : `「${name}」の検索結果です${countText}。`;
 
         return createSuccessResponse(summaryText, output);
       }

@@ -21,15 +21,26 @@ export interface DbConfig {
   database?: string;
   ssl?: boolean | object;
   max?: number;
+  statementTimeoutMs?: number;
 }
 
 let cachedPool: pg.Pool | undefined;
 let cachedDb: DbClient | undefined;
 
 export function createDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient } {
+  const statementTimeout =
+    config?.statementTimeoutMs ??
+    (process.env.DB_STATEMENT_TIMEOUT_MS
+      ? parseInt(process.env.DB_STATEMENT_TIMEOUT_MS, 10)
+      : 5000);
+
   const pool = new Pool(
     config?.connectionString
-      ? { connectionString: config.connectionString, max: config.max ?? 10 }
+      ? {
+          connectionString: config.connectionString,
+          max: config.max ?? 10,
+          statement_timeout: statementTimeout,
+        }
       : {
           host: config?.host ?? process.env.DB_HOST ?? 'localhost',
           port: config?.port ?? (process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432),
@@ -38,6 +49,7 @@ export function createDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient
           database: config?.database ?? process.env.DB_NAME ?? 'corp_check',
           ssl: config?.ssl ?? (process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined),
           max: config?.max ?? 10,
+          statement_timeout: statementTimeout,
         },
   );
 
