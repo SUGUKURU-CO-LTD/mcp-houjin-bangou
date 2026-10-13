@@ -242,4 +242,29 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     // 途中で失敗した版は failed となり、前の active 版には影響を与えない
     expect(failedVersionStatus).toBe('failed');
   });
+
+  it('swapCorporateTable: 全件取り込み後のテーブル一括入れ替え（RENAME Swap）がトランザクション内で実行される', async () => {
+    let executedSql = false;
+
+    const mockDb = {
+      transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+        const mockTx = {
+          execute: async () => {
+            executedSql = true;
+          },
+        };
+        return cb(mockTx);
+      },
+    } as unknown as DbClient;
+
+    const importer = new DatasetImporter(mockDb);
+    const result = await importer.swapCorporateTable(
+      'corporate_numbers_new',
+      'corporate_numbers',
+      'corporate_numbers_old',
+    );
+
+    expect(executedSql).toBe(true);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
 });

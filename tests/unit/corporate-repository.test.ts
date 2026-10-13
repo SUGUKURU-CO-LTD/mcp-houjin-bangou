@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DbCorporateDataProvider,
   escapeLikeWildcards,
+  isTimeoutError,
 } from '../../src/repository/corporate-repository.js';
 import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
@@ -30,6 +31,23 @@ describe('escapeLikeWildcards (LIKE/ILIKE特殊文字エスケープ)', () => {
   it('特殊文字を含まない通常の文字列はそのまま維持されること', () => {
     expect(escapeLikeWildcards('スグクル株式会社')).toBe('スグクル株式会社');
     expect(escapeLikeWildcards('Test-Company. 123')).toBe('Test-Company. 123');
+  });
+});
+
+describe('isTimeoutError (PostgreSQL タイムアウトエラー判定)', () => {
+  it('PostgreSQL エラーコード 57014 (query_canceled) を検知すること', () => {
+    expect(isTimeoutError({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(true);
+  });
+
+  it('statement timeout を含むエラーメッセージを検知すること', () => {
+    expect(isTimeoutError(new Error('Query failed: canceling statement due to statement timeout'))).toBe(true);
+  });
+
+  it('タイムアウト以外のエラーは false を返すこと', () => {
+    expect(isTimeoutError(new Error('connection refused'))).toBe(false);
+    expect(isTimeoutError({ code: '42P01' })).toBe(false);
+    expect(isTimeoutError(null)).toBe(false);
+    expect(isTimeoutError(undefined)).toBe(false);
   });
 });
 
@@ -180,6 +198,38 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
 
       expect(result.error.code).toBe('INTERNAL_ERROR');
     });
+
+    it('クエリが上限時間を超過（タイムアウト）した場合は DATA_UNAVAILABLE を返す', async () => {
+      const timeoutDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              // dataset_versions
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+              const err = new Error('canceling statement due to statement timeout');
+              (err as unknown as { code: string }).code = '57014';
+              return {
+                limit: () => Promise.reject(err),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(timeoutDb);
+      const result = await provider.lookupByNumber('1000000000001');
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      expect(result.error.code).toBe('DATA_UNAVAILABLE');
+      expect(result.error.message).toContain('上限時間を超過しました');
+    });
   });
 
   describe('searchByName', () => {
@@ -192,8 +242,114 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
       if (!result.ok) return;
 
       expect(result.value.results.length).toBe(3);
+      expect(result.value.total_count).toBe(3);
+      expect(result.value.next_cursor).toBeNull();
       expect(result.value.data_as_of).toBe(currentDataAsOf);
       expect(result.value.attribution).toBe(NTA_CORPORATE_HOST_ATTRIBUTION);
+    });
+
+    it('取得件数が limit 以下の場合は COUNT(*) を行わずに total_count が即時確定すること', async () => {
+      // 3件のデータに対して limit=10 で検索
+      const db = createMockDb();
+      const provider = new DbCorporateDataProvider(db);
+
+      const result = await provider.searchByName('テスト', undefined, undefined, 10);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.results.length).toBe(3);
+      expect(result.value.total_count).toBe(3);
+      expect(result.value.next_cursor).toBeNull();
+    });
+
+    it('次ページが存在し COUNT(*) がタイムアウトした場合は total_count: null として検索結果を返すこと', async () => {
+      // 12件のレコードを用意し、limit=10 で次ページがある状態
+      const manyRecords = Array.from({ length: 12 }, (_, i) => ({
+        ...mockCorporateData[0],
+        corporateNumber: `10000000000${i.toString().padStart(2, '0')}`,
+        name: `株式会社テスト企業${i}`,
+      }));
+
+      const timeoutCountDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              // dataset_versions
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+
+              // COUNT(*) でタイムアウトエラーを発生させる
+              if (fields && typeof fields === 'object' && 'total' in (fields as object)) {
+                const countErr = new Error('canceling statement due to statement timeout');
+                (countErr as unknown as { code: string }).code = '57014';
+                return Promise.reject(countErr);
+              }
+
+              // corporate_numbers: fetchLimit=11 で 11 件返す
+              return {
+                orderBy: () => ({
+                  limit: (limitCount: number) => ({
+                    offset: (offsetCount: number) =>
+                      Promise.resolve(manyRecords.slice(offsetCount, offsetCount + limitCount)),
+                  }),
+                }),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(timeoutCountDb);
+      const result = await provider.searchByName('テスト', undefined, undefined, 10);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      // 10件返却され、次カーソルが発行され、total_count は安全に null にフォールバック
+      expect(result.value.results.length).toBe(10);
+      expect(result.value.total_count).toBeNull();
+      expect(result.value.next_cursor).not.toBeNull();
+    });
+
+    it('検索クエリ全体が上限時間を超過した場合は DATA_UNAVAILABLE を返すこと', async () => {
+      const timeoutDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              // dataset_versions は通る
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+              // データ検索でタイムアウト
+              const queryErr = new Error('canceling statement due to statement timeout');
+              (queryErr as unknown as { code: string }).code = '57014';
+              return {
+                orderBy: () => ({
+                  limit: () => ({
+                    offset: () => Promise.reject(queryErr),
+                  }),
+                }),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(timeoutDb);
+      const result = await provider.searchByName('テスト');
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      expect(result.error.code).toBe('DATA_UNAVAILABLE');
+      expect(result.error.message).toContain('上限時間を超過しました');
     });
 
     it('古い data_as_of のカーソルを渡した場合は INVALID_INPUT エラーを返す', async () => {
