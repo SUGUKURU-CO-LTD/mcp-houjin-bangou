@@ -60,6 +60,12 @@ export const SearchResultItemSchema = z.object({
   location: z.string(),
   update_date: z.string(),
   status: z.enum(['active', 'closed']),
+  address_may_be_outdated: z
+    .boolean()
+    .optional()
+    .describe(
+      'True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)',
+    ),
 });
 
 const OutputSchema = z.object({
@@ -73,7 +79,11 @@ const OutputSchema = z.object({
     .string()
     .nullable()
     .describe('Cursor token for fetching the next page; null if no more items'),
-  data_as_of: z.string().describe('Date of the public dataset (YYYY-MM-DD)'),
+  data_as_of: z
+    .string()
+    .describe(
+      'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
+    ),
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
@@ -84,7 +94,7 @@ export type SearchByNameInput = z.infer<typeof InputSchema>;
 export type SearchByNameOutput = z.infer<typeof OutputSchema>;
 
 const DESCRIPTION_JA =
-  '法人名（商号）の部分一致で法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。';
+  '法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。一致方式は、ホスト版では1〜2文字の検索語は前方一致、3文字以上は部分一致で検索します（ローカル版は国税庁Web-APIの前方一致検索）。';
 
 export interface SearchByNameDeps {
   ntaClient?: NtaClient;
@@ -177,6 +187,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
             location: r.location,
             update_date: r.update_date,
             status: r.status,
+            address_may_be_outdated: r.address_may_be_outdated,
           })),
           total_count: val.total_count ?? null,
           next_cursor: val.next_cursor,
@@ -194,8 +205,14 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
             ? `「${name}」に一致する法人は見つかりませんでした。`
             : `「${name}」の検索結果です${countText}。`;
 
+        const hasOutdated = val.results.some((r) => r.address_may_be_outdated);
         const summary = [
           firstLine,
+          ...(hasOutdated
+            ? [
+                '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+              ]
+            : []),
           ...(val.next_cursor
             ? [
                 '※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。',
@@ -324,6 +341,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
           location,
           update_date: raw.update_date,
           status: isClosed ? 'closed' : 'active',
+          address_may_be_outdated: raw.hihyoji === '1',
         };
       });
 
@@ -341,8 +359,12 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
         attribution: NTA_CORPORATE_WEB_API_ATTRIBUTION,
       };
 
+      const hasOutdated = results.some((r) => r.address_may_be_outdated);
       const summary = [
         `「${name}」の検索結果です（全 ${totalCount} 件中 ${results.length} 件を表示）。`,
+        ...(hasOutdated
+          ? ['※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。']
+          : []),
         ...(nextCursor
           ? ['※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。']
           : []),

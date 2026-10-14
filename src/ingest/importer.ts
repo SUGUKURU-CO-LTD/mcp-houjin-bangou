@@ -417,6 +417,7 @@ export class DatasetImporter {
       await activeDb.execute(sql`
         CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
         CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
+        CREATE INDEX idx_corporate_numbers_name_pattern_new ON corporate_numbers_new USING btree (name text_pattern_ops);
         CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
         CREATE INDEX idx_corporate_numbers_prefecture_new ON corporate_numbers_new (prefecture_code);
         CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
@@ -828,6 +829,7 @@ export class DatasetImporter {
           TO corporate_numbers_dataset_versions_fk_old;
         ALTER INDEX idx_corporate_numbers_number RENAME TO idx_corporate_numbers_number_old;
         ALTER INDEX idx_corporate_numbers_name RENAME TO idx_corporate_numbers_name_old;
+        ALTER INDEX idx_corporate_numbers_name_pattern RENAME TO idx_corporate_numbers_name_pattern_old;
         ALTER INDEX idx_corporate_numbers_name_trgm RENAME TO idx_corporate_numbers_name_trgm_old;
         ALTER INDEX idx_corporate_numbers_prefecture RENAME TO idx_corporate_numbers_prefecture_old;
         ALTER INDEX idx_corporate_numbers_version RENAME TO idx_corporate_numbers_version_old;
@@ -846,6 +848,7 @@ export class DatasetImporter {
           TO corporate_numbers_dataset_version_id_dataset_versions_id_fk;
         ALTER INDEX idx_corporate_numbers_number_new RENAME TO idx_corporate_numbers_number;
         ALTER INDEX idx_corporate_numbers_name_new RENAME TO idx_corporate_numbers_name;
+        ALTER INDEX idx_corporate_numbers_name_pattern_new RENAME TO idx_corporate_numbers_name_pattern;
         ALTER INDEX idx_corporate_numbers_name_trgm_new RENAME TO idx_corporate_numbers_name_trgm;
         ALTER INDEX idx_corporate_numbers_prefecture_new RENAME TO idx_corporate_numbers_prefecture;
         ALTER INDEX idx_corporate_numbers_version_new RENAME TO idx_corporate_numbers_version;

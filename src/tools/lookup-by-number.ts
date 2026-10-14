@@ -47,11 +47,21 @@ export const CorporationInfoSchema = z.object({
     .string()
     .nullable()
     .describe('Reason for closure as published (e.g., liquidation, merger); null if active'),
+  address_may_be_outdated: z
+    .boolean()
+    .optional()
+    .describe(
+      'True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)',
+    ),
 });
 
 const OutputSchema = z.object({
   corporation: CorporationInfoSchema,
-  data_as_of: z.string().describe('Date of the public dataset (YYYY-MM-DD)'),
+  data_as_of: z
+    .string()
+    .describe(
+      'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
+    ),
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
@@ -176,6 +186,11 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
           `状態: ${val.corporation.status === 'active' ? '登記中 (active)' : `閉鎖 (closed${closeDate ? ` / 閉鎖日: ${closeDate}` : ''}${closeCause ? ` / 事由: ${closeCause}` : ''})`}`,
           `法人種別: ${val.corporation.legal_type}`,
           `所在地: ${val.corporation.location}`,
+          ...(val.corporation.address_may_be_outdated
+            ? [
+                '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+              ]
+            : []),
           `データ時点: ${val.data_as_of}`,
           `出典: ${val.attribution}`,
         ].join('\n');
@@ -272,6 +287,7 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
         status: isClosed ? 'closed' : 'active',
         close_date: closeDate,
         close_cause: closeCause,
+        address_may_be_outdated: rawCorp.hihyoji === '1',
       };
 
       const structuredContent: LookupByNumberOutput = {
@@ -285,6 +301,9 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
         `状態: ${corporationOutput.status === 'active' ? '登記中 (active)' : `閉鎖 (closed${closeDate ? ` / 閉鎖日: ${closeDate}` : ''}${closeCause ? ` / 事由: ${closeCause}` : ''})`}`,
         `法人種別: ${corporationOutput.legal_type}`,
         `所在地: ${corporationOutput.location}`,
+        ...(corporationOutput.address_may_be_outdated
+          ? ['※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。']
+          : []),
         `データ時点: ${dataAsOf}`,
         `出典: ${attribution}`,
       ].join('\n');

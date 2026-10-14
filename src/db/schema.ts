@@ -83,6 +83,7 @@ export const corporateNumbers = pgTable(
     primaryKey({ columns: [table.corporateNumber, table.datasetVersionId] }),
     index('idx_corporate_numbers_number').on(table.corporateNumber),
     index('idx_corporate_numbers_name').on(table.name),
+    index('idx_corporate_numbers_name_pattern').using('btree', sql`${table.name} text_pattern_ops`),
     index('idx_corporate_numbers_name_trgm').using('gin', sql`${table.name} gin_trgm_ops`),
     index('idx_corporate_numbers_prefecture').on(table.prefectureCode),
     index('idx_corporate_numbers_version').on(table.datasetVersionId),
