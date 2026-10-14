@@ -83,9 +83,7 @@ export interface LookupByNumberDeps {
 
 export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumberDeps): void {
   const isDb =
-    deps.dataSource === 'db' ||
-    deps.dataSource === 'database' ||
-    (deps.dbProvider !== undefined && deps.ntaClient === undefined);
+    deps.dataSource === 'db' || (deps.dbProvider !== undefined && deps.ntaClient === undefined);
   const annotations = getToolAnnotations('lookup_corporate_by_number', isDb ? 'db' : 'web-api');
 
   server.registerTool(

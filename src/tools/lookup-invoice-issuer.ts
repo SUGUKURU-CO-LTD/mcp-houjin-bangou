@@ -84,8 +84,7 @@ export function registerLookupInvoiceIssuerTool(
   server: McpServer,
   deps: LookupInvoiceIssuerDeps,
 ): void {
-  const isDb =
-    deps.dataSource === 'db' || deps.dataSource === 'database' || !!deps.invoiceDbProvider;
+  const isDb = deps.dataSource === 'db' || !!deps.invoiceDbProvider;
   const annotations = getToolAnnotations(
     'lookup_invoice_issuer',
     deps.dataSource ?? (isDb ? 'db' : 'web-api'),
