@@ -15,6 +15,13 @@
       "when": 1791823358466,
       "tag": "0001_narrow_tony_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791947593561,
+      "tag": "0002_burly_korvac",
+      "breakpoints": true
     }
   ]
 }

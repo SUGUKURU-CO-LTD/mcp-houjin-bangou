@@ -10,6 +10,9 @@
  *   実在する事業者や個人の情報、国税庁本番データではありません。
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import { describe, it, expect } from 'vitest';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from '../../src/ingest/parser.js';
 import { createIngestLogger } from '../../src/ingest/logger.js';
@@ -74,6 +77,39 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     expect(parsed?.cityName).toBeUndefined();
     expect(parsed?.streetNumber).toBeUndefined();
   });
+
+  it('30項目目の検索対象除外フラグ（hihyoji）を正常にパースできる', () => {
+    // 30列目に "1"（検索対象外）が指定された合成テストデータ
+    const lineWithHihyoji1 =
+      '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","1"';
+    const parsed1 = parseCorporateCsvLine(lineWithHihyoji1);
+    expect(parsed1?.hihyoji).toBe('1');
+
+    // 30列目が "0"（検索対象）の合成テストデータ
+    const lineWithHihyoji0 =
+      '2,"1000000000002","01","1","2026-04-01","2026-04-01","テスト株式会社2","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"';
+    const parsed0 = parseCorporateCsvLine(lineWithHihyoji0);
+    expect(parsed0?.hihyoji).toBe('0');
+
+    // 29項目（30列目なし）の場合はデフォルト "0" になること
+    const line29Cols =
+      '3,"1000000000003","01","1","2026-04-01","2026-04-01","テスト株式会社3","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","",""';
+    const parsedDefault = parseCorporateCsvLine(line29Cols);
+    expect(parsedDefault?.hihyoji).toBe('0');
+  });
+
+  it('処理区分99（削除）などカラム数が少ない行でも正常にパースできる', () => {
+    // 処理区分99（削除）で最低限の項目（一連番号、法人番号、処理区分、訂正区分、更新年月日）のみが存在する合成テストデータ
+    const deleteLine = '10,"9000000000009","99","0","2026-04-01"';
+    const parsed = parseCorporateCsvLine(deleteLine);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.corporateNumber).toBe('9000000000009');
+    expect(parsed?.process).toBe('99');
+    expect(parsed?.correct).toBe('0');
+    expect(parsed?.updateDate).toBe('2026-04-01');
+    expect(parsed?.name).toBe('');
+    expect(parsed?.hihyoji).toBe('0');
+  });
 });
 
 describe('Ingest Logger (機密性検証)', () => {
@@ -123,58 +159,29 @@ describe('Ingest Logger (機密性検証)', () => {
 });
 
 describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () => {
-  it('正常時は staging から本番テーブルへ全件投入され active に昇格する', async () => {
-    const insertedStagingRows: unknown[] = [];
-    const insertedActiveRows: unknown[] = [];
+  it('正常時は staging から本番テーブルへ全件投入され active に昇格する（DB内 SQL で完結）', async () => {
+    const insertedStagingBatches: unknown[] = [];
+    const executedSqls: unknown[] = [];
     let updatedVersionStatus = '';
 
     const mockDb = {
+      execute: async (query: unknown) => {
+        executedSqls.push(query);
+      },
       insert: () => ({
-        values: (val: unknown) => ({
-          returning: async () => [{ id: 42 }],
-          execute: async () => {
-            insertedStagingRows.push(val);
-          },
-        }),
+        values: (val: unknown) => {
+          insertedStagingBatches.push(val);
+          return {
+            returning: async () => [{ id: 42 }],
+            execute: async () => {},
+          };
+        },
       }),
       transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
         const mockTx = {
-          select: () => ({
-            from: () => ({
-              where: () =>
-                Promise.resolve([
-                  {
-                    corporateNumber: '1000000000001',
-                    process: '01',
-                    correct: '1',
-                    updateDate: '2026-04-01',
-                    changeDate: '2026-04-01',
-                    name: 'テスト株式会社',
-                    nameImageId: null,
-                    kind: '301',
-                    prefectureName: '北海道',
-                    cityName: '札幌市中央区',
-                    streetNumber: '北一条西一丁目',
-                    addressImageId: null,
-                    prefectureCode: '01',
-                    cityCode: '101',
-                    postCode: '0600001',
-                    addressOutside: null,
-                    addressOutsideImageId: null,
-                    closeDate: null,
-                    closeCause: null,
-                    furigana: null,
-                    hihyoji: '0',
-                  },
-                ]),
-            }),
-          }),
-          insert: () => ({
-            values: (val: unknown) => {
-              insertedActiveRows.push(val);
-              return Promise.resolve();
-            },
-          }),
+          execute: async (query: unknown) => {
+            executedSqls.push(query);
+          },
           update: () => ({
             set: (setVal: { status: string; recordCount?: number }) => ({
               where: () => {
@@ -194,7 +201,7 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     const importer = new DatasetImporter(mockDb);
 
     const testCsv = [
-      '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社","","301","北海道","札幌市中央区","北一条西一丁目","","01","101","0600001","","","","","","","","1","","","","",""',
+      '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社","","301","北海道","札幌市中央区","北一条西一丁目","","01","101","0600001","","","","","","","","1","","","","","","0"',
     ];
 
     const metrics = await importer.importCorporateDataset(testCsv, '2026-10-01', 10);
@@ -202,13 +209,17 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     expect(metrics.status).toBe('active');
     expect(metrics.count).toBe(1);
     expect(updatedVersionStatus).toBe('active');
-    expect(insertedActiveRows.length).toBe(1);
+    // ステージングへのバッチ挿入が行われたこと
+    expect(insertedStagingBatches.length).toBeGreaterThan(0);
+    // Node.js メモリ展開ではなく tx.execute による DB 内完結の INSERT ... SELECT および 旧版削除が行われたこと
+    expect(executedSqls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('取り込み途中でエラーが発生した場合、failed となりトランザクションがロールバックされる', async () => {
     let failedVersionStatus = '';
 
     const mockDb = {
+      execute: async () => {},
       insert: () => ({
         values: () => ({
           returning: async () => [{ id: 99 }],
@@ -241,26 +252,103 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
 
   it('swapCorporateTable: 全件取り込み後のテーブル一括入れ替え（RENAME Swap）がトランザクション内で実行される', async () => {
     let executedSql = false;
+    let versionUpdated = false;
+
+    let droppedOldTable = false;
 
     const mockDb = {
+      execute: async () => {
+        droppedOldTable = true;
+      },
       transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
         const mockTx = {
           execute: async () => {
             executedSql = true;
           },
+          update: () => ({
+            set: () => ({
+              where: () => {
+                versionUpdated = true;
+                return Promise.resolve();
+              },
+            }),
+          }),
         };
         return cb(mockTx);
       },
     } as unknown as DbClient;
 
     const importer = new DatasetImporter(mockDb);
-    const result = await importer.swapCorporateTable(
-      'corporate_numbers_new',
-      'corporate_numbers',
-      'corporate_numbers_old',
-    );
+    const result = await importer.swapCorporateTable(101, 10, '2026-10-01');
 
     expect(executedSql).toBe(true);
+    expect(droppedOldTable).toBe(true);
+    expect(versionUpdated).toBe(true);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('importCorporateFiles: 複数分割ファイルを行単位ストリーミングで読み込み staging に投入できる', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ingest-test-'));
+    const file1 = path.join(tmpDir, 'corp_part1.csv');
+    const file2 = path.join(tmpDir, 'corp_part2.csv');
+
+    const csvLine1 =
+      '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社1","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"\n';
+    const csvLine2 =
+      '2,"1000000000002","01","1","2026-04-01","2026-04-01","テスト株式会社2","","301","東京都","千代田区","霞が関二丁目","","13","101","1000002","","","","","","","","1","","","","","","0"\n';
+
+    fs.writeFileSync(file1, csvLine1, 'utf-8');
+    fs.writeFileSync(file2, csvLine2, 'utf-8');
+
+    try {
+      const insertedBatches: unknown[] = [];
+      const executedSqls: unknown[] = [];
+      let updatedStatus = '';
+
+      const mockDb = {
+        execute: async (query: unknown) => {
+          executedSqls.push(query);
+        },
+        insert: () => ({
+          values: (val: unknown) => {
+            insertedBatches.push(val);
+            return {
+              returning: async () => [{ id: 55 }],
+              execute: async () => {},
+            };
+          },
+        }),
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+          const mockTx = {
+            execute: async (query: unknown) => {
+              executedSqls.push(query);
+            },
+            update: () => ({
+              set: (setVal: { status: string }) => ({
+                where: () => {
+                  updatedStatus = setVal.status;
+                  return Promise.resolve();
+                },
+              }),
+            }),
+            delete: () => ({
+              where: () => Promise.resolve(),
+            }),
+          };
+          return cb(mockTx);
+        },
+      } as unknown as DbClient;
+
+      const importer = new DatasetImporter(mockDb);
+      const metrics = await importer.importCorporateFiles([file1, file2], '2026-10-01', 1);
+
+      expect(metrics.status).toBe('active');
+      expect(metrics.count).toBe(2);
+      expect(updatedStatus).toBe('active');
+      expect(insertedBatches.length).toBeGreaterThanOrEqual(2);
+      expect(executedSqls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

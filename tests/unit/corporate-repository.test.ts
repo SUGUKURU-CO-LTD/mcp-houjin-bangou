@@ -265,7 +265,7 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
       expect(result.value.next_cursor).toBeNull();
     });
 
-    it('次ページが存在し COUNT(*) がタイムアウトした場合は total_count: null として検索結果を返すこと', async () => {
+    it('次ページが存在する場合は COUNT(*) を実行せず total_count: null として検索結果を返すこと（大量ヒット時負荷防止）', async () => {
       // 12件のレコードを用意し、limit=10 で次ページがある状態
       const manyRecords = Array.from({ length: 12 }, (_, i) => ({
         ...mockCorporateData[0],
@@ -273,7 +273,9 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
         name: `株式会社テスト企業${i}`,
       }));
 
-      const timeoutCountDb = {
+      let countQueryExecuted = false;
+
+      const fastCountDb = {
         select: (fields?: unknown) => ({
           from: () => ({
             where: () => {
@@ -286,14 +288,13 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
                 };
               }
 
-              // COUNT(*) でタイムアウトエラーを発生させる
+              // COUNT(*) が実行されたらフラグを立てる
               if (fields && typeof fields === 'object' && 'total' in (fields as object)) {
-                const countErr = new Error('canceling statement due to statement timeout');
-                (countErr as unknown as { code: string }).code = '57014';
-                return Promise.reject(countErr);
+                countQueryExecuted = true;
+                return Promise.resolve([{ total: 9999 }]);
               }
 
-              // corporate_numbers: fetchLimit=11 で 11 件返す
+              // corporate_numbers: fetchLimit=11 で 11 件返す（次ページあり）
               return {
                 orderBy: () => ({
                   limit: (limitCount: number) => ({
@@ -307,15 +308,16 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
         }),
       } as unknown as DbClient;
 
-      const provider = new DbCorporateDataProvider(timeoutCountDb);
+      const provider = new DbCorporateDataProvider(fastCountDb);
       const result = await provider.searchByName('テスト', undefined, undefined, 10);
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
-      // 10件返却され、次カーソルが発行され、total_count は安全に null にフォールバック
+      // 10件返却され、次カーソルが発行され、COUNT(*) は実行されず total_count は null
       expect(result.value.results.length).toBe(10);
       expect(result.value.total_count).toBeNull();
       expect(result.value.next_cursor).not.toBeNull();
+      expect(countQueryExecuted).toBe(false);
     });
 
     it('検索クエリ全体が上限時間を超過した場合は DATA_UNAVAILABLE を返すこと', async () => {
@@ -353,6 +355,46 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
 
       expect(result.error.code).toBe('DATA_UNAVAILABLE');
       expect(result.error.message).toContain('上限時間を超過しました');
+    });
+
+    it('データベース内部エラー発生時は利用者に固定文を返し詳細メッセージを秘匿すること', async () => {
+      const errorDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+              return {
+                orderBy: () => ({
+                  limit: () => ({
+                    offset: () =>
+                      Promise.reject(
+                        new Error('FATAL: connection terminated unexpectedly; secret_table schema'),
+                      ),
+                  }),
+                }),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(errorDb);
+      const result = await provider.searchByName('テスト');
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      expect(result.error.code).toBe('INTERNAL_ERROR');
+      // エラー本文に内部の生エラー文（secret_tableなど）が含まれず固定文であること
+      expect(result.error.message).toBe(
+        'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
+      );
+      expect(result.error.message).not.toContain('secret_table');
     });
 
     it('古い data_as_of のカーソルを渡した場合は INVALID_INPUT エラーを返す', async () => {
