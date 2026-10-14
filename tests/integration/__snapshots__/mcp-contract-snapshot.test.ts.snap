@@ -1,0 +1,1075 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MCP Contract Snapshot Tests (SLA2-328) > prompts/list snapshots and invariant contracts > matches snapshot for prompts/list 1`] = `
+{
+  "prompts": [
+    {
+      "arguments": [
+        {
+          "description": "対象の会社名・商号 / Target company name",
+          "name": "company_name",
+          "required": true,
+        },
+        {
+          "description": "名寄せの絞り込みに用いる都道府県や市区町村 / Optional location hint (prefecture or city)",
+          "name": "location_hint",
+          "required": false,
+        },
+      ],
+      "description": "会社名から法人番号や公表情報を検索・照合し、社内データベース用の取引先企業マスタレコードを生成します。※個人の連絡先情報は入力しないでください。",
+      "name": "company-master-record",
+      "title": "Company master record generation from company name",
+    },
+    {
+      "arguments": [
+        {
+          "description": "企業名一覧。1行に1社、最大20社 / Company name list (one per line, max 20)",
+          "name": "company_list_text",
+          "required": true,
+        },
+      ],
+      "description": "企業名のリストから法人番号・所在地・法人種別を一括検索し、企業リストを補完します（1回あたり最大20社）。※個人の連絡先情報は入力しないでください。",
+      "name": "sales-list-enrichment",
+      "title": "Bulk sales list enrichment via NTA corporate number (max 20 companies)",
+    },
+    {
+      "arguments": [
+        {
+          "description": "名寄せ対象の会社名 / Target company name for deduplication",
+          "name": "target_company_name",
+          "required": true,
+        },
+        {
+          "description": "照合用の住所 / Optional current address for matching",
+          "name": "current_address",
+          "required": false,
+        },
+      ],
+      "description": "既存の顧客・取引先マスタの社名・住所から、国税庁の公表法人情報と突合して正式名称・法人番号を特定し、名寄せ・表記ゆれの統一を支援します。※個人の連絡先情報は入力しないでください。",
+      "name": "customer-master-dedup",
+      "title": "Customer master dedup via NTA corporate number",
+    },
+  ],
+}
+`;
+
+exports[`MCP Contract Snapshot Tests (SLA2-328) > resources/list snapshots and invariant contracts > matches snapshot for resources/list (リソースはUIリソースのみ) 1`] = `
+{
+  "resources": [
+    {
+      "mimeType": "text/html;profile=mcp-app",
+      "name": "Corporate Card UI",
+      "uri": "ui://corporate-card/mcp-app.html",
+    },
+    {
+      "mimeType": "text/html;profile=mcp-app",
+      "name": "Search Results UI",
+      "uri": "ui://search-results/mcp-app.html",
+    },
+  ],
+}
+`;
+
+exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invariant contracts > matches snapshot for hosted DB mode (提出用・自社DB保持データ) 1`] = `
+{
+  "tools": [
+    {
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://corporate-card/mcp-app.html",
+        },
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Look up Corporation by Corporate Number",
+      },
+      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "corporate_number": {
+            "description": "13-digit Japanese national corporate number (digits only, e.g., '9340001026142')",
+            "pattern": "^[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporate_number",
+        ],
+        "type": "object",
+      },
+      "name": "lookup_corporate_by_number",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "description": "Attribution text required by NTA terms of service",
+            "type": "string",
+          },
+          "corporation": {
+            "additionalProperties": false,
+            "properties": {
+              "address_may_be_outdated": {
+                "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
+                "type": "boolean",
+              },
+              "close_cause": {
+                "description": "Reason for closure as published (e.g., liquidation, merger); null if active",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "close_date": {
+                "description": "Date of closure (YYYY-MM-DD); null if active",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "corporate_number": {
+                "type": "string",
+              },
+              "legal_type": {
+                "type": "string",
+              },
+              "location": {
+                "type": "string",
+              },
+              "name": {
+                "type": "string",
+              },
+              "name_kana": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "post_code": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "closed",
+                ],
+                "type": "string",
+              },
+              "update_date": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "corporate_number",
+              "name",
+              "name_kana",
+              "legal_type",
+              "location",
+              "post_code",
+              "update_date",
+              "status",
+              "close_date",
+              "close_cause",
+            ],
+            "type": "object",
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporation",
+          "data_as_of",
+          "attribution",
+        ],
+        "type": "object",
+      },
+      "title": "Look up Corporation by Corporate Number",
+    },
+    {
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://search-results/mcp-app.html",
+        },
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Search Corporations by Name",
+      },
+      "description": "法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。一致方式は、ホスト版では1〜2文字の検索語は前方一致、3文字以上は部分一致で検索します（ローカル版は国税庁Web-APIの前方一致検索）。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "cursor": {
+            "description": "Opaque cursor for pagination returned from previous search",
+            "type": "string",
+          },
+          "limit": {
+            "default": 10,
+            "description": "Number of results to return (default: 10, max: 20)",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "name": {
+            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string",
+          },
+          "prefecture": {
+            "description": "Optional 2-digit prefecture code (01-47)",
+            "pattern": "^(0[1-9]|[1-3][0-9]|4[0-7])$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "name",
+        ],
+        "type": "object",
+      },
+      "name": "search_corporate_by_name",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "description": "Attribution text required by NTA terms of service",
+            "type": "string",
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+          "next_cursor": {
+            "description": "Cursor token for fetching the next page; null if no more items",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "address_may_be_outdated": {
+                  "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
+                  "type": "boolean",
+                },
+                "corporate_number": {
+                  "type": "string",
+                },
+                "legal_type": {
+                  "type": "string",
+                },
+                "location": {
+                  "type": "string",
+                },
+                "name": {
+                  "type": "string",
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "closed",
+                  ],
+                  "type": "string",
+                },
+                "update_date": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "corporate_number",
+                "name",
+                "legal_type",
+                "location",
+                "update_date",
+                "status",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "total_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer",
+              },
+              {
+                "type": "null",
+              },
+            ],
+            "description": "Total number of matched corporations if known",
+          },
+        },
+        "required": [
+          "results",
+          "total_count",
+          "next_cursor",
+          "data_as_of",
+          "attribution",
+        ],
+        "type": "object",
+      },
+      "title": "Search Corporations by Name",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Lookup Registered Invoice Issuer by T-number",
+      },
+      "description": "適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "reference_date": {
+            "description": "Optional reference date in 'YYYY-MM-DD' format to check registration status as of that date",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+            "type": "string",
+          },
+          "registration_number": {
+            "description": "Registered invoice issuer number (starts with 'T' followed by 13 digits, e.g., 'T1234567890123')",
+            "pattern": "^T[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "registration_number",
+        ],
+        "type": "object",
+      },
+      "name": "lookup_invoice_issuer",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "type": "string",
+          },
+          "business_type": {
+            "enum": [
+              "corporation",
+              "individual",
+              "other",
+              "unknown",
+            ],
+            "type": "string",
+          },
+          "cancellation_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "corporate_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+          "expiration_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "location": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "registration_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "registration_number": {
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "cancelled",
+              "expired",
+              "not_found",
+            ],
+            "type": "string",
+          },
+          "tax_disclaimer": {
+            "type": "string",
+          },
+          "was_registered_on_reference_date": {
+            "type": [
+              "boolean",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "registration_number",
+          "status",
+          "business_type",
+          "registration_date",
+          "cancellation_date",
+          "expiration_date",
+          "corporate_name",
+          "location",
+          "was_registered_on_reference_date",
+          "data_as_of",
+          "attribution",
+          "tax_disclaimer",
+        ],
+        "type": "object",
+      },
+      "title": "Lookup Registered Invoice Issuer by T-number",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Validate Corporate Number Check Digit (Local)",
+      },
+      "description": "13桁の法人番号の形式およびモジュラス9（ウェイト1-2方式）によるチェックデジットをローカルで検証します（外部通信なし）。チェックデジットが正しくても、その法人が実在することは確認しません。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "corporate_number": {
+            "description": "13-digit corporate number string to validate",
+            "pattern": "^[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporate_number",
+        ],
+        "type": "object",
+      },
+      "name": "validate_corporate_number",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "error_reason": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "is_valid_check_digit": {
+            "type": "boolean",
+          },
+          "is_valid_format": {
+            "type": "boolean",
+          },
+        },
+        "required": [
+          "is_valid_format",
+          "is_valid_check_digit",
+          "error_reason",
+        ],
+        "type": "object",
+      },
+      "title": "Validate Corporate Number Check Digit (Local)",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Normalize Company Name (Local)",
+      },
+      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "raw_name": {
+            "description": "Raw company name string to normalize",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "raw_name",
+        ],
+        "type": "object",
+      },
+      "name": "normalize_company_name",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "legal_type": {
+            "description": "検出された法人種別（未検出の場合は null）",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "normalized_name": {
+            "description": "正規化された企業名",
+            "type": "string",
+          },
+          "search_query_optimized": {
+            "description": "検索用に最適化されたコア企業名",
+            "type": "string",
+          },
+        },
+        "required": [
+          "normalized_name",
+          "legal_type",
+          "search_query_optimized",
+        ],
+        "type": "object",
+      },
+      "title": "Normalize Company Name (Local)",
+    },
+  ],
+}
+`;
+
+exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invariant contracts > matches snapshot for local Web-API mode (ローカル実行版) 1`] = `
+{
+  "tools": [
+    {
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://corporate-card/mcp-app.html",
+        },
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Look up Corporation by Corporate Number",
+      },
+      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "corporate_number": {
+            "description": "13-digit Japanese national corporate number (digits only, e.g., '9340001026142')",
+            "pattern": "^[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporate_number",
+        ],
+        "type": "object",
+      },
+      "name": "lookup_corporate_by_number",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "description": "Attribution text required by NTA terms of service",
+            "type": "string",
+          },
+          "corporation": {
+            "additionalProperties": false,
+            "properties": {
+              "address_may_be_outdated": {
+                "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
+                "type": "boolean",
+              },
+              "close_cause": {
+                "description": "Reason for closure as published (e.g., liquidation, merger); null if active",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "close_date": {
+                "description": "Date of closure (YYYY-MM-DD); null if active",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "corporate_number": {
+                "type": "string",
+              },
+              "legal_type": {
+                "type": "string",
+              },
+              "location": {
+                "type": "string",
+              },
+              "name": {
+                "type": "string",
+              },
+              "name_kana": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "post_code": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "closed",
+                ],
+                "type": "string",
+              },
+              "update_date": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "corporate_number",
+              "name",
+              "name_kana",
+              "legal_type",
+              "location",
+              "post_code",
+              "update_date",
+              "status",
+              "close_date",
+              "close_cause",
+            ],
+            "type": "object",
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporation",
+          "data_as_of",
+          "attribution",
+        ],
+        "type": "object",
+      },
+      "title": "Look up Corporation by Corporate Number",
+    },
+    {
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://search-results/mcp-app.html",
+        },
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Search Corporations by Name",
+      },
+      "description": "法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。一致方式は、ホスト版では1〜2文字の検索語は前方一致、3文字以上は部分一致で検索します（ローカル版は国税庁Web-APIの前方一致検索）。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "cursor": {
+            "description": "Opaque cursor for pagination returned from previous search",
+            "type": "string",
+          },
+          "limit": {
+            "default": 10,
+            "description": "Number of results to return (default: 10, max: 20)",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "name": {
+            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string",
+          },
+          "prefecture": {
+            "description": "Optional 2-digit prefecture code (01-47)",
+            "pattern": "^(0[1-9]|[1-3][0-9]|4[0-7])$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "name",
+        ],
+        "type": "object",
+      },
+      "name": "search_corporate_by_name",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "description": "Attribution text required by NTA terms of service",
+            "type": "string",
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+          "next_cursor": {
+            "description": "Cursor token for fetching the next page; null if no more items",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "address_may_be_outdated": {
+                  "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
+                  "type": "boolean",
+                },
+                "corporate_number": {
+                  "type": "string",
+                },
+                "legal_type": {
+                  "type": "string",
+                },
+                "location": {
+                  "type": "string",
+                },
+                "name": {
+                  "type": "string",
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "closed",
+                  ],
+                  "type": "string",
+                },
+                "update_date": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "corporate_number",
+                "name",
+                "legal_type",
+                "location",
+                "update_date",
+                "status",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "total_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer",
+              },
+              {
+                "type": "null",
+              },
+            ],
+            "description": "Total number of matched corporations if known",
+          },
+        },
+        "required": [
+          "results",
+          "total_count",
+          "next_cursor",
+          "data_as_of",
+          "attribution",
+        ],
+        "type": "object",
+      },
+      "title": "Search Corporations by Name",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Lookup Registered Invoice Issuer by T-number",
+      },
+      "description": "適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "reference_date": {
+            "description": "Optional reference date in 'YYYY-MM-DD' format to check registration status as of that date",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+            "type": "string",
+          },
+          "registration_number": {
+            "description": "Registered invoice issuer number (starts with 'T' followed by 13 digits, e.g., 'T1234567890123')",
+            "pattern": "^T[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "registration_number",
+        ],
+        "type": "object",
+      },
+      "name": "lookup_invoice_issuer",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "type": "string",
+          },
+          "business_type": {
+            "enum": [
+              "corporation",
+              "individual",
+              "other",
+              "unknown",
+            ],
+            "type": "string",
+          },
+          "cancellation_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "corporate_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "data_as_of": {
+            "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)",
+            "type": "string",
+          },
+          "expiration_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "location": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "registration_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "registration_number": {
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "cancelled",
+              "expired",
+              "not_found",
+            ],
+            "type": "string",
+          },
+          "tax_disclaimer": {
+            "type": "string",
+          },
+          "was_registered_on_reference_date": {
+            "type": [
+              "boolean",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "registration_number",
+          "status",
+          "business_type",
+          "registration_date",
+          "cancellation_date",
+          "expiration_date",
+          "corporate_name",
+          "location",
+          "was_registered_on_reference_date",
+          "data_as_of",
+          "attribution",
+          "tax_disclaimer",
+        ],
+        "type": "object",
+      },
+      "title": "Lookup Registered Invoice Issuer by T-number",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Validate Corporate Number Check Digit (Local)",
+      },
+      "description": "13桁の法人番号の形式およびモジュラス9（ウェイト1-2方式）によるチェックデジットをローカルで検証します（外部通信なし）。チェックデジットが正しくても、その法人が実在することは確認しません。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "corporate_number": {
+            "description": "13-digit corporate number string to validate",
+            "pattern": "^[0-9]{13}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "corporate_number",
+        ],
+        "type": "object",
+      },
+      "name": "validate_corporate_number",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "error_reason": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "is_valid_check_digit": {
+            "type": "boolean",
+          },
+          "is_valid_format": {
+            "type": "boolean",
+          },
+        },
+        "required": [
+          "is_valid_format",
+          "is_valid_check_digit",
+          "error_reason",
+        ],
+        "type": "object",
+      },
+      "title": "Validate Corporate Number Check Digit (Local)",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Normalize Company Name (Local)",
+      },
+      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。",
+      "execution": {
+        "taskSupport": "forbidden",
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "raw_name": {
+            "description": "Raw company name string to normalize",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "raw_name",
+        ],
+        "type": "object",
+      },
+      "name": "normalize_company_name",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "legal_type": {
+            "description": "検出された法人種別（未検出の場合は null）",
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "normalized_name": {
+            "description": "正規化された企業名",
+            "type": "string",
+          },
+          "search_query_optimized": {
+            "description": "検索用に最適化されたコア企業名",
+            "type": "string",
+          },
+        },
+        "required": [
+          "normalized_name",
+          "legal_type",
+          "search_query_optimized",
+        ],
+        "type": "object",
+      },
+      "title": "Normalize Company Name (Local)",
+    },
+  ],
+}
+`;
