@@ -1,9 +1,9 @@
 {
   "name": "@sugukuru/mcp-houjin-bangou",
   "version": "0.2.0",
-  "description": "MCP server for Japan National Tax Agency Corporate Number Web-API (Ver.4.0). Read-only, anonymous, full 7-primitive activation with deterministic company-name normalization.",
+  "description": "MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.",
   "protocol_version": "2025-11-25",
-  "homepage": "https://github.com/sugukurukabe/mcp-houjin-bangou",
+  "homepage": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
   "transport": {
     "type": "streamable-http",
     "endpoint": "/mcp",
@@ -11,31 +11,29 @@
   },
   "authentication": {
     "required": false,
-    "note": "Anonymous read-only access. v0.5.0 Hosted edition will add OAuth Client Credentials (RFC 7523 JWT Bearer) and Enterprise-Managed Authorization (ID-JAG, SEP-990)."
+    "note": "Anonymous read-only access."
   },
   "capabilities": {
-    "tools": { "listChanged": true },
-    "resources": { "listChanged": true, "subscribe": false },
-    "prompts": { "listChanged": true },
-    "completions": {},
-    "logging": {}
+    "tools": { "listChanged": false },
+    "resources": { "listChanged": false, "subscribe": false },
+    "prompts": { "listChanged": false },
+    "completions": {}
   },
   "primitives": {
     "tools": [
       "lookup_corporate_by_number",
       "search_corporate_by_name",
+      "lookup_invoice_issuer",
       "validate_corporate_number",
-      "normalize_company_name",
-      "get_attribution"
+      "normalize_company_name"
     ],
     "prompts": [
-      "business-card-to-database",
+      "company-master-record",
       "sales-list-enrichment",
       "customer-master-dedup"
     ],
-    "resource_templates": ["corp://{corporate_number}"],
+    "resource_templates": [],
     "resources": [
-      "attribution://houjin-bangou",
       "ui://corporate-card/mcp-app.html",
       "ui://search-results/mcp-app.html"
     ]
@@ -48,9 +46,8 @@
   },
   "maintainer": {
     "name": "Sugukuru K.K.",
-    "email": "engineering@sugukuru.co.jp",
-    "location": "Kagoshima, Japan",
-    "homepage": "https://sugukuru.co.jp"
+    "email": "dev@sugu-kuru.co.jp",
+    "location": "Kagoshima, Japan"
   },
   "license": "MIT",
   "safety": {
@@ -74,6 +71,8 @@
     "RFC 5424 Syslog Protocol"
   ],
   "data_source_specs": [
-    "国税庁 法人番号 Web-API 機能 Ver.4.0 (第一編 4.9版 / 第二編 1.2版 / 第六編 1.2版)"
+    "国税庁 法人番号 Web-API 機能 Ver.4.0 (第一編 4.9版 / 第二編 1.2版 / 第六編 1.2版)",
+    "国税庁 適格請求書発行事業者公表システム Web-API 機能・ダウンロードデータ リソース定義書 (1.5版 別紙1)"
   ]
 }
+

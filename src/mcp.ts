@@ -30,9 +30,9 @@ export function createServer(deps: ServerDeps): McpServer {
     },
     {
       capabilities: {
-        tools: { listChanged: true },
-        resources: { listChanged: true, subscribe: false },
-        prompts: { listChanged: true },
+        tools: { listChanged: false },
+        resources: { listChanged: false, subscribe: false },
+        prompts: { listChanged: false },
         completions: {},
       },
       instructions: [
@@ -67,6 +67,14 @@ export function createServer(deps: ServerDeps): McpServer {
   registerAllResources(mcpServer, { ntaClient: deps.ntaClient, logger });
   registerAllPrompts(mcpServer);
   registerCompletionHandler(mcpServer.server, { logger });
+
+  // ステートレス構成では notifications/*/list_changed を送信しないため、
+  // McpServer.registerTool/registerResource/registerPrompt が内部で設定する listChanged: true を false に上書きする
+  mcpServer.server.registerCapabilities({
+    tools: { listChanged: false },
+    resources: { listChanged: false, subscribe: false },
+    prompts: { listChanged: false },
+  });
 
   return mcpServer;
 }

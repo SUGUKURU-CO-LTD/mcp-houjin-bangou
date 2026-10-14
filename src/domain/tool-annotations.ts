@@ -6,7 +6,8 @@
  * - ローカル版 (Web-API直接呼出) では外部通信を行うツールのみ openWorldHint は true
  */
 
-export type DataSourceMode = 'web-api' | 'database' | 'db';
+export const DATA_SOURCE_MODES = ['web-api', 'db'] as const;
+export type DataSourceMode = (typeof DATA_SOURCE_MODES)[number];
 
 export type ToolName =
   | 'lookup_corporate_by_number'
