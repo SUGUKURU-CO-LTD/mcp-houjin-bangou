@@ -1,363 +1,77 @@
 /**
- * Ingest Atomic Swap Integration Tests
+ * Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB実行)
  *
  * 根拠 / Source:
  *   docs/plan/corp-check-interface-v1.md §6.1, §6.2 (ホスト版データ取り込み・全件入れ替え)
  *   Linear Issue: SLA2-324 完了条件:
  *     - 合成データで「初回取り込み→2回目の全件入れ替え→検索」が通り、
  *     - 2回目の途中で失敗させても前の版と前の data_as_of で検索できることを実証する。
+ *     - Docker 上の実 PostgreSQL 16（ポート 55069 または CI 5432）で実行し、
+ *       RENAME 方式のアトミックスワップ、制約・全5本索引の復元、ロールバックを検証する。
  *
  * 【テストデータの性格】
  *   本テストで使用しているデータはすべてテスト用に作成した「合成データ」であり、
  *   実在する事業者や個人の情報、国税庁本番データではありません。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+import { sql, eq, and } from 'drizzle-orm';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import * as schema from '../../src/db/schema.js';
+import { datasetVersions, corporateNumbers } from '../../src/db/schema.js';
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
 import type { DbClient } from '../../src/db/client.js';
 
-interface DatasetVersionRow {
-  id: number;
-  sourceType: string;
-  dataAsOf: string;
-  status: string;
-  recordCount: number;
-  importedAt: Date | null;
-}
+const { Pool } = pg;
 
-interface CorporateRow {
-  corporateNumber: string;
-  datasetVersionId: number;
-  name: string;
-  kind: string;
-  prefectureCode?: string | null;
-  cityCode?: string | null;
-  prefectureName?: string | null;
-  cityName?: string | null;
-  streetNumber?: string | null;
-  addressOutside?: string | null;
-  postCode?: string | null;
-  updateDate: string;
-  closeDate?: string | null;
-  closeCause?: string | null;
-  furigana?: string | null;
-  hihyoji?: string | null;
-  [key: string]: unknown;
-}
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-function safeStringify(obj: unknown): string {
-  const seen = new WeakSet();
-  try {
-    return JSON.stringify(obj, (_key, value) => {
-      if (typeof value === 'object' && value !== null) {
-        if (seen.has(value)) {
-          return undefined;
-        }
-        seen.add(value);
-      }
-      return value;
+const TEST_DB_URL =
+  process.env.TEST_DATABASE_URL ||
+  process.env.DATABASE_URL ||
+  'postgres://test:test@localhost:55069/test';
+
+describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テストデータ)', () => {
+  let pool: pg.Pool;
+  let db: DbClient;
+  let importer: DatasetImporter;
+  let dataProvider: DbCorporateDataProvider;
+
+  beforeAll(async () => {
+    pool = new Pool({
+      connectionString: TEST_DB_URL,
+      max: 5,
     });
-  } catch {
-    return '';
-  }
-}
+    db = drizzle(pool, { schema }) as DbClient;
 
-/**
- * PostgreSQL のトランザクション・アトミックスワップ挙動をシミュレートするインメモリテストDB
- */
-class InMemoryAtomicTestDb {
-  public versions: DatasetVersionRow[] = [];
-  public staging: CorporateRow[] = [];
-  public corporateNumbers: CorporateRow[] = [];
-  private nextVersionId = 1;
+    // マイグレーション適用（0000, 0001, 0002）
+    const migrationsFolder = path.resolve(__dirname, '../../drizzle');
+    await migrate(db as unknown as NodePgDatabase<Record<string, unknown>>, { migrationsFolder });
 
-  public failOnTransaction = false;
+    importer = new DatasetImporter(db);
+    dataProvider = new DbCorporateDataProvider(db);
+  });
 
-  private cloneState() {
-    return {
-      versions: JSON.parse(JSON.stringify(this.versions)) as DatasetVersionRow[],
-      staging: JSON.parse(JSON.stringify(this.staging)) as CorporateRow[],
-      corporateNumbers: JSON.parse(JSON.stringify(this.corporateNumbers)) as CorporateRow[],
-    };
-  }
+  afterAll(async () => {
+    if (pool) {
+      await pool.end();
+    }
+  });
 
-  private restoreState(state: {
-    versions: DatasetVersionRow[];
-    staging: CorporateRow[];
-    corporateNumbers: CorporateRow[];
-  }) {
-    this.versions = state.versions;
-    this.staging = state.staging;
-    this.corporateNumbers = state.corporateNumbers;
-  }
+  beforeEach(async () => {
+    // テーブル状態のリセット
+    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+    await db.execute(sql`TRUNCATE TABLE corporate_numbers, dataset_versions CASCADE;`);
+  });
 
-  public getClient(): DbClient {
-    const self = this;
-
-    const client = {
-      select: (fields?: unknown) => ({
-        from: (_table: unknown) => ({
-          where: (whereClause: unknown) => {
-            // dataset_versions の問い合わせ判定
-            const isVersionQuery =
-              fields &&
-              typeof fields === 'object' &&
-              ('dataAsOf' in (fields as object) || 'id' in (fields as object));
-
-            if (isVersionQuery) {
-              const activeVersions = self.versions
-                .filter((v) => v.sourceType === 'nta_corporate_download' && v.status === 'active')
-                .sort((a, b) => {
-                  const timeA = a.importedAt ? new Date(a.importedAt).getTime() : 0;
-                  const timeB = b.importedAt ? new Date(b.importedAt).getTime() : 0;
-                  return timeB - timeA;
-                });
-
-              return {
-                orderBy: () => ({
-                  limit: (limitCount: number) =>
-                    Promise.resolve(
-                      activeVersions.slice(0, limitCount).map((v) => ({
-                        id: v.id,
-                        dataAsOf: v.dataAsOf,
-                      })),
-                    ),
-                }),
-                limit: (limitCount: number) =>
-                  Promise.resolve(
-                    activeVersions.slice(0, limitCount).map((v) => ({
-                      id: v.id,
-                      dataAsOf: v.dataAsOf,
-                    })),
-                  ),
-              };
-            }
-
-            // corporate_numbers のクエリ
-            return {
-              limit: (limitCount: number) => {
-                const activeVersion = self.versions
-                  .filter((v) => v.sourceType === 'nta_corporate_download' && v.status === 'active')
-                  .sort((a, b) => {
-                    const timeA = a.importedAt ? new Date(a.importedAt).getTime() : 0;
-                    const timeB = b.importedAt ? new Date(b.importedAt).getTime() : 0;
-                    return timeB - timeA;
-                  })[0];
-
-                if (!activeVersion) return Promise.resolve([]);
-
-                let match = self.corporateNumbers.filter(
-                  (c) => c.datasetVersionId === activeVersion.id,
-                );
-
-                const whereStr = safeStringify(whereClause);
-                // corporateNumber での検索判定
-                for (const row of self.corporateNumbers) {
-                  if (whereStr.includes(row.corporateNumber)) {
-                    match = match.filter((c) => c.corporateNumber === row.corporateNumber);
-                    break;
-                  }
-                }
-
-                // name での検索判定（LIKE パターン）
-                for (const row of self.corporateNumbers) {
-                  // 部分一致
-                  if (row.name && whereStr.includes(row.name)) {
-                    match = match.filter((c) => c.name.includes(row.name));
-                    break;
-                  }
-                }
-
-                return Promise.resolve(match.slice(0, limitCount));
-              },
-              orderBy: () => ({
-                limit: (limitCount: number) => ({
-                  offset: (offsetCount: number) => {
-                    const activeVersion = self.versions
-                      .filter(
-                        (v) => v.sourceType === 'nta_corporate_download' && v.status === 'active',
-                      )
-                      .sort((a, b) => {
-                        const timeA = a.importedAt ? new Date(a.importedAt).getTime() : 0;
-                        const timeB = b.importedAt ? new Date(b.importedAt).getTime() : 0;
-                        return timeB - timeA;
-                      })[0];
-
-                    if (!activeVersion) return Promise.resolve([]);
-                    let match = self.corporateNumbers.filter(
-                      (c) => c.datasetVersionId === activeVersion.id,
-                    );
-
-                    const whereStr = safeStringify(whereClause);
-                    // 部分一致パターンを whereStr から検索
-                    for (const row of self.corporateNumbers) {
-                      const prefix = row.name.slice(0, 4);
-                      if (whereStr.includes(prefix)) {
-                        match = match.filter((c) => c.name.includes(prefix));
-                        break;
-                      }
-                    }
-
-                    return Promise.resolve(match.slice(offsetCount, offsetCount + limitCount));
-                  },
-                }),
-              }),
-            };
-          },
-        }),
-      }),
-
-      insert: (_table: unknown) => ({
-        values: (values: unknown) => {
-          if (Array.isArray(values)) {
-            // staging へのバッチ挿入
-            for (const row of values) {
-              self.staging.push(row as CorporateRow);
-            }
-            return {
-              returning: async () => [],
-              execute: async () => {},
-            };
-          }
-
-          // datasetVersions への単一挿入
-          const val = values as Partial<DatasetVersionRow>;
-          const newId = self.nextVersionId++;
-          const newVersion: DatasetVersionRow = {
-            id: newId,
-            sourceType: val.sourceType ?? 'nta_corporate_download',
-            dataAsOf: val.dataAsOf ?? '',
-            status: val.status ?? 'staging',
-            recordCount: val.recordCount ?? 0,
-            importedAt: null,
-          };
-          self.versions.push(newVersion);
-
-          return {
-            returning: async () => [{ id: newId }],
-            execute: async () => {},
-          };
-        },
-      }),
-
-      update: (_table: unknown) => ({
-        set: (setVal: Partial<DatasetVersionRow>) => ({
-          where: (_clause?: unknown) => {
-            // staging が失敗した際のマーク処理 (status: 'failed')
-            if (setVal.status === 'failed') {
-              const last = self.versions[self.versions.length - 1];
-              if (last && last.status === 'staging') {
-                last.status = 'failed';
-              }
-            }
-            return Promise.resolve();
-          },
-        }),
-      }),
-
-      delete: (_table: unknown) => ({
-        where: () => Promise.resolve(),
-      }),
-
-      transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
-        const snapshot = self.cloneState();
-
-        const mockTx = {
-          execute: async (query: { strings?: string[]; queryChunks?: unknown[] }) => {
-            if (self.failOnTransaction) {
-              throw new Error('Database transaction failure (simulated atomic crash)');
-            }
-
-            const queryStr = JSON.stringify(query);
-
-            // DB内完結 INSERT ... SELECT
-            if (queryStr.includes('INSERT INTO corporate_numbers') && queryStr.includes('SELECT')) {
-              // staging の最新データを corporate_numbers にコピー
-              const lastVersion = self.versions[self.versions.length - 1];
-              if (lastVersion) {
-                const rowsToPromote = self.staging.filter(
-                  (r) => r.datasetVersionId === lastVersion.id,
-                );
-                for (const r of rowsToPromote) {
-                  self.corporateNumbers.push({ ...r });
-                }
-              }
-            }
-
-            // 旧版データのクリーンアップ: DELETE FROM corporate_numbers WHERE dataset_version_id != $1
-            if (queryStr.includes('DELETE FROM corporate_numbers')) {
-              const lastVersion = self.versions[self.versions.length - 1];
-              if (lastVersion) {
-                self.corporateNumbers = self.corporateNumbers.filter(
-                  (c) => c.datasetVersionId === lastVersion.id,
-                );
-              }
-            }
-          },
-
-          update: (_table: unknown) => ({
-            set: (setVal: Partial<DatasetVersionRow>) => ({
-              where: () => {
-                if (self.failOnTransaction) {
-                  throw new Error('Transaction failure during version update');
-                }
-
-                if (setVal.status === 'superseded') {
-                  for (const v of self.versions) {
-                    if (v.status === 'active') {
-                      v.status = 'superseded';
-                    }
-                  }
-                } else if (setVal.status === 'active') {
-                  const target = self.versions[self.versions.length - 1];
-                  if (target) {
-                    target.status = 'active';
-                    target.recordCount = setVal.recordCount ?? target.recordCount;
-                    target.importedAt = new Date();
-                  }
-                }
-                return Promise.resolve();
-              },
-            }),
-          }),
-
-          delete: (_table: unknown) => ({
-            where: () => {
-              if (self.failOnTransaction) {
-                throw new Error('Transaction failure during staging cleanup');
-              }
-              // staging 削除
-              const lastVersion = self.versions[self.versions.length - 1];
-              if (lastVersion) {
-                self.staging = self.staging.filter((s) => s.datasetVersionId !== lastVersion.id);
-              }
-              return Promise.resolve();
-            },
-          }),
-        };
-
-        try {
-          return await callback(mockTx);
-        } catch (error) {
-          // ロールバック
-          self.restoreState(snapshot);
-          throw error;
-        }
-      },
-    };
-
-    return client as unknown as DbClient;
-  }
-}
-
-describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)', () => {
   it('初回取り込み成功 → 2回目取り込み途中で失敗しても前世代の版とデータで検索可能 → 2回目再試行で全件入れ替えが成功する', async () => {
-    const dbSim = new InMemoryAtomicTestDb();
-    const dbClient = dbSim.getClient();
-    const importer = new DatasetImporter(dbClient);
-    const dataProvider = new DbCorporateDataProvider(dbClient);
-
     // ==========================================
     // 1. 初回取り込み（v1: 2026-09-01 時点）
     // ==========================================
@@ -369,7 +83,8 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
     const v1Metrics = await importer.importCorporateDataset(initialDataset, '2026-09-01', 10);
     expect(v1Metrics.status).toBe('active');
     expect(v1Metrics.count).toBe(2);
-    expect(v1Metrics.datasetVersionId).toBe(1);
+    expect(v1Metrics.datasetVersionId).toBeGreaterThan(0);
+    const v1Id = v1Metrics.datasetVersionId;
 
     // v1 時点での検索確認
     // 単独検索
@@ -380,7 +95,7 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
       expect(lookup1.value.corporation.name).toBe('株式会社テスト第一');
     }
 
-    // 名前検索
+    // 名前検索（GIN 索引 + pg_trgm が動作していることを検証）
     const search1 = await dataProvider.searchByName('株式会社テスト第一');
     expect(search1.ok).toBe(true);
     if (search1.ok) {
@@ -392,22 +107,34 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
     // ==========================================
     // 2. 2回目の取り込み（v2: 2026-10-01 時点）で障害発生・ロールバック
     // ==========================================
-    // トランザクション内で意図的にクラッシュをシミュレート
-    dbSim.failOnTransaction = true;
-
+    // DB 列長制約（kind は varchar(3)）を超える不正データにより、バッチ挿入時に DB エラーを発生させる
     const brokenDataset = [
       '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（更新版）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
-      '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（新規）","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
+      '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（異常値）","","TOOLONG_KIND_EXCEEDS_LIMIT","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
     ];
 
-    await expect(importer.importCorporateDataset(brokenDataset, '2026-10-01', 10)).rejects.toThrow(
-      'Database transaction failure',
-    );
+    await expect(
+      importer.importCorporateDataset(brokenDataset, '2026-10-01', 10),
+    ).rejects.toThrow();
 
     // v2 は failed にマークされていること
-    const failedVersion = dbSim.versions.find((v) => v.id === 2);
+    const [failedVersion] = await db
+      .select()
+      .from(datasetVersions)
+      .where(
+        and(
+          eq(datasetVersions.sourceType, 'nta_corporate_download'),
+          eq(datasetVersions.status, 'failed'),
+        ),
+      );
     expect(failedVersion).toBeDefined();
     expect(failedVersion?.status).toBe('failed');
+
+    // 一時テーブル corporate_numbers_new がクリーンアップされていること
+    const newTableCheck = await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_new';`,
+    );
+    expect(newTableCheck.rows.length).toBe(0);
 
     // 【最重要完了条件】
     // 障害発生後も、前世代（v1）の active 版と data_as_of（2026-09-01）で継続して検索できること
@@ -428,9 +155,6 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
     // ==========================================
     // 3. 2回目の再試行（v3: 2026-10-01 時点）で全件入れ替えが成功
     // ==========================================
-    // トランザクション正常化
-    dbSim.failOnTransaction = false;
-
     const retryDataset = [
       '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（新本店）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
       '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（新設）","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
@@ -439,11 +163,17 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
     const v3Metrics = await importer.importCorporateDataset(retryDataset, '2026-10-01', 10);
     expect(v3Metrics.status).toBe('active');
     expect(v3Metrics.count).toBe(2);
-    expect(v3Metrics.datasetVersionId).toBe(3);
+    expect(v3Metrics.datasetVersionId).toBeGreaterThan(v1Id);
 
     // v1 は superseded になっていること
-    const v1Record = dbSim.versions.find((v) => v.id === 1);
+    const [v1Record] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1Id));
     expect(v1Record?.status).toBe('superseded');
+
+    // corporate_numbers_old が削除されていること（CASCADE なし）
+    const oldTableCheck = await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
+    );
+    expect(oldTableCheck.rows.length).toBe(0);
 
     // 最新の v3 (data_as_of: 2026-10-01) で検索できること
     const lookupAfterSwap = await dataProvider.lookupByNumber('1000000000001');
@@ -460,54 +190,150 @@ describe('Ingest Atomic Swap Integration Tests (合成テストデータ使用)'
       const nums = searchAfterSwap.value.results.map((r) => r.corporate_number);
       expect(nums).toContain('1000000000001');
       expect(nums).toContain('1000000000003');
-      // 全件入れ替えにより、v1 にあった 1000000000002 は削除されていること
+      // 全件入れ替え（RENAME Swap）により、v1 にあった 1000000000002 は削除されていること
       expect(nums).not.toContain('1000000000002');
     }
+
+    // 索引名が正規名に復元されていることを検証
+    const indexCheck = await db.execute(
+      sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'corporate_numbers';`,
+    );
+    const indexNames = (indexCheck.rows as Array<{ indexname: string }>).map((r) => r.indexname);
+    expect(indexNames).toContain('idx_corporate_numbers_number');
+    expect(indexNames).toContain('idx_corporate_numbers_name');
+    expect(indexNames).toContain('idx_corporate_numbers_name_trgm');
+    expect(indexNames).toContain('idx_corporate_numbers_prefecture');
+    expect(indexNames).toContain('idx_corporate_numbers_version');
+    // _new や _old の索引名が残っていないこと
+    expect(indexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
   });
 
   it('swapCorporateTable: トランザクション内でエラーが発生した場合、テーブル状態およびバージョン状態が巻き戻される', async () => {
-    const dbSim = new InMemoryAtomicTestDb();
-    // 初期 active 版を設定
-    dbSim.versions.push({
-      id: 1,
-      sourceType: 'nta_corporate_download',
-      dataAsOf: '2026-09-01',
-      status: 'active',
-      recordCount: 10,
-      importedAt: new Date(),
-    });
-    // staging 完了した新版
-    dbSim.versions.push({
-      id: 2,
-      sourceType: 'nta_corporate_download',
-      dataAsOf: '2026-10-01',
-      status: 'staging',
-      recordCount: 12,
-      importedAt: null,
-    });
+    // 1. 初期 active 版を設定
+    const [v1] = await db
+      .insert(datasetVersions)
+      .values({
+        sourceType: 'nta_corporate_download',
+        dataAsOf: '2026-09-01',
+        status: 'active',
+        recordCount: 10,
+      })
+      .returning({ id: datasetVersions.id });
 
-    const dbClient = dbSim.getClient();
-    const importer = new DatasetImporter(dbClient);
+    // 2. 新規 staging 版を作成
+    const [v2] = await db
+      .insert(datasetVersions)
+      .values({
+        sourceType: 'nta_corporate_download',
+        dataAsOf: '2026-10-01',
+        status: 'staging',
+        recordCount: 12,
+      })
+      .returning({ id: datasetVersions.id });
 
-    // スワップ処理中に障害をシミュレート
-    dbSim.failOnTransaction = true;
+    expect(v1).toBeDefined();
+    expect(v2).toBeDefined();
+    if (!v1 || !v2) {
+      throw new Error('Failed to create test versions');
+    }
 
-    await expect(
-      importer.swapCorporateTable(
-        'corporate_numbers_staging',
-        'corporate_numbers',
-        'corporate_numbers_old',
-        2,
-        '2026-10-01',
-      ),
-    ).rejects.toThrow('Database transaction failure');
+    // corporate_numbers_new が存在しない状態で swapCorporateTable を呼ぶと、
+    // RENAME 処理のトランザクション内で失敗する
+    await expect(importer.swapCorporateTable(v2.id, 12, '2026-10-01')).rejects.toThrow();
 
     // トランザクションがロールバックされ、v1 は依然として active であること
-    const v1 = dbSim.versions.find((v) => v.id === 1);
-    expect(v1?.status).toBe('active');
+    const [v1After] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1.id));
+    expect(v1After?.status).toBe('active');
 
-    // v2 は active に昇格していないこと
-    const v2 = dbSim.versions.find((v) => v.id === 2);
-    expect(v2?.status).toBe('staging');
+    // v2 は active に昇格せず staging のままであること
+    const [v2After] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v2.id));
+    expect(v2After?.status).toBe('staging');
+  });
+
+  it('swapCorporateTable: 正常にテーブルとインデックス・制約がスワップされ、旧表が削除される', async () => {
+    // 1. 初期 active 版とデータ
+    const [v1] = await db
+      .insert(datasetVersions)
+      .values({
+        sourceType: 'nta_corporate_download',
+        dataAsOf: '2026-09-01',
+        status: 'active',
+        recordCount: 1,
+      })
+      .returning({ id: datasetVersions.id });
+
+    // 2. 新規 staging 版
+    const [v2] = await db
+      .insert(datasetVersions)
+      .values({
+        sourceType: 'nta_corporate_download',
+        dataAsOf: '2026-10-01',
+        status: 'staging',
+        recordCount: 1,
+      })
+      .returning({ id: datasetVersions.id });
+
+    expect(v1).toBeDefined();
+    expect(v2).toBeDefined();
+    if (!v1 || !v2) {
+      throw new Error('Failed to create test versions');
+    }
+
+    await db.insert(corporateNumbers).values({
+      corporateNumber: '1111111111111',
+      name: '旧テスト株式会社',
+      kind: '301',
+      updateDate: '2026-09-01',
+      datasetVersionId: v1.id,
+    });
+
+    // 3. corporate_numbers_new を構築
+    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+    await db.execute(
+      sql`CREATE TABLE corporate_numbers_new (LIKE corporate_numbers INCLUDING DEFAULTS);`,
+    );
+    await db.execute(sql`
+      INSERT INTO corporate_numbers_new (
+        corporate_number, name, kind, update_date, dataset_version_id
+      ) VALUES (
+        '2222222222222', '新テスト株式会社', '301', '2026-10-01', ${v2.id}
+      );
+    `);
+    // 制約と一時索引を作成
+    await db.execute(sql`
+      ALTER TABLE corporate_numbers_new
+        ADD CONSTRAINT corporate_numbers_new_pk PRIMARY KEY (corporate_number, dataset_version_id);
+      ALTER TABLE corporate_numbers_new
+        ADD CONSTRAINT corporate_numbers_new_dataset_versions_fk
+        FOREIGN KEY (dataset_version_id) REFERENCES dataset_versions(id) ON DELETE CASCADE;
+      CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
+      CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
+      CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
+      CREATE INDEX idx_corporate_numbers_prefecture_new ON corporate_numbers_new (prefecture_code);
+      CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
+    `);
+
+    // 4. swapCorporateTable を実行
+    const swapResult = await importer.swapCorporateTable(v2.id, 1, '2026-10-01');
+    expect(swapResult.durationMs).toBeGreaterThanOrEqual(0);
+
+    // v1 は superseded、v2 は active
+    const [v1Final] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1.id));
+    const [v2Final] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v2.id));
+    expect(v1Final?.status).toBe('superseded');
+    expect(v2Final?.status).toBe('active');
+
+    // corporate_numbers_old は削除されていること
+    const oldTableCheck = await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
+    );
+    expect(oldTableCheck.rows.length).toBe(0);
+
+    // 新テーブルの内容が検索できること
+    const lookup = await dataProvider.lookupByNumber('2222222222222');
+    expect(lookup.ok).toBe(true);
+    if (lookup.ok) {
+      expect(lookup.value.corporation.name).toBe('新テスト株式会社');
+    }
   });
 });

@@ -165,6 +165,9 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     let updatedVersionStatus = '';
 
     const mockDb = {
+      execute: async (query: unknown) => {
+        executedSqls.push(query);
+      },
       insert: () => ({
         values: (val: unknown) => {
           insertedStagingBatches.push(val);
@@ -216,6 +219,7 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     let failedVersionStatus = '';
 
     const mockDb = {
+      execute: async () => {},
       insert: () => ({
         values: () => ({
           returning: async () => [{ id: 99 }],
@@ -250,7 +254,12 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     let executedSql = false;
     let versionUpdated = false;
 
+    let droppedOldTable = false;
+
     const mockDb = {
+      execute: async () => {
+        droppedOldTable = true;
+      },
       transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
         const mockTx = {
           execute: async () => {
@@ -270,15 +279,10 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     } as unknown as DbClient;
 
     const importer = new DatasetImporter(mockDb);
-    const result = await importer.swapCorporateTable(
-      'corporate_numbers_new',
-      'corporate_numbers',
-      'corporate_numbers_old',
-      101,
-      '2026-10-01',
-    );
+    const result = await importer.swapCorporateTable(101, 10, '2026-10-01');
 
     expect(executedSql).toBe(true);
+    expect(droppedOldTable).toBe(true);
     expect(versionUpdated).toBe(true);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
@@ -302,6 +306,9 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
       let updatedStatus = '';
 
       const mockDb = {
+        execute: async (query: unknown) => {
+          executedSqls.push(query);
+        },
         insert: () => ({
           values: (val: unknown) => {
             insertedBatches.push(val);

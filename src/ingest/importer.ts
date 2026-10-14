@@ -15,16 +15,50 @@
 import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 import { eq, and, sql } from 'drizzle-orm';
+import { pgTable, varchar, integer } from 'drizzle-orm/pg-core';
 import type { DbClient } from '../db/client.js';
-import {
-  datasetVersions,
-  corporateNumbersStaging,
-  invoiceIssuers,
-  invoiceIssuersStaging,
-} from '../db/schema.js';
+import { datasetVersions, invoiceIssuers, invoiceIssuersStaging } from '../db/schema.js';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from './parser.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import type { ImportMetrics } from './types.js';
+
+/**
+ * 取り込み作業用の新テーブル定義（corporate_numbers_new）
+ * Drizzle クエリビルダーの型安全性とバッチ挿入を活用するために定義。
+ * 実テーブルは LIKE corporate_numbers INCLUDING DEFAULTS により動的生成される。
+ */
+export const corporateNumbersNew = pgTable('corporate_numbers_new', {
+  corporateNumber: varchar('corporate_number', { length: 13 }).notNull(),
+  process: varchar('process', { length: 2 }),
+  correct: varchar('correct', { length: 1 }),
+  updateDate: varchar('update_date', { length: 10 }).notNull(),
+  changeDate: varchar('change_date', { length: 10 }),
+  name: varchar('name', { length: 300 }).notNull(),
+  nameImageId: varchar('name_image_id', { length: 8 }),
+  kind: varchar('kind', { length: 3 }).notNull(),
+  prefectureName: varchar('prefecture_name', { length: 10 }),
+  cityName: varchar('city_name', { length: 20 }),
+  streetNumber: varchar('street_number', { length: 300 }),
+  addressImageId: varchar('address_image_id', { length: 8 }),
+  prefectureCode: varchar('prefecture_code', { length: 2 }),
+  cityCode: varchar('city_code', { length: 3 }),
+  postCode: varchar('post_code', { length: 7 }),
+  addressOutside: varchar('address_outside', { length: 300 }),
+  addressOutsideImageId: varchar('address_outside_image_id', { length: 8 }),
+  closeDate: varchar('close_date', { length: 10 }),
+  closeCause: varchar('close_cause', { length: 2 }),
+  successorCorporateNumber: varchar('successor_corporate_number', { length: 13 }),
+  changeCause: varchar('change_cause', { length: 500 }),
+  assignmentDate: varchar('assignment_date', { length: 10 }),
+  latest: varchar('latest', { length: 1 }).notNull().default('1'),
+  enName: varchar('en_name', { length: 300 }),
+  enPrefectureName: varchar('en_prefecture_name', { length: 50 }),
+  enCityName: varchar('en_city_name', { length: 50 }),
+  enAddressOutside: varchar('en_address_outside', { length: 300 }),
+  furigana: varchar('furigana', { length: 500 }),
+  hihyoji: varchar('hihyoji', { length: 1 }).notNull().default('0'),
+  datasetVersionId: integer('dataset_version_id').notNull(),
+});
 
 export interface ImporterOptions {
   batchSize?: number;
@@ -127,8 +161,15 @@ export class DatasetImporter {
 
       versionId = version.id;
 
-      // 2. ステージングテーブルへバッチ挿入（行単位ストリーミング処理）
-      let batch: Array<typeof corporateNumbersStaging.$inferInsert> = [];
+      // 2. 新規一時テーブル corporate_numbers_new を初期化（残存一時テーブルがあれば事前クリーンアップ）
+      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await this.db.execute(
+        sql`CREATE TABLE corporate_numbers_new (LIKE corporate_numbers INCLUDING DEFAULTS);`,
+      );
+
+      // 3. corporate_numbers_new へストリーミングでバッチ挿入
+      let batch: Array<typeof corporateNumbersNew.$inferInsert> = [];
 
       for await (const line of lines) {
         const parsed = parseCorporateCsvLine(line);
@@ -170,73 +211,42 @@ export class DatasetImporter {
         count++;
 
         if (batch.length >= batchSize) {
-          await this.db.insert(corporateNumbersStaging).values(batch);
+          await this.db.insert(corporateNumbersNew).values(batch);
           batch = [];
         }
       }
 
       if (batch.length > 0) {
-        await this.db.insert(corporateNumbersStaging).values(batch);
+        await this.db.insert(corporateNumbersNew).values(batch);
         batch = [];
       }
 
-      // 3. 全件正常に取り込めたら、トランザクションで本番反映とアクティブ化をアトミックに実行
-      // Node.js に全件展開せず、PostgreSQL 内部で INSERT ... SELECT により完結させる（OOM・パラメータ上限回避）
-      await this.db.transaction(async (tx) => {
-        // ステージングから本番テーブルへ DB 内で直接コピー
-        await tx.execute(sql`
-          INSERT INTO corporate_numbers (
-            corporate_number, process, correct, update_date, change_date,
-            name, name_image_id, kind, prefecture_name, city_name,
-            street_number, address_image_id, prefecture_code, city_code,
-            post_code, address_outside, address_outside_image_id, close_date,
-            close_cause, successor_corporate_number, change_cause, assignment_date,
-            latest, en_name, en_prefecture_name, en_city_name, en_address_outside,
-            furigana, hihyoji, dataset_version_id
-          )
-          SELECT
-            corporate_number, process, correct, update_date, change_date,
-            name, name_image_id, kind, prefecture_name, city_name,
-            street_number, address_image_id, prefecture_code, city_code,
-            post_code, address_outside, address_outside_image_id, close_date,
-            close_cause, successor_corporate_number, change_cause, assignment_date,
-            latest, en_name, en_prefecture_name, en_city_name, en_address_outside,
-            furigana, hihyoji, dataset_version_id
-          FROM corporate_numbers_staging
-          WHERE dataset_version_id = ${versionId}
-        `);
+      // 4. データ投入完了後、corporate_numbers_new に制約および全索引を作成（一時名）
+      await this.db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
 
-        // 旧アクティブ版を superseded に更新
-        await tx
-          .update(datasetVersions)
-          .set({ status: 'superseded' })
-          .where(
-            and(
-              eq(datasetVersions.sourceType, 'nta_corporate_download'),
-              eq(datasetVersions.status, 'active'),
-            ),
-          );
+      await this.db.execute(sql`
+        ALTER TABLE corporate_numbers_new
+          ADD CONSTRAINT corporate_numbers_new_pk PRIMARY KEY (corporate_number, dataset_version_id);
+      `);
+      await this.db.execute(sql`
+        ALTER TABLE corporate_numbers_new
+          ADD CONSTRAINT corporate_numbers_new_dataset_versions_fk
+          FOREIGN KEY (dataset_version_id) REFERENCES dataset_versions(id) ON DELETE CASCADE;
+      `);
 
-        // 新バージョンを active に昇格
-        await tx
-          .update(datasetVersions)
-          .set({
-            status: 'active',
-            recordCount: count,
-            importedAt: new Date(),
-          })
-          .where(eq(datasetVersions.id, versionId));
+      await this.db.execute(sql`
+        CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
+        CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
+        CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
+        CREATE INDEX idx_corporate_numbers_prefecture_new ON corporate_numbers_new (prefecture_code);
+        CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
+      `);
 
-        // ステージングデータを削除
-        await tx
-          .delete(corporateNumbersStaging)
-          .where(eq(corporateNumbersStaging.datasetVersionId, versionId));
+      // 5. 単一トランザクション内で表名・索引名・制約名をアトミックに入れ替え、版を active に昇格
+      await this.executeAtomicSwap(versionId, count);
 
-        // 旧版データのクリーンアップ（全件入れ替え方式のため、新版以外の旧データを削除）
-        await tx.execute(sql`
-          DELETE FROM corporate_numbers WHERE dataset_version_id != ${versionId}
-        `);
-      });
+      // 6. コミット後、旧表を CASCADE なしで削除
+      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
 
       const metrics: ImportMetrics = {
         sourceType: 'nta_corporate_download',
@@ -247,11 +257,21 @@ export class DatasetImporter {
         status: 'active',
       };
 
-      this.logger.info(metrics, 'Corporate dataset import completed successfully');
+      this.logger.info(
+        metrics,
+        'Corporate dataset import completed successfully via atomic RENAME swap',
+      );
       return metrics;
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const errorType = err instanceof Error ? err.name : 'UnknownError';
+
+      // 失敗時クリーンアップ: corporate_numbers_new を DROP
+      try {
+        await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      } catch {
+        // ignore
+      }
 
       // 失敗した staging レコードをマーク
       if (versionId > 0) {
@@ -260,10 +280,6 @@ export class DatasetImporter {
             .update(datasetVersions)
             .set({ status: 'failed' })
             .where(eq(datasetVersions.id, versionId));
-
-          await this.db
-            .delete(corporateNumbersStaging)
-            .where(eq(corporateNumbersStaging.datasetVersionId, versionId));
         } catch {
           // cleanup failure ignored
         }
@@ -438,61 +454,105 @@ export class DatasetImporter {
   }
 
   /**
+   * 単一トランザクション内でテーブル名・索引名・制約名をアトミックに入れ替え、
+   * 旧版を superseded、新版を active に切り替える
+   */
+  private async executeAtomicSwap(versionId: number, recordCount: number): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      // 1. 旧テーブルを old にリネーム
+      await tx.execute(sql`ALTER TABLE corporate_numbers RENAME TO corporate_numbers_old;`);
+
+      // 2. 旧テーブルの制約・索引を old にリネーム（正規名を解放）
+      await tx.execute(sql`
+        ALTER TABLE corporate_numbers_old
+          RENAME CONSTRAINT corporate_numbers_corporate_number_dataset_version_id_pk
+          TO corporate_numbers_pk_old;
+        ALTER TABLE corporate_numbers_old
+          RENAME CONSTRAINT corporate_numbers_dataset_version_id_dataset_versions_id_fk
+          TO corporate_numbers_dataset_versions_fk_old;
+        ALTER INDEX idx_corporate_numbers_number RENAME TO idx_corporate_numbers_number_old;
+        ALTER INDEX idx_corporate_numbers_name RENAME TO idx_corporate_numbers_name_old;
+        ALTER INDEX idx_corporate_numbers_name_trgm RENAME TO idx_corporate_numbers_name_trgm_old;
+        ALTER INDEX idx_corporate_numbers_prefecture RENAME TO idx_corporate_numbers_prefecture_old;
+        ALTER INDEX idx_corporate_numbers_version RENAME TO idx_corporate_numbers_version_old;
+      `);
+
+      // 3. 新テーブルを正規名 corporate_numbers にリネーム
+      await tx.execute(sql`ALTER TABLE corporate_numbers_new RENAME TO corporate_numbers;`);
+
+      // 4. 新テーブルの制約・索引を正規名にリネーム（drizzle マイグレーション定義と完全一致させる）
+      await tx.execute(sql`
+        ALTER TABLE corporate_numbers
+          RENAME CONSTRAINT corporate_numbers_new_pk
+          TO corporate_numbers_corporate_number_dataset_version_id_pk;
+        ALTER TABLE corporate_numbers
+          RENAME CONSTRAINT corporate_numbers_new_dataset_versions_fk
+          TO corporate_numbers_dataset_version_id_dataset_versions_id_fk;
+        ALTER INDEX idx_corporate_numbers_number_new RENAME TO idx_corporate_numbers_number;
+        ALTER INDEX idx_corporate_numbers_name_new RENAME TO idx_corporate_numbers_name;
+        ALTER INDEX idx_corporate_numbers_name_trgm_new RENAME TO idx_corporate_numbers_name_trgm;
+        ALTER INDEX idx_corporate_numbers_prefecture_new RENAME TO idx_corporate_numbers_prefecture;
+        ALTER INDEX idx_corporate_numbers_version_new RENAME TO idx_corporate_numbers_version;
+      `);
+
+      // 5. 旧アクティブ版を superseded に更新
+      await tx
+        .update(datasetVersions)
+        .set({ status: 'superseded' })
+        .where(
+          and(
+            eq(datasetVersions.sourceType, 'nta_corporate_download'),
+            eq(datasetVersions.status, 'active'),
+          ),
+        );
+
+      // 6. 新バージョンを active に昇格（必須）
+      await tx
+        .update(datasetVersions)
+        .set({
+          status: 'active',
+          recordCount,
+          importedAt: new Date(),
+        })
+        .where(eq(datasetVersions.id, versionId));
+    });
+  }
+
+  /**
    * 全件データ取り込み後のテーブル一括入れ替え（RENAME Swap 方式）
    *
    * 根拠:
    *   全件規模（約573万件）の一括更新時、通常の一行単位・バッチ単位のコピーではなく、
-   *   別表（staging/new）にデータ投入および全索引（GIN/B-tree）作成を完了させた後、
-   *   同一トランザクション内で表名をアトミックに入れ替える（実測 169.70 ms）。
+   *   別表（new）にデータ投入および全索引（GIN/B-tree）作成を完了させた後、
+   *   同一トランザクション内で表名・索引名・制約名をアトミックに入れ替え、
+   *   旧版を superseded、新版を active に切り替える。
+   *   旧表は CASCADE なしで削除する。
    *
-   * @param newTableName 新規データ投入・索引作成済みのテーブル名
-   * @param activeTableName 現在運用中のアクティブテーブル名
-   * @param oldTableName 旧データ退避用の一時テーブル名
-   * @param datasetVersionId 対象のデータセットバージョンID
+   * @param datasetVersionId 対象のデータセットバージョンID（必須・正の整数）
+   * @param recordCount 取り込みレコード件数
    * @param dataAsOf データの基準日
    */
   async swapCorporateTable(
-    newTableName = 'corporate_numbers_new',
-    activeTableName = 'corporate_numbers',
-    oldTableName = 'corporate_numbers_old',
-    datasetVersionId = 0,
+    datasetVersionId: number,
+    recordCount = 0,
     dataAsOf = 'swap',
   ): Promise<{ durationMs: number }> {
+    if (!datasetVersionId || datasetVersionId <= 0) {
+      throw new Error('datasetVersionId must be a positive integer for atomic swap');
+    }
+
     const startTime = Date.now();
-    await this.db.transaction(async (tx) => {
-      await tx.execute(sql`
-        ALTER TABLE ${sql.identifier(activeTableName)} RENAME TO ${sql.identifier(oldTableName)};
-        ALTER TABLE ${sql.identifier(newTableName)} RENAME TO ${sql.identifier(activeTableName)};
-        DROP TABLE IF EXISTS ${sql.identifier(oldTableName)} CASCADE;
-      `);
+    await this.executeAtomicSwap(datasetVersionId, recordCount);
+    // コミット後、旧表を CASCADE なしで削除
+    await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
 
-      if (datasetVersionId > 0) {
-        await tx
-          .update(datasetVersions)
-          .set({ status: 'superseded' })
-          .where(
-            and(
-              eq(datasetVersions.sourceType, 'nta_corporate_download'),
-              eq(datasetVersions.status, 'active'),
-            ),
-          );
-
-        await tx
-          .update(datasetVersions)
-          .set({
-            status: 'active',
-            importedAt: new Date(),
-          })
-          .where(eq(datasetVersions.id, datasetVersionId));
-      }
-    });
     const durationMs = Date.now() - startTime;
     this.logger.info(
       {
         sourceType: 'nta_corporate_download',
         dataAsOf,
         datasetVersionId,
-        count: 0,
+        count: recordCount,
         durationMs,
         status: 'active',
       },

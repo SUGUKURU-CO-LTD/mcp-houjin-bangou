@@ -1,0 +1,2 @@
+ALTER TABLE "corporate_numbers" ADD COLUMN "hihyoji" varchar(1) DEFAULT '0' NOT NULL;--> statement-breakpoint
+ALTER TABLE "corporate_numbers_staging" ADD COLUMN "hihyoji" varchar(1) DEFAULT '0' NOT NULL;
