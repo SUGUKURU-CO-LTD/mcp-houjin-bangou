@@ -110,16 +110,70 @@ export const invoiceIssuersNew = pgTable('invoice_issuers_new', {
 export interface ImporterOptions {
   batchSize?: number;
   logger?: IngestLogger;
+  /**
+   * 新しい版の最小許容件数（既定: 環境変数 INGEST_MIN_RECORD_COUNT または 1）
+   * 0件（空ファイル等）や最小件数未満での入れ替えを防止する。
+   */
+  minRecordCount?: number;
+  /**
+   * 稼働中の版（status='active'）の件数に対する最小許容比率（0〜1、既定: 環境変数 INGEST_MIN_RECORD_COUNT_RATIO または 0.9）
+   * 分割ファイルの欠落等で稼働中の版より大きく件数が減った場合に入れ替えを中止する。
+   */
+  minRecordCountRatio?: number;
+  /**
+   * 法人番号CSVにおいて解析できない行の最大許容比率（0〜1、既定: 環境変数 INGEST_MAX_INVALID_ROW_RATIO または 0.01）
+   * 国税庁のCSV形式変更等で解析不能行が一定割合を超えた場合に入れ替えを中止する。
+   */
+  maxInvalidRowRatio?: number;
 }
+
+/**
+ * 取り込み検証の既定しきい値
+ * - DEFAULT_MIN_RECORD_COUNT (1): 0件（空ファイル・空配列・全行スキップ）での入れ替えを防ぐ最小件数
+ * - DEFAULT_MIN_RECORD_COUNT_RATIO (0.9): 稼働中の版の件数に対する最小許容比率（90%未満＝10%超の減少で中止）
+ * - DEFAULT_MAX_INVALID_ROW_RATIO (0.01): 法人番号CSVの解析不能行の最大許容比率（1%超で中止）
+ */
+export const DEFAULT_MIN_RECORD_COUNT = 1;
+export const DEFAULT_MIN_RECORD_COUNT_RATIO = 0.9;
+export const DEFAULT_MAX_INVALID_ROW_RATIO = 0.01;
 
 export class DatasetImporter {
   private logger: IngestLogger;
+  private minRecordCount: number;
+  private minRecordCountRatio: number;
+  private maxInvalidRowRatio: number;
 
   constructor(
     private db: DbClient,
     options?: ImporterOptions,
   ) {
     this.logger = options?.logger ?? createIngestLogger();
+
+    const envMinRecordCount = process.env.INGEST_MIN_RECORD_COUNT
+      ? Number(process.env.INGEST_MIN_RECORD_COUNT)
+      : undefined;
+    const envMinRecordCountRatio = process.env.INGEST_MIN_RECORD_COUNT_RATIO
+      ? Number(process.env.INGEST_MIN_RECORD_COUNT_RATIO)
+      : undefined;
+    const envMaxInvalidRowRatio = process.env.INGEST_MAX_INVALID_ROW_RATIO
+      ? Number(process.env.INGEST_MAX_INVALID_ROW_RATIO)
+      : undefined;
+
+    this.minRecordCount =
+      options?.minRecordCount ??
+      (envMinRecordCount !== undefined && !Number.isNaN(envMinRecordCount)
+        ? envMinRecordCount
+        : DEFAULT_MIN_RECORD_COUNT);
+    this.minRecordCountRatio =
+      options?.minRecordCountRatio ??
+      (envMinRecordCountRatio !== undefined && !Number.isNaN(envMinRecordCountRatio)
+        ? envMinRecordCountRatio
+        : DEFAULT_MIN_RECORD_COUNT_RATIO);
+    this.maxInvalidRowRatio =
+      options?.maxInvalidRowRatio ??
+      (envMaxInvalidRowRatio !== undefined && !Number.isNaN(envMaxInvalidRowRatio)
+        ? envMaxInvalidRowRatio
+        : DEFAULT_MAX_INVALID_ROW_RATIO);
   }
 
   /**
@@ -194,6 +248,7 @@ export class DatasetImporter {
     const startTime = Date.now();
     let versionId = 0;
     let count = 0;
+    let invalidRowCount = 0;
     let lockClient: pg.PoolClient | undefined;
     let lockAcquired = false;
     let activeDb: DbClient = this.db;
@@ -263,8 +318,12 @@ export class DatasetImporter {
       let batch: Array<typeof corporateNumbersNew.$inferInsert> = [];
 
       for await (const line of lines) {
+        if (!line.trim()) continue;
         const parsed = parseCorporateCsvLine(line);
-        if (!parsed) continue;
+        if (!parsed) {
+          invalidRowCount++;
+          continue;
+        }
 
         batch.push({
           corporateNumber: parsed.corporateNumber,
@@ -312,6 +371,37 @@ export class DatasetImporter {
         batch = [];
       }
 
+      // 3b. 件数・形式の安全確認（0件・大幅減少・形式変更時の入れ替え防止）
+      const totalLines = count + invalidRowCount;
+      if (totalLines > 0) {
+        const invalidRatio = invalidRowCount / totalLines;
+        if (invalidRatio > this.maxInvalidRowRatio) {
+          throw new Error(
+            `Corporate CSV invalid row ratio (${invalidRowCount}/${totalLines}) exceeds maxInvalidRowRatio (${this.maxInvalidRowRatio})`,
+          );
+        }
+      }
+
+      if (count <= 0 || count < this.minRecordCount) {
+        throw new Error(
+          `Corporate dataset record count (${count}) is below minRecordCount (${this.minRecordCount}); aborting swap to preserve active dataset`,
+        );
+      }
+
+      const activeVersionRes = (await activeDb.execute(sql`
+        SELECT record_count
+        FROM dataset_versions
+        WHERE source_type = 'nta_corporate_download' AND status = 'active'
+        ORDER BY id DESC
+        LIMIT 1;
+      `)) as unknown as { rows?: Array<{ record_count?: number | string }> } | undefined;
+      const activeRecordCount = Number(activeVersionRes?.rows?.[0]?.record_count ?? 0);
+      if (activeRecordCount > 0 && count < activeRecordCount * this.minRecordCountRatio) {
+        throw new Error(
+          `Corporate dataset record count (${count}) dropped below minRecordCountRatio (${this.minRecordCountRatio}) of active dataset (${activeRecordCount}); aborting swap to preserve active dataset`,
+        );
+      }
+
       // 4. データ投入完了後、corporate_numbers_new に制約および全索引を作成（一時名）
       // ※ pg_trgm 拡張の作成はマイグレーション 0001 で実行済み
       await activeDb.execute(sql`
@@ -346,6 +436,7 @@ export class DatasetImporter {
         count,
         durationMs: Date.now() - startTime,
         status: 'active',
+        invalidRowCount,
       };
 
       this.logger.info(
@@ -383,6 +474,7 @@ export class DatasetImporter {
           datasetVersionId: versionId,
           count,
           durationMs,
+          invalidRowCount,
           errorType,
         },
         'Corporate dataset import failed; prior active dataset preserved',
@@ -596,6 +688,27 @@ export class DatasetImporter {
       if (batch.length > 0) {
         await activeDb.insert(invoiceIssuersNew).values(batch);
         batch = [];
+      }
+
+      // 3b. 件数の安全確認（0件・大幅減少時の入れ替え防止）
+      if (count <= 0 || count < this.minRecordCount) {
+        throw new Error(
+          `Invoice dataset record count (${count}) is below minRecordCount (${this.minRecordCount}); aborting swap to preserve active dataset`,
+        );
+      }
+
+      const activeVersionRes = (await activeDb.execute(sql`
+        SELECT record_count
+        FROM dataset_versions
+        WHERE source_type = 'nta_invoice_download' AND status = 'active'
+        ORDER BY id DESC
+        LIMIT 1;
+      `)) as unknown as { rows?: Array<{ record_count?: number | string }> } | undefined;
+      const activeRecordCount = Number(activeVersionRes?.rows?.[0]?.record_count ?? 0);
+      if (activeRecordCount > 0 && count < activeRecordCount * this.minRecordCountRatio) {
+        throw new Error(
+          `Invoice dataset record count (${count}) dropped below minRecordCountRatio (${this.minRecordCountRatio}) of active dataset (${activeRecordCount}); aborting swap to preserve active dataset`,
+        );
       }
 
       // 4. データ投入完了後、invoice_issuers_new に制約および全索引を作成（一時名）

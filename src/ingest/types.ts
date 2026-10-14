@@ -83,5 +83,6 @@ export interface ImportMetrics {
   durationMs: number;
   status: 'active' | 'failed' | 'skipped';
   unknownKindCount?: number;
+  invalidRowCount?: number;
   errorType?: string;
 }

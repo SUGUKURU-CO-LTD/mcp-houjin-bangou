@@ -66,8 +66,18 @@ export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
     return null;
   }
 
+  const sequenceNumber = cols[0]?.trim() || '';
+  if (!/^\d{1,8}$/.test(sequenceNumber)) {
+    return null;
+  }
+
   const corporateNumber = cols[1]?.trim() || '';
-  if (!corporateNumber) {
+  if (!/^\d{13}$/.test(corporateNumber)) {
+    return null;
+  }
+
+  const updateDate = cols[4]?.trim() || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(updateDate)) {
     return null;
   }
 
@@ -78,11 +88,11 @@ export function parseCorporateCsvLine(line: string): CorporateCsvRow | null {
   };
 
   return {
-    sequenceNumber: cols[0] || '',
+    sequenceNumber,
     corporateNumber,
     process: clean(cols[2]),
     correct: clean(cols[3]),
-    updateDate: cols[4]?.trim() || '',
+    updateDate,
     changeDate: clean(cols[5]),
     name: cols[6]?.trim() || '',
     nameImageId: clean(cols[7]),

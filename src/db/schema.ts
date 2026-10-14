@@ -152,6 +152,9 @@ export const corporateNumbersStaging = pgTable(
  *      最新行（latest='1'）と過去履歴行（latest='0'）の複数行が存在する。
  *      取引日時点の有効性判定に必要な登録・取消・失効の年月日を失わないよう、
  *      主キーを (registration_number, sequence_number, dataset_version_id) として全履歴行を保持する。
+ *      なお、リソース定義書1.5版では、法人のファイルは地域ごとの分割ファイルごとに一連番号（sequence_number）を付し、
+ *      人格のない社団等・個人は分割前の全体で付す。同じ登録番号（registration_number）は1つの分割ファイルにしか
+ *      現れないため、登録番号と一連番号の組み合わせで全件データ内において一意となる。
  */
 export const invoiceIssuers = pgTable(
   'invoice_issuers',
@@ -190,6 +193,7 @@ export const invoiceIssuers = pgTable(
       columns: [table.registrationNumber, table.sequenceNumber, table.datasetVersionId],
     }),
     index('idx_invoice_issuers_reg_number').on(table.registrationNumber),
+    index('idx_invoice_issuers_reg_latest').on(table.registrationNumber, table.latest),
     index('idx_invoice_issuers_version').on(table.datasetVersionId),
   ],
 );

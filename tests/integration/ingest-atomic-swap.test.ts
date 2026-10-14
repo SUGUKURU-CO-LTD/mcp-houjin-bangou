@@ -503,4 +503,142 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     expect(invIndexNames).toContain('idx_invoice_issuers_version');
     expect(invIndexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
   });
+
+  it('法人番号の件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
+    // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
+    const initialCorp10 = Array.from({ length: 10 }, (_, i) => {
+      const corpNum = String(1000000000001 + i);
+      return `${i + 1},"${corpNum}","01","1","2026-09-01","2026-09-01","株式会社初期データ_${i + 1}","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
+    });
+
+    const v1 = await importer.importCorporateDataset(initialCorp10, '2026-09-01', 10);
+    expect(v1.status).toBe('active');
+    expect(v1.count).toBe(10);
+
+    // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
+    await expect(importer.importCorporateDataset([], '2026-10-01', 10)).rejects.toThrow(
+      /below minRecordCount/,
+    );
+    const [v1AfterZero] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterZero?.status).toBe('active');
+    const lookupAfterZero = await dataProvider.lookupByNumber('1000000000001');
+    expect(lookupAfterZero.ok).toBe(true);
+    if (lookupAfterZero.ok) {
+      expect(lookupAfterZero.value.data_as_of).toBe('2026-09-01');
+      expect(lookupAfterZero.value.corporation.name).toBe('株式会社初期データ_1');
+    }
+
+    // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
+    const reducedCorp5 = initialCorp10
+      .slice(0, 5)
+      .map((line) =>
+        line.replaceAll('2026-09-01', '2026-10-01').replaceAll('初期データ', '減少データ'),
+      );
+    await expect(importer.importCorporateDataset(reducedCorp5, '2026-10-01', 10)).rejects.toThrow(
+      /dropped below minRecordCountRatio/,
+    );
+    const [v1AfterDrop] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterDrop?.status).toBe('active');
+    const corpRowsAfterDrop = await db.select().from(corporateNumbers);
+    expect(corpRowsAfterDrop.length).toBe(10);
+
+    // ケース3: 「形式が変わった」（列の並び・日付形式が変わり解析不能行の割合が maxInvalidRowRatio=0.01 を超える）→ 中止され旧版（v1: 10件）が残る
+    const formatChangedCorp = [
+      // 9行は正常だが1行（10% > 1%）が列ズレ・形式変更によりパース不能
+      ...initialCorp10.slice(0, 9),
+      '10,"INVALID_CORP_NUM","01","1","2026/10/01","2026/10/01","形式変更株式会社","","301","東京都"',
+    ];
+    await expect(
+      importer.importCorporateDataset(formatChangedCorp, '2026-10-01', 10),
+    ).rejects.toThrow(/invalid row ratio/);
+    const [v1AfterFormatChange] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterFormatChange?.status).toBe('active');
+    const lookupAfterFormatChange = await dataProvider.lookupByNumber('1000000000010');
+    expect(lookupAfterFormatChange.ok).toBe(true);
+    if (lookupAfterFormatChange.ok) {
+      expect(lookupAfterFormatChange.value.data_as_of).toBe('2026-09-01');
+    }
+
+    // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
+    const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
+    const v2 = await relaxedImporter.importCorporateDataset(reducedCorp5, '2026-10-01', 10);
+    expect(v2.status).toBe('active');
+    expect(v2.count).toBe(5);
+  });
+
+  it('インボイスの件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
+    // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
+    const initialInvoice10 = Array.from({ length: 10 }, (_, i) => {
+      const regNum = `T${String(1000000000001 + i)}`;
+      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-09-01","","","東京都千代田区１−１","13","101","","","","テスト","初期インボイス法人_${i + 1}","","","","",""`;
+    });
+
+    const v1 = await importer.importInvoiceDataset(initialInvoice10, '2026-09-01', 10);
+    expect(v1.status).toBe('active');
+    expect(v1.count).toBe(10);
+
+    // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
+    await expect(importer.importInvoiceDataset([], '2026-10-01', 10)).rejects.toThrow(
+      /below minRecordCount/,
+    );
+    const [v1AfterZero] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterZero?.status).toBe('active');
+    const rowsAfterZero = await db.select().from(invoiceIssuers);
+    expect(rowsAfterZero.length).toBe(10);
+
+    // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
+    const reducedInvoice5 = initialInvoice10
+      .slice(0, 5)
+      .map((line) =>
+        line.replaceAll('2026-09-01', '2026-10-01').replaceAll('初期インボイス', '減少インボイス'),
+      );
+    await expect(importer.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10)).rejects.toThrow(
+      /dropped below minRecordCountRatio/,
+    );
+    const [v1AfterDrop] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterDrop?.status).toBe('active');
+    const rowsAfterDrop = await db.select().from(invoiceIssuers);
+    expect(rowsAfterDrop.length).toBe(10);
+
+    // ケース3: 「形式が変わった」（列の並び・日付形式が変わった行が含まれる）→ 中止され旧版（v1: 10件）が残る
+    const formatChangedInvoice = [
+      ...initialInvoice10.slice(0, 9),
+      // 登録年月日の形式変更（YYYY/MM/DD）および列ズレを想定
+      '10,"T1000000000010","01","0","2","1","1","2023/10/01","2026/10/01","","","東京都千代田区１−１","13","101","","","","テスト","形式変更インボイス法人","","","","",""',
+    ];
+    await expect(
+      importer.importInvoiceDataset(formatChangedInvoice, '2026-10-01', 10),
+    ).rejects.toThrow(/Invalid invoice CSV line/);
+    const [v1AfterFormatChange] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1.datasetVersionId));
+    expect(v1AfterFormatChange?.status).toBe('active');
+    const rowsAfterFormatChange = await db.select().from(invoiceIssuers);
+    expect(rowsAfterFormatChange.length).toBe(10);
+    expect(rowsAfterFormatChange.every((r) => r.datasetVersionId === v1.datasetVersionId)).toBe(
+      true,
+    );
+
+    // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
+    const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
+    const v2 = await relaxedImporter.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10);
+    expect(v2.status).toBe('active');
+    expect(v2.count).toBe(5);
+  });
 });
