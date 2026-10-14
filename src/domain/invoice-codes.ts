@@ -3,11 +3,10 @@
  * Code dictionaries for the Invoice Issuer Publication System
  *
  * 根拠 / Source:
- *   国税庁 リソース定義書 1.5版 (令和6年5月)
- *   項番9 事業者処理区分 / 項番11 人格区分 / 項番12 国内外区分 / 項番13 最新履歴
- *
- * v0.3.0 のインボイス API 統合時に本格利用される (ADR 0012)。
- * v0.1.0 では準備層として定義のみ提供、未使用。
+ *   国税庁 適格請求書発行事業者公表システム「リソース定義書（全件データ・差分データ）1.5版」（令和6年5月改訂）
+ *   URL: https://www.invoice-kohyo.nta.go.jp/files/k-resource-dl.pdf
+ *   ダウンロードページ: https://www.invoice-kohyo.nta.go.jp/download/index.html （確認日: 2026-10-14）
+ *   項番9 事業者処理区分 / 項番10 訂正区分 / 項番11 人格区分 / 項番12 国内外区分 / 項番13 最新履歴
  */
 
 /**
@@ -121,6 +120,10 @@ export const INVOICE_CORRECT_CODES = {
 } as const;
 
 export type InvoiceCorrectCode = keyof typeof INVOICE_CORRECT_CODES;
+
+export function isInvoiceCorrectCode(value: string): value is InvoiceCorrectCode {
+  return value === '0' || value === '1';
+}
 
 /**
  * 差分 API で使う人格区分パラメータ (division) — 第二編 3.1.3

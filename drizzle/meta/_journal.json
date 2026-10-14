@@ -22,6 +22,13 @@
       "when": 1791947593561,
       "tag": "0002_burly_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791965000000,
+      "tag": "0003_sla2_325_invoice_schema",
+      "breakpoints": true
     }
   ]
 }

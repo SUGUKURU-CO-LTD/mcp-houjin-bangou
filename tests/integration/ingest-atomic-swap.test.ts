@@ -22,7 +22,7 @@ import { sql, eq, and } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import * as schema from '../../src/db/schema.js';
-import { datasetVersions, corporateNumbers } from '../../src/db/schema.js';
+import { datasetVersions, corporateNumbers, invoiceIssuers } from '../../src/db/schema.js';
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
 import type { DbClient } from '../../src/db/client.js';
@@ -50,7 +50,7 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     });
     db = drizzle(pool, { schema }) as DbClient;
 
-    // マイグレーション適用（0000, 0001, 0002）
+    // マイグレーション適用（0000, 0001, 0002, 0003）
     const migrationsFolder = path.resolve(__dirname, '../../drizzle');
     await migrate(db as unknown as NodePgDatabase<Record<string, unknown>>, { migrationsFolder });
 
@@ -68,7 +68,11 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     // テーブル状態のリセット
     await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
     await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
-    await db.execute(sql`TRUNCATE TABLE corporate_numbers, dataset_versions CASCADE;`);
+    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_new;`);
+    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
+    await db.execute(
+      sql`TRUNCATE TABLE corporate_numbers, invoice_issuers, dataset_versions CASCADE;`,
+    );
   });
 
   it('初回取り込み成功 → 2回目取り込み途中で失敗しても前世代の版とデータで検索可能 → 2回目再試行で全件入れ替えが成功する', async () => {
@@ -395,5 +399,108 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
       activeResult.dataAsOf === '2026-10-01' ? '3000000000001' : '4000000000001';
     const lookup = await dataProvider.lookupByNumber(targetCorpNum);
     expect(lookup.ok).toBe(true);
+  });
+
+  it('インボイス取り込み（公式24列）: 法人・人格のない社団等・個人・区分不明・履歴複数行を RENAME Swap で取り込み、途中失敗時の旧版保全と同時実行のロック排他が機能する', async () => {
+    // 1. 初回取り込み（v1: 法人履歴2行 + 人格のない社団等 + 個人 + 区分不明）
+    const invoiceV1 = [
+      // 同一登録番号 T1000000000001 の過去履歴（latest=0）と最新履歴（latest=1）
+      '1,"T1000000000001","01","0","2","1","0","2023-10-01","2023-10-01","","","東京都千代田区旧１−１","13","101","","","","テストカブシキガイシャ","テスト株式会社（旧）","","","","",""',
+      '2,"T1000000000001","03","0","2","1","1","2023-10-01","2025-04-01","2025-03-31","2025-04-01","東京都千代田区新２−２","13","101","","","","テストカブシキガイシャ","テスト株式会社（新）","","","","",""',
+      // 人格のない社団等（kind=2, 公表申出所在地）
+      '3,"T7000000000002","01","0","2","1","1","2023-10-01","2026-04-01","","","","","","大阪府大阪市北区１−１","27","127","テストキョウドウクミアイ","テスト協同組合","","","","",""',
+      // 個人（kind=1, 氏名・所在地・屋号・通称が万一入っていても破棄される）
+      '4,"T9999999999999","01","0","1","1","1","2023-10-01","2026-04-01","","","東京都港区１−１","13","103","","","","ヤマダタロウ","山田太郎","","","","山田商店","旧姓山田"',
+      // 区分不明（kind=9, 名称・所在地等は破棄され unknownKindCount に計上される）
+      '5,"T8888888888888","01","0","9","1","1","2023-10-01","2026-04-01","","","東京都新宿区１−１","13","104","","","","フメイ","不明事業者","","","","不明屋号","不明通称"',
+    ];
+
+    const v1Metrics = await importer.importInvoiceDataset(invoiceV1, '2026-09-01', 10);
+    expect(v1Metrics.status).toBe('active');
+    expect(v1Metrics.count).toBe(5);
+    expect(v1Metrics.unknownKindCount).toBe(1);
+    const v1Id = v1Metrics.datasetVersionId;
+
+    // DB に5行すべて保存されていること（同じ登録番号 T1000000000001 の2行が両方存在し、日付が保持されていること）
+    const rowsV1 = await db
+      .select()
+      .from(invoiceIssuers)
+      .where(eq(invoiceIssuers.datasetVersionId, v1Id));
+    expect(rowsV1.length).toBe(5);
+
+    const corpHistory = rowsV1.filter((r) => r.registrationNumber === 'T1000000000001');
+    expect(corpHistory.length).toBe(2);
+    const oldHistoryRow = corpHistory.find((r) => r.latest === '0');
+    const latestHistoryRow = corpHistory.find((r) => r.latest === '1');
+    expect(oldHistoryRow?.sequenceNumber).toBe('1');
+    expect(oldHistoryRow?.legalName).toBe('テスト株式会社（旧）');
+    expect(oldHistoryRow?.registrationDate).toBe('2023-10-01');
+    expect(latestHistoryRow?.sequenceNumber).toBe('2');
+    expect(latestHistoryRow?.legalName).toBe('テスト株式会社（新）');
+    expect(latestHistoryRow?.cancelDate).toBe('2025-03-31');
+    expect(latestHistoryRow?.expireDate).toBe('2025-04-01');
+
+    // 人格のない社団等の公表申出所在地が保持されていること
+    const assocRow = rowsV1.find((r) => r.registrationNumber === 'T7000000000002');
+    expect(assocRow?.declaredAddress).toBe('大阪府大阪市北区１−１');
+    expect(assocRow?.legalName).toBe('テスト協同組合');
+
+    // 個人（kind='1'）および区分不明（kind='9'）の名称・所在地・カナが NULL であること
+    const individualRow = rowsV1.find((r) => r.registrationNumber === 'T9999999999999');
+    expect(individualRow?.legalName).toBeNull();
+    expect(individualRow?.kana).toBeNull();
+    expect(individualRow?.headOfficeAddress).toBeNull();
+
+    const unknownRow = rowsV1.find((r) => r.registrationNumber === 'T8888888888888');
+    expect(unknownRow?.legalName).toBeNull();
+    expect(unknownRow?.kana).toBeNull();
+    expect(unknownRow?.headOfficeAddress).toBeNull();
+
+    // 2. 2回目の取り込み途中で列の並びが違う不正行により失敗 → 旧版（v1）が active のまま保全されること
+    const brokenInvoiceV2 = [
+      '1,"T1000000000001","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区新３−３","13","101","","","","テストカブシキガイシャ","テスト株式会社","","","","",""',
+      '2,"T1000000000001","01","0","2026-10-01","01","テスト株式会社"', // 列数・並び不正
+    ];
+    await expect(
+      importer.importInvoiceDataset(brokenInvoiceV2, '2026-10-01', 10),
+    ).rejects.toThrow();
+
+    const [v1AfterFail] = await db
+      .select()
+      .from(datasetVersions)
+      .where(eq(datasetVersions.id, v1Id));
+    expect(v1AfterFail?.status).toBe('active');
+    const rowsAfterFail = await db.select().from(invoiceIssuers);
+    expect(rowsAfterFail.length).toBe(5);
+
+    // 3. 同時実行の排他制御（アドバイザリーロックにより片方が active、もう片方が skipped になること）
+    const concurrentDatasetA = Array.from({ length: 30 }, (_, i) => {
+      const regNum = `T${String(5000000000001 + i)}`;
+      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区１−１","13","101","","","","テスト","同時インボイスA_${i + 1}","","","","",""`;
+    });
+    const concurrentDatasetB = Array.from({ length: 30 }, (_, i) => {
+      const regNum = `T${String(6000000000001 + i)}`;
+      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-02","","","東京都港区１−１","13","103","","","","テスト","同時インボイスB_${i + 1}","","","","",""`;
+    });
+
+    const [invRes1, invRes2] = await Promise.all([
+      importer.importInvoiceDataset(concurrentDatasetA, '2026-10-01', 5),
+      importer.importInvoiceDataset(concurrentDatasetB, '2026-10-02', 5),
+    ]);
+
+    const invStatuses = [invRes1.status, invRes2.status].sort();
+    expect(invStatuses).toEqual(['active', 'skipped']);
+
+    // 索引名が正規名に復元されていることを検証
+    const invIndexCheck = await db.execute(
+      sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'invoice_issuers';`,
+    );
+    const invIndexNames = (invIndexCheck.rows as Array<{ indexname: string }>).map(
+      (r) => r.indexname,
+    );
+    expect(invIndexNames).toContain('idx_invoice_issuers_reg_number');
+    expect(invIndexNames).toContain('idx_invoice_issuers_reg_latest');
+    expect(invIndexNames).toContain('idx_invoice_issuers_version');
+    expect(invIndexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
   });
 });
