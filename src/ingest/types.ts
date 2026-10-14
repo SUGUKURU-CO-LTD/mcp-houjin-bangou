@@ -62,6 +62,6 @@ export interface ImportMetrics {
   datasetVersionId: number;
   count: number;
   durationMs: number;
-  status: 'active' | 'failed';
+  status: 'active' | 'failed' | 'skipped';
   errorType?: string;
 }

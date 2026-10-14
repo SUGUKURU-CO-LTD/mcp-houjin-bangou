@@ -336,4 +336,64 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
       expect(lookup.value.corporation.name).toBe('新テスト株式会社');
     }
   });
+
+  it('取り込みを2つ同時に起動した場合、アドバイザリーロックにより片方が何もせず終了（skipped）し、もう片方が正常に完了する', async () => {
+    const datasetA = Array.from({ length: 50 }, (_, i) => {
+      const corpNum = String(3000000000001 + i);
+      return `${i + 1},"${corpNum}","01","1","2026-10-01","2026-10-01","同時実行テストA_${i + 1}株式会社","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
+    });
+
+    const datasetB = Array.from({ length: 50 }, (_, i) => {
+      const corpNum = String(4000000000001 + i);
+      return `${i + 1},"${corpNum}","01","1","2026-10-02","2026-10-02","同時実行テストB_${i + 1}株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"`;
+    });
+
+    const outputLogs: string[] = [];
+    const mockStream = {
+      write: (chunk: string) => {
+        outputLogs.push(chunk);
+        return true;
+      },
+    };
+    const { createIngestLogger } = await import('../../src/ingest/logger.js');
+    const customImporter = new DatasetImporter(db, {
+      logger: createIngestLogger(mockStream as unknown as NodeJS.WritableStream),
+    });
+
+    // 2つの取り込みを同時に起動（バッチサイズを小さくして実行時間を重ねる）
+    const [res1, res2] = await Promise.all([
+      customImporter.importCorporateDataset(datasetA, '2026-10-01', 5),
+      customImporter.importCorporateDataset(datasetB, '2026-10-02', 5),
+    ]);
+
+    const statuses = [res1.status, res2.status].sort();
+    // 片方が active（正常完了）、もう片方が skipped（何もせず終了）であること
+    expect(statuses).toEqual(['active', 'skipped']);
+
+    const activeResult = res1.status === 'active' ? res1 : res2;
+    const skippedResult = res1.status === 'skipped' ? res1 : res2;
+
+    expect(activeResult.count).toBe(50);
+    expect(activeResult.datasetVersionId).toBeGreaterThan(0);
+    expect(skippedResult.count).toBe(0);
+    expect(skippedResult.datasetVersionId).toBe(0);
+
+    // スキップされた旨がログに残っていること
+    const parsedLogs = outputLogs.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const skippedLog = parsedLogs.find((l) => l.status === 'skipped');
+    expect(skippedLog).toBeDefined();
+    expect(skippedLog?.msg).toContain('skipped because another import is already running');
+
+    // dataset_versions には active になった1件のみが作られ、不要な staging/failed レコードが作られていないこと
+    const versions = await db.select().from(datasetVersions);
+    expect(versions.length).toBe(1);
+    expect(versions[0]?.status).toBe('active');
+    expect(versions[0]?.recordCount).toBe(50);
+
+    // 完了した側のデータが正常に検索でき、ロックも解放されて次の取り込みが可能であること
+    const targetCorpNum =
+      activeResult.dataAsOf === '2026-10-01' ? '3000000000001' : '4000000000001';
+    const lookup = await dataProvider.lookupByNumber(targetCorpNum);
+    expect(lookup.ok).toBe(true);
+  });
 });
