@@ -5,22 +5,31 @@
  *   実装指示書v1 §5(B4):
  *     - 新しいデータは別の場所に取り込み、全件そろってから切り替える。途中で失敗した場合は、前のデータと前の data_as_of のまま動き続ける
  *     - 取り込み処理のログに、法人番号・登録番号・名称を出さない（件数・所要時間・エラー種別のみ）
- *   Linear SLA2-324:
+ *   Linear SLA2-324 / SLA2-333:
  *     - CSV全体を一度にメモリへ読み込まず、行単位でストリーミング処理する
  *     - 1ファイル300MB超の分割ファイルに対応（複数ファイルを1つの版として取り込む）
- *     - 本番反映時にステージング全行をNodeへ読み込まず、DB内 SQL（INSERT ... SELECT）で完結させる
+ *     - 本番反映時にステージング全行をNodeへ読み込まず、別表（corporate_numbers_new）で索引構築後に RENAME で入れ替える
  *     - 項番30「検索対象除外（hihyoji）」を取り込む
+ *     - PostgreSQL のアドバイザリーロックで同時実行を1つに限る
  */
 
 import * as fs from 'node:fs';
 import * as readline from 'node:readline';
+import type pg from 'pg';
 import { eq, and, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { pgTable, varchar, integer } from 'drizzle-orm/pg-core';
 import type { DbClient } from '../db/client.js';
+import * as schema from '../db/schema.js';
 import { datasetVersions, invoiceIssuers, invoiceIssuersStaging } from '../db/schema.js';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from './parser.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import type { ImportMetrics } from './types.js';
+
+/**
+ * 法人番号データの取り込み排他制御用アドバイザリーロックキー
+ */
+export const CORPORATE_INGEST_LOCK_KEY = 324001;
 
 /**
  * 取り込み作業用の新テーブル定義（corporate_numbers_new）
@@ -95,10 +104,15 @@ export class DatasetImporter {
           input: stream,
           crlfDelay: Infinity,
         });
-        for await (const line of rl) {
-          if (line.trim().length > 0) {
-            yield line;
+        try {
+          for await (const line of rl) {
+            if (line.trim().length > 0) {
+              yield line;
+            }
           }
+        } finally {
+          rl.close();
+          stream.destroy();
         }
       }
     }
@@ -142,10 +156,49 @@ export class DatasetImporter {
     const startTime = Date.now();
     let versionId = 0;
     let count = 0;
+    let lockClient: pg.PoolClient | undefined;
+    let lockAcquired = false;
+    let activeDb: DbClient = this.db;
 
     try {
+      // 0. PostgreSQL のアドバイザリーロックで同時実行を1つに限る
+      const underlyingPool = (this.db as unknown as { $client?: pg.Pool }).$client;
+      if (underlyingPool && typeof underlyingPool.connect === 'function') {
+        lockClient = await underlyingPool.connect();
+        const lockRes = await lockClient.query<{ acquired: boolean }>(
+          'SELECT pg_try_advisory_lock($1) AS acquired',
+          [CORPORATE_INGEST_LOCK_KEY],
+        );
+        lockAcquired = lockRes.rows[0]?.acquired === true;
+        if (lockAcquired) {
+          activeDb = drizzle(lockClient, { schema }) as DbClient;
+        }
+      } else {
+        // 単体テスト用モック DB 向けフォールバック
+        const lockRes = (await this.db.execute(
+          sql`SELECT pg_try_advisory_lock(${CORPORATE_INGEST_LOCK_KEY}) AS acquired;`,
+        )) as unknown as { rows?: Array<{ acquired?: boolean }> } | undefined;
+        lockAcquired = lockRes?.rows?.[0]?.acquired !== false;
+      }
+
+      if (!lockAcquired) {
+        const skippedMetrics: ImportMetrics = {
+          sourceType: 'nta_corporate_download',
+          dataAsOf,
+          datasetVersionId: 0,
+          count: 0,
+          durationMs: Date.now() - startTime,
+          status: 'skipped',
+        };
+        this.logger.info(
+          skippedMetrics,
+          'Corporate dataset import skipped because another import is already running',
+        );
+        return skippedMetrics;
+      }
+
       // 1. 新規バージョンレコードを staging 状態で作成
-      const [version] = await this.db
+      const [version] = await activeDb
         .insert(datasetVersions)
         .values({
           sourceType: 'nta_corporate_download',
@@ -162,9 +215,9 @@ export class DatasetImporter {
       versionId = version.id;
 
       // 2. 新規一時テーブル corporate_numbers_new を初期化（残存一時テーブルがあれば事前クリーンアップ）
-      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
-      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
-      await this.db.execute(
+      await activeDb.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      await activeDb.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await activeDb.execute(
         sql`CREATE TABLE corporate_numbers_new (LIKE corporate_numbers INCLUDING DEFAULTS);`,
       );
 
@@ -211,30 +264,29 @@ export class DatasetImporter {
         count++;
 
         if (batch.length >= batchSize) {
-          await this.db.insert(corporateNumbersNew).values(batch);
+          await activeDb.insert(corporateNumbersNew).values(batch);
           batch = [];
         }
       }
 
       if (batch.length > 0) {
-        await this.db.insert(corporateNumbersNew).values(batch);
+        await activeDb.insert(corporateNumbersNew).values(batch);
         batch = [];
       }
 
       // 4. データ投入完了後、corporate_numbers_new に制約および全索引を作成（一時名）
-      await this.db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
-
-      await this.db.execute(sql`
+      // ※ pg_trgm 拡張の作成はマイグレーション 0001 で実行済み
+      await activeDb.execute(sql`
         ALTER TABLE corporate_numbers_new
           ADD CONSTRAINT corporate_numbers_new_pk PRIMARY KEY (corporate_number, dataset_version_id);
       `);
-      await this.db.execute(sql`
+      await activeDb.execute(sql`
         ALTER TABLE corporate_numbers_new
           ADD CONSTRAINT corporate_numbers_new_dataset_versions_fk
           FOREIGN KEY (dataset_version_id) REFERENCES dataset_versions(id) ON DELETE CASCADE;
       `);
 
-      await this.db.execute(sql`
+      await activeDb.execute(sql`
         CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
         CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
         CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
@@ -243,10 +295,11 @@ export class DatasetImporter {
       `);
 
       // 5. 単一トランザクション内で表名・索引名・制約名をアトミックに入れ替え、版を active に昇格
-      await this.executeAtomicSwap(versionId, count);
+      await this.executeAtomicSwap(versionId, count, activeDb);
 
-      // 6. コミット後、旧表を CASCADE なしで削除
-      await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      // 6. コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
+      await activeDb.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await activeDb.execute(sql`ANALYZE corporate_numbers;`);
 
       const metrics: ImportMetrics = {
         sourceType: 'nta_corporate_download',
@@ -268,7 +321,7 @@ export class DatasetImporter {
 
       // 失敗時クリーンアップ: corporate_numbers_new を DROP
       try {
-        await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+        await activeDb.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
       } catch {
         // ignore
       }
@@ -276,7 +329,7 @@ export class DatasetImporter {
       // 失敗した staging レコードをマーク
       if (versionId > 0) {
         try {
-          await this.db
+          await activeDb
             .update(datasetVersions)
             .set({ status: 'failed' })
             .where(eq(datasetVersions.id, versionId));
@@ -298,6 +351,21 @@ export class DatasetImporter {
       );
 
       throw err;
+    } finally {
+      if (lockAcquired) {
+        try {
+          if (lockClient) {
+            await lockClient.query('SELECT pg_advisory_unlock($1)', [CORPORATE_INGEST_LOCK_KEY]);
+          } else {
+            await this.db.execute(sql`SELECT pg_advisory_unlock(${CORPORATE_INGEST_LOCK_KEY});`);
+          }
+        } catch {
+          // ignore unlock errors on cleanup
+        }
+      }
+      if (lockClient) {
+        lockClient.release();
+      }
     }
   }
 
@@ -457,8 +525,12 @@ export class DatasetImporter {
    * 単一トランザクション内でテーブル名・索引名・制約名をアトミックに入れ替え、
    * 旧版を superseded、新版を active に切り替える
    */
-  private async executeAtomicSwap(versionId: number, recordCount: number): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  private async executeAtomicSwap(
+    versionId: number,
+    recordCount: number,
+    dbClient: DbClient = this.db,
+  ): Promise<void> {
+    await dbClient.transaction(async (tx) => {
       // 1. 旧テーブルを old にリネーム
       await tx.execute(sql`ALTER TABLE corporate_numbers RENAME TO corporate_numbers_old;`);
 
@@ -480,7 +552,7 @@ export class DatasetImporter {
       // 3. 新テーブルを正規名 corporate_numbers にリネーム
       await tx.execute(sql`ALTER TABLE corporate_numbers_new RENAME TO corporate_numbers;`);
 
-      // 4. 新テーブルの制約・索引を正規名にリネーム（drizzle マイグレーション定義と完全一致させる）
+      // 4. 新テーブルの制約・索引を正規名にリネーム（drizzle マイグレーション定義と一致させる）
       await tx.execute(sql`
         ALTER TABLE corporate_numbers
           RENAME CONSTRAINT corporate_numbers_new_pk
@@ -543,8 +615,9 @@ export class DatasetImporter {
 
     const startTime = Date.now();
     await this.executeAtomicSwap(datasetVersionId, recordCount);
-    // コミット後、旧表を CASCADE なしで削除
+    // コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
     await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+    await this.db.execute(sql`ANALYZE corporate_numbers;`);
 
     const durationMs = Date.now() - startTime;
     this.logger.info(

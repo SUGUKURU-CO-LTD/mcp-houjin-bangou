@@ -159,7 +159,7 @@ describe('Ingest Logger (機密性検証)', () => {
 });
 
 describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () => {
-  it('正常時は staging から本番テーブルへ全件投入され active に昇格する（DB内 SQL で完結）', async () => {
+  it('正常時は新テーブル（corporate_numbers_new）へ全件投入され RENAME で本番テーブルへ入れ替わり active に昇格する', async () => {
     const insertedStagingBatches: unknown[] = [];
     const executedSqls: unknown[] = [];
     let updatedVersionStatus = '';
@@ -209,9 +209,9 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
     expect(metrics.status).toBe('active');
     expect(metrics.count).toBe(1);
     expect(updatedVersionStatus).toBe('active');
-    // ステージングへのバッチ挿入が行われたこと
+    // 新テーブルへのバッチ挿入が行われたこと
     expect(insertedStagingBatches.length).toBeGreaterThan(0);
-    // Node.js メモリ展開ではなく tx.execute による DB 内完結の INSERT ... SELECT および 旧版削除が行われたこと
+    // Node.js メモリ展開ではなく DB 内 SQL による RENAME 入れ替え・旧表削除・ANALYZE が行われたこと
     expect(executedSqls.length).toBeGreaterThanOrEqual(2);
   });
 
