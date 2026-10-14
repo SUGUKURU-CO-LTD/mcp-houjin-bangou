@@ -8,7 +8,7 @@
  *     - 名前検索の一致方式: 部分一致 (Partial match)
  */
 
-import { eq, and, ilike, desc, asc } from 'drizzle-orm';
+import { eq, and, like, ilike, desc, asc } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { datasetVersions, corporateNumbers } from '../db/schema.js';
 import { Result } from '../lib/result.js';
@@ -49,6 +49,7 @@ export interface CorporationInfo {
   status: 'active' | 'closed';
   close_date: string | null;
   close_cause: string | null;
+  address_may_be_outdated?: boolean;
 }
 
 export interface LookupCorporateResult {
@@ -64,6 +65,7 @@ export interface SearchCorporationItem {
   location: string;
   update_date: string;
   status: 'active' | 'closed';
+  address_may_be_outdated?: boolean;
 }
 
 export interface SearchCorporateResult {
@@ -170,6 +172,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
         status: isClosed ? 'closed' : 'active',
         close_date: row.closeDate ?? null,
         close_cause: row.closeCause ? closeCauseLabel(row.closeCause) : null,
+        address_may_be_outdated: row.hihyoji === '1',
       };
 
       return Result.ok({
@@ -222,10 +225,18 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
         offset = validation.payload.offset;
       }
 
-      const escaped = escapeLikeWildcards(name);
+      const trimmedName = name.trim();
+      const escaped = escapeLikeWildcards(trimmedName);
+      // 1〜2文字の語は前方一致 (LIKE 'prefix%') で text_pattern_ops 索引を活用し、
+      // 3文字以上の語は pg_trgm の部分一致 (ILIKE '%query%') を使用する。
+      const isShortQuery = trimmedName.length <= 2;
+      const nameCondition = isShortQuery
+        ? like(corporateNumbers.name, `${escaped}%`)
+        : ilike(corporateNumbers.name, `%${escaped}%`);
+
       const conditions = [
         eq(corporateNumbers.datasetVersionId, activeVersion.id),
-        ilike(corporateNumbers.name, `%${escaped}%`),
+        nameCondition,
       ];
 
       if (prefecture) {
@@ -270,6 +281,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
           location,
           update_date: row.updateDate,
           status: isClosed ? 'closed' : 'active',
+          address_may_be_outdated: row.hihyoji === '1',
         };
       });
 

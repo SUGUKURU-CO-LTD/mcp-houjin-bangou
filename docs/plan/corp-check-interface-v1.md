@@ -1,9 +1,9 @@
-# 取引先確認MCP インターフェース仕様書 v1.6
+# 取引先確認MCP インターフェース仕様書 v1.7
 
-- **作成日**: 2026-10-12 JST (v1.6更新)
+- **作成日**: 2026-10-14 JST (v1.7更新)
 - **対象ブランチ**: `a-kabe/corp-check-b4-db-ingest`
 - **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.6（承認済み・凍結）
+- **ステータス**: v1.7（承認済み・凍結）
 
 ---
 
@@ -71,13 +71,17 @@
           "update_date": { "type": "string" },
           "status": { "type": "string", "enum": ["active", "closed"] },
           "close_date": { "type": ["string", "null"], "description": "Date of closure (YYYY-MM-DD); null if active" },
-          "close_cause": { "type": ["string", "null"], "description": "Reason for closure as published (e.g., liquidation, merger); null if active" }
+          "close_cause": { "type": ["string", "null"], "description": "Reason for closure as published (e.g., liquidation, merger); null if active" },
+          "address_may_be_outdated": {
+            "type": "boolean",
+            "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)"
+          }
         },
         "required": ["corporate_number", "name", "legal_type", "location", "update_date", "status"]
       },
       "data_as_of": {
         "type": "string",
-        "description": "Date of the public dataset (YYYY-MM-DD)"
+        "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)"
       },
       "attribution": {
         "type": "string",
@@ -96,8 +100,8 @@
 - **既存の扱い**: 変更あり
   - 変更内容: レスポンス肥大化によるコンテキスト圧迫を避けるため、既定取得件数を10件（最大20件）とし、ページネーション用カーソル（`cursor` / `next_cursor`）を導入する。内部メタデータを除外する。
 - **名前**: `search_corporate_by_name`
-- **説明文（日本語）**: 法人名（商号）の部分一致で法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。
-- **説明文（英語）**: Search Japanese corporations by company name using partial matching, with pagination support (default 10 results per page, max 20).
+- **説明文（日本語）**: 法人名（商号）から法人番号や所在地を検索します。検索結果は既定10件（最大20件）ずつ返却され、続きがある場合はカーソルを使用してページネーション取得できます。一致方式は、ホスト版では1〜2文字の検索語は前方一致、3文字以上は部分一致で検索します（ローカル版は国税庁Web-APIの前方一致検索）。
+- **説明文（英語）**: Search Japanese corporations by company name with pagination support (default 10 results per page, max 20). In the hosted edition, queries of 1-2 characters use prefix matching and 3+ characters use partial matching; the local edition uses NTA Web-API prefix matching.
 - **アノテーション**:
   - `title`: "Search Corporations by Name"
   - `readOnlyHint`: `true`
@@ -154,7 +158,11 @@
             "legal_type": { "type": "string" },
             "location": { "type": "string" },
             "update_date": { "type": "string" },
-            "status": { "type": "string", "enum": ["active", "closed"] }
+            "status": { "type": "string", "enum": ["active", "closed"] },
+            "address_may_be_outdated": {
+              "type": "boolean",
+              "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)"
+            }
           },
           "required": ["corporate_number", "name", "legal_type", "location", "update_date", "status"]
         }
@@ -169,7 +177,7 @@
       },
       "data_as_of": {
         "type": "string",
-        "description": "Date of the public dataset (YYYY-MM-DD)"
+        "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)"
       },
       "attribution": {
         "type": "string",
@@ -271,7 +279,7 @@
       },
       "data_as_of": {
         "type": "string",
-        "description": "Date of the public dataset (YYYY-MM-DD)"
+        "description": "Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)"
       },
       "attribution": {
         "type": "string",
@@ -434,7 +442,7 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 全ツール共通のレスポンス形式を定めます。
 
-- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。
+- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。また、`lookup_corporate_by_number` および `search_corporate_by_name` において、対象法人の `address_may_be_outdated` が `true` の場合、要約テキストに「※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。」を含めます。
 - **失敗時**: `isError: true` とし、`structuredContent` は次の形にします。
   ```json
   {
@@ -635,3 +643,25 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
   - `search_corporate_by_name` の一致方式を「部分一致（Partial match）」と決定し、日本語および英語の説明文に明記しました。
 - **ステータス更新**:
   - 仕様書ステータスを「v1.6（承認済み・凍結）」としました。
+
+---
+
+## 14. v1.7の変更点
+
+2026-10-14のSLA2-330決定（壁代表承認「推奨どおり」）およびSLA2-334に基づき、以下の3点を反映しました。
+
+- **1. 検索対象除外（hihyoji）の注記追加**:
+  - **根拠・出典**: 法人番号リソース定義書 4.0版の「検索対象除外」は、登記上の所在地が住居表示の実施等で既に存在しない設立登記法人を、公表サイトの検索対象から除外していることを示します。法人そのものは法的に存在するため、取引先確認では結果から除外せず検索対象に含めます。
+  - **スキーマ対応**: `lookup_corporate_by_number` および `search_corporate_by_name` の出力（各法人）に任意項目 `address_may_be_outdated: boolean` を追加しました（後方互換性を維持する追加のみの変更）。
+  - **要約文注記**: `address_may_be_outdated: true` の場合、要約文に「※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。」を出力します。
+  - **エディション対応**: ホスト版は DB の `hihyoji` 列（'1' で true）、ローカル版は国税庁Web-APIの `hihyoji` から値を設定します。
+- **2. 名前検索の1〜2文字の語: 前方一致化と索引追加**:
+  - **根拠・出典**: pg_trgm は3文字未満の語ではインデックス（GIN trigram）を使用できず、全表走査（Seq Scan）が発生するため、大規模データでの検索性能低下を防止します。
+  - **挙動の仕様化**: ホスト版では正規化後の検索語が1〜2文字の場合は前方一致（`LIKE 'prefix%'`）、3文字以上の場合は部分一致（`ILIKE '%sub%'`）とします。前方一致用の索引（`btree (name text_pattern_ops)`）を Drizzle スキーマで定義し、マイグレーション（`0004`）および全件データ取り込み（`importer.ts`）のアトミックスワップ処理に組み込みました。
+  - **ツール説明文の整合**: ローカル版（国税庁Web-API方式）は元より前方一致（`mode=1`）で動作しているため、ツールの日本語・英語説明文を両エディションの実態に即した内容に更新しました。
+- **3. データ更新方式の明記**:
+  - **更新頻度**: 各ツールの `data_as_of` の説明に「月1回、前月末時点の全件データで更新」と明記しました。
+  - ※プライバシーポリシーへの記載（更新頻度、削除の反映が次の更新まで遅れること）は SLA2-329（B8）にて行います。
+- **ステータス更新**:
+  - 仕様書ステータスを「v1.7（承認済み・凍結）」としました。
+

@@ -60,7 +60,11 @@ const OutputSchema = z
     corporate_name: z.string().nullable(),
     location: z.string().nullable(),
     was_registered_on_reference_date: z.boolean().nullable(),
-    data_as_of: z.string(),
+    data_as_of: z
+      .string()
+      .describe(
+        'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
+      ),
     attribution: z.string(),
     tax_disclaimer: z.string(),
   })

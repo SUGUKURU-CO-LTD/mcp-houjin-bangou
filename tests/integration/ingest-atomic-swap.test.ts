@@ -26,6 +26,9 @@ import { datasetVersions, corporateNumbers, invoiceIssuers } from '../../src/db/
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
 import type { DbClient } from '../../src/db/client.js';
+import { createServer } from '../../src/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 const { Pool } = pg;
 
@@ -205,6 +208,7 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     const indexNames = (indexCheck.rows as Array<{ indexname: string }>).map((r) => r.indexname);
     expect(indexNames).toContain('idx_corporate_numbers_number');
     expect(indexNames).toContain('idx_corporate_numbers_name');
+    expect(indexNames).toContain('idx_corporate_numbers_name_pattern');
     expect(indexNames).toContain('idx_corporate_numbers_name_trgm');
     expect(indexNames).toContain('idx_corporate_numbers_prefecture');
     expect(indexNames).toContain('idx_corporate_numbers_version');
@@ -312,6 +316,7 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
         FOREIGN KEY (dataset_version_id) REFERENCES dataset_versions(id) ON DELETE CASCADE;
       CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
       CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
+      CREATE INDEX idx_corporate_numbers_name_pattern_new ON corporate_numbers_new (name text_pattern_ops);
       CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
       CREATE INDEX idx_corporate_numbers_prefecture_new ON corporate_numbers_new (prefecture_code);
       CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
@@ -640,5 +645,122 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     const v2 = await relaxedImporter.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10);
     expect(v2.status).toBe('active');
     expect(v2.count).toBe(5);
+  });
+
+  it('名前検索の1〜2文字前方一致（LIKE prefix%）・3文字以上部分一致（ILIKE %query%）、検索対象除外注記、および EXPLAIN (ANALYZE, BUFFERS) で idx_corporate_numbers_name_pattern 索引が使われること', async () => {
+    const csvRecords = [
+      '1,"7000000000002","01","1","2026-10-01","2026-10-01","テスト物流有限会社","","302","鹿児島県","霧島市","国分中央一丁目","","46","218","8994332","","","","","","","","1","","","","","","1"',
+      '2,"6000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
+      '3,"5000000000004","01","1","2026-10-01","2026-10-01","テス興業株式会社","","301","大阪府","大阪市","梅田一丁目","","27","100","5300001","","","","","","","","1","","","","","","0"',
+      '4,"4000000000005","01","1","2026-10-01","2026-10-01","合同会社テス","","303","神奈川県","横浜市","みなとみらい一丁目","","14","100","2200012","","","","","","","","1","","","","","","0"',
+      '5,"3000000000006","01","1","2026-10-01","2026-10-01","株式会社テ","","301","愛知県","名古屋市","栄一丁目","","23","100","4600008","","","","","","","","1","","","","","","0"',
+      '6,"9340001026142","01","1","2026-10-01","2026-10-01","スグクル株式会社","","301","鹿児島県","霧島市","国分中央１−２−３２","","46","218","8994332","","","","","","","","1","","","","","","0"',
+      '7,"2000000000007","01","1","2026-10-01","2026-10-01","トヨタ自動車株式会社","","301","愛知県","豊田市","トヨタ町１番地","","23","211","4718571","","","","","","","","1","","","","","","0"',
+    ];
+
+    // ダミーレコード 50 件追加
+    for (let i = 1; i <= 50; i++) {
+      const seq = 7 + i;
+      const basis = (1000 + i).toString().padStart(12, '0');
+      const num = `1${basis}`;
+      csvRecords.push(
+        `${seq},"${num}","01","1","2026-10-01","2026-10-01","サンプルダミー事業所${i}株式会社","","301","東京都","千代田区","大手町${i}丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`,
+      );
+    }
+
+    // 全件取り込み実行（RENAME Swap + 新索引 idx_corporate_numbers_name_pattern 作成・復元を含む）
+    const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
+    expect(v.status).toBe('active');
+    expect(v.count).toBe(csvRecords.length);
+
+    // 1. 1文字検索（"テ"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
+    const res1 = await dataProvider.searchByName('テ');
+    expect(res1.ok).toBe(true);
+    if (res1.ok) {
+      const names = res1.value.results.map((r) => r.name);
+      expect(names).toContain('テスト物流有限会社');
+      expect(names).toContain('テス興業株式会社');
+      expect(names).not.toContain('株式会社テスト');
+      expect(names).not.toContain('合同会社テス');
+      expect(names).not.toContain('株式会社テ');
+    }
+
+    // 2. 2文字検索（"テス"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
+    const res2 = await dataProvider.searchByName('テス');
+    expect(res2.ok).toBe(true);
+    if (res2.ok) {
+      const names = res2.value.results.map((r) => r.name);
+      expect(names).toContain('テスト物流有限会社');
+      expect(names).toContain('テス興業株式会社');
+      expect(names).not.toContain('株式会社テスト');
+      expect(names).not.toContain('合同会社テス');
+    }
+
+    // 3. 3文字検索（"テスト"）: 部分一致（ILIKE %query%）となり、中間一致も含めてヒット
+    const res3 = await dataProvider.searchByName('テスト');
+    expect(res3.ok).toBe(true);
+    if (res3.ok) {
+      const names = res3.value.results.map((r) => r.name);
+      expect(names).toContain('テスト物流有限会社');
+      expect(names).toContain('株式会社テスト');
+      expect(names).not.toContain('テス興業株式会社');
+    }
+
+    // 4. 検索対象除外（hihyoji="1"）: 結果から除外されず address_may_be_outdated=true と注記が返る
+    const lookupRes = await dataProvider.lookupByNumber('7000000000002');
+    expect(lookupRes.ok).toBe(true);
+    if (lookupRes.ok) {
+      expect(lookupRes.value.corporation.name).toBe('テスト物流有限会社');
+      expect(lookupRes.value.corporation.address_may_be_outdated).toBe(true);
+    }
+
+    const mcpServer = createServer({
+      dbProvider: dataProvider,
+      dataSource: 'db',
+    });
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const toolResult = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: 'テス' },
+    });
+    expect(toolResult.isError).toBeFalsy();
+    const textContent = (toolResult.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain(
+      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+    );
+
+    // 5. EXPLAIN (ANALYZE, BUFFERS): 1〜2文字の前方一致クエリで idx_corporate_numbers_name_pattern 索引が使用されること
+    const pgClient = await pool.connect();
+    try {
+      await pgClient.query('SET enable_seqscan = off;');
+      const explainQuery = `
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT *
+        FROM corporate_numbers
+        WHERE dataset_version_id = $1
+          AND name LIKE $2
+        ORDER BY corporate_number ASC
+        LIMIT 11;
+      `;
+      const result = await pgClient.query(explainQuery, [v.datasetVersionId, 'テス%']);
+      const planLines = result.rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']);
+      const planText = planLines.join('\n');
+
+      console.log('\n================ EXPLAIN (ANALYZE, BUFFERS) [テス%] ================');
+      console.log(planText);
+      console.log('====================================================================\n');
+
+      expect(planText).toContain('idx_corporate_numbers_name_pattern');
+      const usesPatternIndex =
+        planText.includes('Index Scan using idx_corporate_numbers_name_pattern') ||
+        planText.includes('Bitmap Index Scan on idx_corporate_numbers_name_pattern');
+      expect(usesPatternIndex).toBe(true);
+    } finally {
+      await pgClient.query('SET enable_seqscan = on;');
+      pgClient.release();
+    }
   });
 });

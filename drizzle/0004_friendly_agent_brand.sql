@@ -1,0 +1,1 @@
+CREATE INDEX "idx_corporate_numbers_name_pattern" ON "corporate_numbers" USING btree ("name" text_pattern_ops);

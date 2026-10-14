@@ -47,9 +47,10 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       closeDate: null,
       closeCause: null,
       furigana: 'スグクルカブシキガイシャ',
+      hihyoji: '0',
     },
     {
-      corporateNumber: '1000000000002',
+      corporateNumber: '7000000000002',
       datasetVersionId: 1,
       name: 'テスト物流有限会社',
       kind: '302',
@@ -64,6 +65,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       closeDate: null,
       closeCause: null,
       furigana: 'テストブツリュウユウゲンガイシャ',
+      hihyoji: '1',
     },
   ];
 
@@ -194,6 +196,34 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     return search(condition);
   }
 
+  function findCorporateNumber(condition: unknown): string | null {
+    const visited = new Set<unknown>();
+    function search(node: unknown): string | null {
+      if (!node || typeof node !== 'object') {
+        if (typeof node === 'string' && /^\d{13}$/.test(node)) {
+          return node;
+        }
+        return null;
+      }
+      if (visited.has(node)) return null;
+      visited.add(node);
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const found = search(item);
+          if (found) return found;
+        }
+      } else {
+        for (const val of Object.values(node)) {
+          const found = search(val);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    return search(condition);
+  }
+
   function createMockDb(): DbClient {
     return {
       select: (fields?: unknown) => ({
@@ -220,13 +250,18 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
               return Promise.resolve(matched);
             }
 
+            const targetCorpNumber = findCorporateNumber(condition);
+            const filteredCorporateData = targetCorpNumber
+              ? mockCorporateData.filter((r) => r.corporateNumber === targetCorpNumber)
+              : mockCorporateData;
+
             return {
               limit: (limitCount: number) =>
-                Promise.resolve(mockCorporateData.slice(0, limitCount)),
+                Promise.resolve(filteredCorporateData.slice(0, limitCount)),
               orderBy: () => ({
                 limit: (limitCount: number) => ({
                   offset: (offsetCount: number) =>
-                    Promise.resolve(mockCorporateData.slice(offsetCount, offsetCount + limitCount)),
+                    Promise.resolve(filteredCorporateData.slice(offsetCount, offsetCount + limitCount)),
                 }),
               }),
             };
@@ -292,11 +327,31 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const corp = sc.corporation as Record<string, unknown>;
     expect(corp.name).toBe('スグクル株式会社');
     expect(corp.status).toBe('active');
+    expect(corp.address_may_be_outdated).toBe(false);
 
-    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること
+    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること（注記はなし）
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+    expect(textContent).not.toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
+  });
+
+  it('lookup_corporate_by_number: hihyoji=1（検索対象除外）の法人は address_may_be_outdated=true となり要約に注記が付くこと', async () => {
+    const { client } = await setupHostClient();
+
+    const result = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '7000000000002' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    const corp = sc.corporation as Record<string, unknown>;
+    expect(corp.name).toBe('テスト物流有限会社');
+    expect(corp.address_may_be_outdated).toBe(true);
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
   });
 
   it('search_corporate_by_name: DBから部分一致検索し、ホスト版出典表示を返すこと', async () => {
@@ -316,11 +371,13 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const results = sc.results as Array<Record<string, unknown>>;
     expect(results.length).toBe(2);
     expect(results[0]?.name).toBe('スグクル株式会社');
+    expect(results[1]?.address_may_be_outdated).toBe(true);
 
-    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること
+    // 要約テキスト（content[0].text）に data_as_of と attribution、および検索対象除外の注記が含まれること
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+    expect(textContent).toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
   });
 
   it('lookup_invoice_issuer: 法人をDBから取得し、法人名・所在地・出典・免責事項を返すこと', async () => {
