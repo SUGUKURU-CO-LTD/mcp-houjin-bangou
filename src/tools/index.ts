@@ -15,11 +15,14 @@ import { registerValidateCheckDigitTool } from './validate-check-digit.js';
 import { registerNormalizeCompanyNameTool } from './normalize-company-name.js';
 
 import type { DbCorporateDataProvider } from '../repository/corporate-repository.js';
+import type { DbInvoiceDataProvider } from '../repository/invoice-repository.js';
 import type { DataSourceMode } from '../domain/tool-annotations.js';
+import { registerLookupInvoiceIssuerTool } from './lookup-invoice-issuer.js';
 
 export interface ToolDeps {
   ntaClient?: NtaClient;
   dbProvider?: DbCorporateDataProvider;
+  invoiceDbProvider?: DbInvoiceDataProvider;
   dataSource?: DataSourceMode;
   logger: McpLogger;
 }
@@ -27,6 +30,7 @@ export interface ToolDeps {
 export function registerAllTools(server: McpServer, deps: ToolDeps): void {
   registerLookupByNumberTool(server, deps);
   registerSearchByNameTool(server, deps);
+  registerLookupInvoiceIssuerTool(server, deps);
   registerValidateCheckDigitTool(server);
   registerNormalizeCompanyNameTool(server);
 }

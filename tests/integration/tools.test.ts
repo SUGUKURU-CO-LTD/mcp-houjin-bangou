@@ -159,13 +159,14 @@ async function setupClient(customLogger?: McpLogger): Promise<Client> {
 }
 
 describe('MCP Tools integration (via in-memory transport)', () => {
-  it('tools/list returns 4 tools in v1.4 spec (get_attribution removed per O1)', async () => {
+  it('tools/list returns 5 tools in v1.6 spec (includes lookup_invoice_issuer)', async () => {
     const client = await setupClient();
     const result = await client.listTools();
-    expect(result.tools.length).toBe(4);
+    expect(result.tools.length).toBe(5);
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'lookup_corporate_by_number',
+      'lookup_invoice_issuer',
       'normalize_company_name',
       'search_corporate_by_name',
       'validate_corporate_number',
