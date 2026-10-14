@@ -18,8 +18,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../../src/mcp.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
-import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
+import { DbInvoiceDataProvider } from '../../src/repository/invoice-repository.js';
+import {
+  NTA_CORPORATE_HOST_ATTRIBUTION,
+  NTA_INVOICE_HOST_ATTRIBUTION,
+  INVOICE_TAX_DISCLAIMER,
+} from '../../src/lib/tool-response.js';
 import type { DbClient } from '../../src/db/client.js';
+import { invoiceIssuers } from '../../src/db/schema.js';
 
 describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', () => {
   const currentDataAsOf = '2026-10-01';
@@ -61,11 +67,88 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     },
   ];
 
+  const mockInvoiceData = [
+    {
+      registrationNumber: 'T9340001026142',
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '2',
+      country: '1',
+      latest: '1',
+      registrationDate: '2023-10-01',
+      updateDate: '2023-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: null,
+      legalName: 'スグクル株式会社',
+      tradeName: null,
+      kana: 'スグクルカブシキガイシャ',
+      addressPrefecture: '鹿児島県',
+      addressCity: '霧島市',
+      addressDetail: '国分中央１丁目２−３２',
+      headOfficeAddress: '鹿児島県霧島市国分中央１丁目２−３２',
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+    {
+      registrationNumber: 'T1000000000001',
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '1',
+      country: '1',
+      latest: '1',
+      registrationDate: '2023-10-01',
+      updateDate: '2023-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: null,
+      legalName: '山田 太郎',
+      tradeName: null,
+      kana: 'ヤマダ タロウ',
+      addressPrefecture: '東京都',
+      addressCity: '世田谷区',
+      addressDetail: '豪徳寺１丁目',
+      headOfficeAddress: '東京都世田谷区豪徳寺１丁目',
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+  ];
+
+  function findRegistrationNumber(condition: unknown): string | null {
+    const visited = new Set<unknown>();
+    function search(node: unknown): string | null {
+      if (!node || typeof node !== 'object') {
+        if (typeof node === 'string' && /^T\d{13}$/.test(node)) {
+          return node;
+        }
+        return null;
+      }
+      if (visited.has(node)) return null;
+      visited.add(node);
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const found = search(item);
+          if (found) return found;
+        }
+      } else {
+        for (const val of Object.values(node)) {
+          const found = search(val);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    return search(condition);
+  }
+
   function createMockDb(): DbClient {
     return {
       select: (fields?: unknown) => ({
-        from: () => ({
-          where: () => {
+        from: (table?: unknown) => ({
+          where: (condition?: unknown) => {
             if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
               return {
                 orderBy: () => ({
@@ -76,6 +159,15 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
             if (fields && typeof fields === 'object' && 'total' in (fields as object)) {
               return Promise.resolve([{ total: mockCorporateData.length }]);
+            }
+
+            // invoiceIssuers 判定
+            if (table === invoiceIssuers) {
+              const targetRegNumber = findRegistrationNumber(condition);
+              const matched = targetRegNumber
+                ? mockInvoiceData.filter((r) => r.registrationNumber === targetRegNumber)
+                : [];
+              return Promise.resolve(matched);
             }
 
             return {
@@ -97,10 +189,12 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
   async function setupHostClient() {
     const db = createMockDb();
     const dbProvider = new DbCorporateDataProvider(db);
+    const invoiceDbProvider = new DbInvoiceDataProvider(db);
 
     // NTA_APPLICATION_ID なし・DBモードで MCP サーバー初期化
     const mcpServer = createServer({
       dbProvider,
+      invoiceDbProvider,
       dataSource: 'db',
     });
 
@@ -119,12 +213,16 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     const lookupTool = toolsResult.tools.find((t) => t.name === 'lookup_corporate_by_number');
     const searchTool = toolsResult.tools.find((t) => t.name === 'search_corporate_by_name');
+    const invoiceTool = toolsResult.tools.find((t) => t.name === 'lookup_invoice_issuer');
 
     expect(lookupTool).toBeDefined();
     expect(lookupTool?.annotations?.openWorldHint).toBe(false);
 
     expect(searchTool).toBeDefined();
     expect(searchTool?.annotations?.openWorldHint).toBe(false);
+
+    expect(invoiceTool).toBeDefined();
+    expect(invoiceTool?.annotations?.openWorldHint).toBe(false);
   });
 
   it('lookup_corporate_by_number: DBから取得し、ホスト版出典表示を返すこと', async () => {
@@ -144,6 +242,11 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const corp = sc.corporation as Record<string, unknown>;
     expect(corp.name).toBe('スグクル株式会社');
     expect(corp.status).toBe('active');
+
+    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
+    expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
   });
 
   it('search_corporate_by_name: DBから部分一致検索し、ホスト版出典表示を返すこと', async () => {
@@ -163,5 +266,85 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const results = sc.results as Array<Record<string, unknown>>;
     expect(results.length).toBe(2);
     expect(results[0]?.name).toBe('スグクル株式会社');
+
+    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
+    expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+  });
+
+  it('lookup_invoice_issuer: 法人をDBから取得し、法人名・所在地・出典・免責事項を返すこと', async () => {
+    const { client } = await setupHostClient();
+
+    const result = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T9340001026142', reference_date: '2024-01-01' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    expect(sc).toBeDefined();
+    expect(sc.registration_number).toBe('T9340001026142');
+    expect(sc.status).toBe('registered');
+    expect(sc.business_type).toBe('corporation');
+    expect(sc.corporate_name).toBe('スグクル株式会社');
+    expect(sc.location).toBe('鹿児島県霧島市国分中央１丁目２−３２');
+    expect(sc.was_registered_on_reference_date).toBe(true);
+    expect(sc.data_as_of).toBe(currentDataAsOf);
+    expect(sc.attribution).toBe(NTA_INVOICE_HOST_ATTRIBUTION);
+    expect(sc.tax_disclaimer).toBe(INVOICE_TAX_DISCLAIMER);
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain(
+      'スグクル株式会社（登録番号: T9340001026142）は適格請求書発行事業者として登録されています。',
+    );
+    expect(textContent).toContain('事業者区分: 法人');
+    expect(textContent).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
+    expect(textContent).toContain('基準日（2024-01-01）時点で有効な登録事業者でした。');
+    expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
+    expect(textContent).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+  });
+
+  it('lookup_invoice_issuer: 個人事業者の場合は氏名・屋号・所在地がnullで返ること', async () => {
+    const { client } = await setupHostClient();
+
+    const result = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T1000000000001' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    expect(sc).toBeDefined();
+    expect(sc.business_type).toBe('individual');
+    expect(sc.corporate_name).toBeNull();
+    expect(sc.location).toBeNull();
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain(
+      '登録番号: T1000000000001 は適格請求書発行事業者として登録されています。',
+    );
+    expect(textContent).toContain('事業者区分: 個人事業者');
+    expect(textContent).not.toContain('山田');
+    expect(textContent).not.toContain('世田谷区');
+  });
+
+  it('lookup_invoice_issuer: 未登録・非公表の番号の場合は status: not_found で返ること', async () => {
+    const { client } = await setupHostClient();
+
+    const result = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T9999999999999' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    expect(sc).toBeDefined();
+    expect(sc.status).toBe('not_found');
+    expect(sc.business_type).toBe('unknown');
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('該当する公表データは見つかりませんでした');
+    expect(textContent).toContain('未登録であることを確定するものではありません');
   });
 });

@@ -169,10 +169,18 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
           attribution: val.attribution,
         };
 
-        const statusLabel = val.corporation.status === 'closed' ? '（閉鎖）' : '';
-        const summaryText = `${val.corporation.name}${statusLabel}（法人番号: ${corporate_number}）の公表情報を取得しました。所在地: ${val.corporation.location}`;
+        const closeDate = val.corporation.close_date;
+        const closeCause = val.corporation.close_cause;
+        const summary = [
+          `${val.corporation.name}（法人番号: ${val.corporation.corporate_number}）の公表情報です。`,
+          `状態: ${val.corporation.status === 'active' ? '登記中 (active)' : `閉鎖 (closed${closeDate ? ` / 閉鎖日: ${closeDate}` : ''}${closeCause ? ` / 事由: ${closeCause}` : ''})`}`,
+          `法人種別: ${val.corporation.legal_type}`,
+          `所在地: ${val.corporation.location}`,
+          `データ時点: ${val.data_as_of}`,
+          `出典: ${val.attribution}`,
+        ].join('\n');
 
-        return createSuccessResponse(summaryText, output);
+        return createSuccessResponse(summary, output);
       }
 
       // ローカル版 (国税庁 Web-API 直接呼出) モード

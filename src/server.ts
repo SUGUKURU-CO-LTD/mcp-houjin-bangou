@@ -28,6 +28,7 @@ import { createServer } from './mcp.js';
 import { VERSION } from './version.js';
 import { getDb } from './db/client.js';
 import { DbCorporateDataProvider } from './repository/corporate-repository.js';
+import { DbInvoiceDataProvider } from './repository/invoice-repository.js';
 
 export async function bootstrap(): Promise<void> {
   const env = getEnv();
@@ -53,9 +54,11 @@ export async function bootstrap(): Promise<void> {
   );
 
   let dbProvider: DbCorporateDataProvider | undefined;
+  let invoiceDbProvider: DbInvoiceDataProvider | undefined;
   if (env.DATA_SOURCE === 'db') {
     const db = getDb(env.DATABASE_URL);
     dbProvider = new DbCorporateDataProvider(db);
+    invoiceDbProvider = new DbInvoiceDataProvider(db);
   }
 
   const ntaClient =
@@ -116,6 +119,7 @@ export async function bootstrap(): Promise<void> {
       const mcpServer = createServer({
         ntaClient,
         dbProvider,
+        invoiceDbProvider,
         dataSource: env.DATA_SOURCE,
       });
       const transport = new StreamableHTTPServerTransport({
@@ -206,6 +210,7 @@ function buildServerCard(): object {
       tools: [
         'lookup_corporate_by_number',
         'search_corporate_by_name',
+        'lookup_invoice_issuer',
         'validate_corporate_number',
         'normalize_company_name',
       ],

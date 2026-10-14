@@ -189,12 +189,23 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
             ? `（全 ${val.total_count} 件中 ${val.results.length} 件を表示）`
             : `（${val.results.length} 件を表示）`;
 
-        const summaryText =
+        const firstLine =
           val.results.length === 0
             ? `「${name}」に一致する法人は見つかりませんでした。`
             : `「${name}」の検索結果です${countText}。`;
 
-        return createSuccessResponse(summaryText, output);
+        const summary = [
+          firstLine,
+          ...(val.next_cursor
+            ? [
+                '※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。',
+              ]
+            : []),
+          `データ時点: ${val.data_as_of}`,
+          `出典: ${val.attribution}`,
+        ].join('\n');
+
+        return createSuccessResponse(summary, output);
       }
 
       // ローカル版 (国税庁 Web-API 直接呼出) モード

@@ -12,11 +12,13 @@ import { createMcpLogger } from './lib/mcp-logger.js';
 import { SERVER_NAME, VERSION } from './version.js';
 
 import type { DbCorporateDataProvider } from './repository/corporate-repository.js';
+import type { DbInvoiceDataProvider } from './repository/invoice-repository.js';
 import type { DataSourceMode } from './domain/tool-annotations.js';
 
 export interface ServerDeps {
   ntaClient?: NtaClient;
   dbProvider?: DbCorporateDataProvider;
+  invoiceDbProvider?: DbInvoiceDataProvider;
   dataSource?: DataSourceMode;
 }
 
@@ -58,6 +60,7 @@ export function createServer(deps: ServerDeps): McpServer {
   registerAllTools(mcpServer, {
     ntaClient: deps.ntaClient,
     dbProvider: deps.dbProvider,
+    invoiceDbProvider: deps.invoiceDbProvider,
     dataSource: deps.dataSource,
     logger,
   });

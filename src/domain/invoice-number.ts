@@ -5,30 +5,29 @@
  *
  * 根拠 / Source:
  *   国税庁 第二編 1.5版 2.1.3 条件: 登録番号は "T"＋13桁
- *   国税庁 リソース定義書 1.5版 項番8: "T"+9999999999999 (14桁)
+ *   国税庁 リソース定義書 1.5版 別紙1 項番8: "T"+9999999999999 (14桁)
  *
- * T の次の 13 桁は法人番号 (法人の場合) または 個人事業主の識別番号 (個人の場合) であり、
- * いずれもチェックデジット計算式は法人番号と同一 (第二編 別紙1 項番8 で定義)。
- *
- * 本ファイルは v0.3.0 のインボイス API 統合時に本格利用されるが、
- * 法人番号ロジックの再利用可能性を担保するため、v0.1.0 で Branded type の骨格を提供する
- * (ADR 0012 の前倒し実装方針)。
+ * T の次の 13 桁は法人番号 (法人の場合) または 個人事業主の識別番号 (個人の場合) である。
+ * 法人番号部分についてはチェックデジット検証が可能だが、個人の識別番号については
+ * 一次資料にチェックデジットの定義がないため、lookup_invoice_issuer の入力検証は
+ * 形式照合 (^T\d{13}$) のみを行う (SLA2-326 監査決定)。
  */
 
 import { z } from 'zod';
-import { isValidCheckDigit, normalizeAndValidateCorporateNumber } from './check-digit.js';
+import { normalizeAndValidateCorporateNumber } from './check-digit.js';
 
 /**
  * "T" + 13桁の登録番号 (Branded type)
- * Registered number: literal "T" prefix + 13-digit base (check digit + 12-digit basis)
+ * Registered number: literal "T" prefix + 13-digit base
+ *
+ * 根拠 / Source:
+ *   国税庁 適格請求書発行事業者公表システム「リソース定義書 1.5版」別紙1 項番8: "T"+9999999999999 (14桁)
+ *   ※ 一次資料において個人の登録番号のチェックデジット定義は存在しないため、
+ *      形式検証（^T\d{13}$）のみを行う。
  */
 export const InvoiceNumberSchema = z
   .string()
   .regex(/^T\d{13}$/, '登録番号は T + 半角数字13桁です / Must be "T" + 13 half-width digits')
-  .refine((s) => isValidCheckDigit(s.slice(1)), {
-    message:
-      '登録番号のチェックデジットが一致しません (T を除いた 13桁部分) / Invalid check digit on the 13-digit base',
-  })
   .brand<'InvoiceNumber'>();
 
 export type InvoiceNumber = z.infer<typeof InvoiceNumberSchema>;

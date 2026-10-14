@@ -128,8 +128,14 @@ describe('InvoiceNumberSchema (Zod)', () => {
     expect(result.success).toBe(false);
   });
 
-  it('チェックデジット不一致', () => {
+  it('T+13桁数字であれば形式上は受け入れる (チェックデジット計算は要求しない)', () => {
+    // リソース定義書1.5版 別紙1 項番8 に基づき、個人の番号も包含できるよう形式検証のみ
     const result = InvoiceNumberSchema.safeParse('T1040001999013');
+    expect(result.success).toBe(true);
+  });
+
+  it('形式エラー: 半角数字以外が含まれる', () => {
+    const result = InvoiceNumberSchema.safeParse('T804000199901A');
     expect(result.success).toBe(false);
   });
 
@@ -139,7 +145,7 @@ describe('InvoiceNumberSchema (Zod)', () => {
   });
 });
 
-describe('法人番号と T番号の整合性', () => {
+describe('法人番号と T番号の整合性 (normalizeAndValidateInvoiceNumber)', () => {
   it('同じ13桁部分なら法人番号と T番号 両方とも有効', () => {
     const invoiceResult = normalizeAndValidateInvoiceNumber(VALID_T_NUMBER);
     expect(invoiceResult.isValid).toBe(true);
@@ -148,10 +154,11 @@ describe('法人番号と T番号の整合性', () => {
     }
   });
 
-  it('仕様書のサンプル番号 T8040001999011 は架空番号のため無効 (CD 不一致)', () => {
-    // これは仕様書のフィクション番号であり、実際のチェックデジット (1) と
-    // サンプルの先頭桁 (8) が一致しない。実装は正しく拒否する。
-    const result = InvoiceNumberSchema.safeParse('T8040001999011');
-    expect(result.success).toBe(false);
+  it('法人番号チェックデジットと照合する関数では、架空番号 T8040001999011 は拒否される', () => {
+    const result = normalizeAndValidateInvoiceNumber('T8040001999011');
+    expect(result.isValid).toBe(false);
+    if (!result.isValid) {
+      expect(result.reason).toBe('check_digit_mismatch');
+    }
   });
 });
