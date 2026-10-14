@@ -59,7 +59,9 @@ const OutputSchema = z.object({
   corporation: CorporationInfoSchema,
   data_as_of: z
     .string()
-    .describe('Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)'),
+    .describe(
+      'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
+    ),
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
@@ -185,7 +187,9 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
           `法人種別: ${val.corporation.legal_type}`,
           `所在地: ${val.corporation.location}`,
           ...(val.corporation.address_may_be_outdated
-            ? ['※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。']
+            ? [
+                '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+              ]
             : []),
           `データ時点: ${val.data_as_of}`,
           `出典: ${val.attribution}`,

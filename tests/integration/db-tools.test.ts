@@ -261,7 +261,9 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
               orderBy: () => ({
                 limit: (limitCount: number) => ({
                   offset: (offsetCount: number) =>
-                    Promise.resolve(filteredCorporateData.slice(offsetCount, offsetCount + limitCount)),
+                    Promise.resolve(
+                      filteredCorporateData.slice(offsetCount, offsetCount + limitCount),
+                    ),
                 }),
               }),
             };
@@ -333,7 +335,9 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
-    expect(textContent).not.toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
+    expect(textContent).not.toContain(
+      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+    );
   });
 
   it('lookup_corporate_by_number: hihyoji=1（検索対象除外）の法人は address_may_be_outdated=true となり要約に注記が付くこと', async () => {
@@ -351,7 +355,9 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(corp.address_may_be_outdated).toBe(true);
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
+    expect(textContent).toContain(
+      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+    );
   });
 
   it('search_corporate_by_name: DBから部分一致検索し、ホスト版出典表示を返すこと', async () => {
@@ -377,7 +383,9 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
-    expect(textContent).toContain('※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。');
+    expect(textContent).toContain(
+      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+    );
   });
 
   it('lookup_invoice_issuer: 法人をDBから取得し、法人名・所在地・出典・免責事項を返すこと', async () => {

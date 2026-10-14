@@ -81,7 +81,9 @@ const OutputSchema = z.object({
     .describe('Cursor token for fetching the next page; null if no more items'),
   data_as_of: z
     .string()
-    .describe('Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)'),
+    .describe(
+      'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
+    ),
   attribution: z.string().describe('Attribution text required by NTA terms of service'),
 });
 
@@ -207,7 +209,9 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
         const summary = [
           firstLine,
           ...(hasOutdated
-            ? ['※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。']
+            ? [
+                '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+              ]
             : []),
           ...(val.next_cursor
             ? [

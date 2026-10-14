@@ -234,10 +234,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
         ? like(corporateNumbers.name, `${escaped}%`)
         : ilike(corporateNumbers.name, `%${escaped}%`);
 
-      const conditions = [
-        eq(corporateNumbers.datasetVersionId, activeVersion.id),
-        nameCondition,
-      ];
+      const conditions = [eq(corporateNumbers.datasetVersionId, activeVersion.id), nameCondition];
 
       if (prefecture) {
         conditions.push(eq(corporateNumbers.prefectureCode, prefecture));
