@@ -110,14 +110,14 @@ describe('DbInvoiceDataProvider unit tests', () => {
       }
     });
 
-    it('基準日指定がある場合、was_registered_on_reference_date: false を返すこと', async () => {
+    it('基準日指定がある場合でも、not_found のときは was_registered_on_reference_date: null を返すこと', async () => {
       const mockDb = createMockDb({ rows: [] });
       const provider = new DbInvoiceDataProvider(mockDb);
 
       const result = await provider.lookupByRegistrationNumber('T9999999999999', '2024-01-01');
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.was_registered_on_reference_date).toBe(false);
+        expect(result.value.was_registered_on_reference_date).toBeNull();
       }
     });
   });
@@ -372,6 +372,132 @@ describe('DbInvoiceDataProvider unit tests', () => {
       if (result.ok) {
         expect(result.value.was_registered_on_reference_date).toBe(false);
       }
+    });
+
+    describe('再登録（取消後に同一登録番号で再登録）の基準日判定', () => {
+      // 登録期間1: 2023-10-01 〜 2024-03-31 (cancelDate)
+      // 登録期間2: 2024-10-01 〜 継続中 (cancelDate なし)
+      const reRegisteredRows = [
+        {
+          registrationNumber: 'T6000000000006',
+          sequenceNumber: '1',
+          kind: '2',
+          latest: '0',
+          registrationDate: '2023-10-01',
+          cancelDate: '2024-03-31',
+          expireDate: null,
+          legalName: '再登録企業',
+          headOfficeAddress: '東京都港区',
+        },
+        {
+          registrationNumber: 'T6000000000006',
+          sequenceNumber: '2',
+          kind: '2',
+          latest: '1',
+          registrationDate: '2024-10-01',
+          cancelDate: null,
+          expireDate: null,
+          legalName: '再登録企業',
+          headOfficeAddress: '東京都港区',
+        },
+      ];
+
+      it('前の登録期間中の日付の場合: true を返すこと', async () => {
+        const mockDb = createMockDb({ rows: reRegisteredRows });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T6000000000006', '2023-12-01');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.was_registered_on_reference_date).toBe(true);
+        }
+      });
+
+      it('取消〜再登録の間の未登録期間の日付の場合: false を返すこと', async () => {
+        const mockDb = createMockDb({ rows: reRegisteredRows });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T6000000000006', '2024-06-01');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.was_registered_on_reference_date).toBe(false);
+        }
+      });
+
+      it('再登録後の期間中の日付の場合: true を返すこと', async () => {
+        const mockDb = createMockDb({ rows: reRegisteredRows });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T6000000000006', '2024-11-01');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.was_registered_on_reference_date).toBe(true);
+        }
+      });
+    });
+
+    describe('登録年月日が空の行・一連番号の並び順の挙動', () => {
+      it('登録年月日が空の行の場合、was_registered_on_reference_date: null を返すこと', async () => {
+        const mockDb = createMockDb({
+          rows: [
+            {
+              registrationNumber: 'T7000000000007',
+              sequenceNumber: '1',
+              kind: '2',
+              latest: '1',
+              registrationDate: '',
+              cancelDate: null,
+              expireDate: null,
+              legalName: '登録日未定企業',
+              headOfficeAddress: '東京都新宿区',
+            },
+          ],
+        });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T7000000000007', '2024-01-01');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.registration_date).toBeNull();
+          expect(result.value.was_registered_on_reference_date).toBeNull();
+        }
+      });
+
+      it('一連番号が 10 以上ある場合、数値順で正しく最新行が判定されること', async () => {
+        const rows = [
+          {
+            registrationNumber: 'T8000000000008',
+            sequenceNumber: '10',
+            kind: '2',
+            latest: '0',
+            registrationDate: '2023-10-01',
+            cancelDate: null,
+            expireDate: null,
+            legalName: '10番目の社名',
+            headOfficeAddress: '東京都千代田区',
+          },
+          {
+            registrationNumber: 'T8000000000008',
+            sequenceNumber: '9',
+            kind: '2',
+            latest: '0',
+            registrationDate: '2023-10-01',
+            cancelDate: null,
+            expireDate: null,
+            legalName: '9番目の社名',
+            headOfficeAddress: '東京都千代田区',
+          },
+        ];
+        const mockDb = createMockDb({ rows });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        // latest='1' がない場合、数値最大の一連番号 '10' の行が採用される
+        const result = await provider.lookupByRegistrationNumber('T8000000000008');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.corporate_name).toBe('10番目の社名');
+        }
+      });
     });
   });
 });

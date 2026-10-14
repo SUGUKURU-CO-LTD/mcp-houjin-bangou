@@ -101,7 +101,8 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
 
       // 1. レコードが存在しない場合 (not_found)
       // ※ docs/plan/corp-check-interface-v1.md §4 注記:
-      //   lookup_invoice_issuer は status: not_found で返すため、エラーではなく正常レスポンスとする
+      //   lookup_invoice_issuer は status: not_found で返すため、エラーではなく正常レスポンスとする。
+      //   該当なしの場合は基準日を指定しても判定不能（未登録の確定ではない）であるため null とする。
       if (rows.length === 0) {
         return Result.ok({
           registration_number: registrationNumber,
@@ -112,14 +113,20 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
           expiration_date: null,
           corporate_name: null,
           location: null,
-          was_registered_on_reference_date: referenceDate !== undefined ? false : null,
+          was_registered_on_reference_date: null,
           data_as_of: activeVersion.dataAsOf,
           attribution: NTA_INVOICE_HOST_ATTRIBUTION,
           tax_disclaimer: INVOICE_TAX_DISCLAIMER,
         });
       }
 
-      const latestRow = rows.find((r) => r.latest === '1') ?? rows[0];
+      // 一連番号（sequenceNumber）を数値として昇順ソート（varchar だと '10' が '9' より前になるのを防ぐ）
+      const sortedRows = [...rows].sort(
+        (a, b) => Number(a.sequenceNumber ?? 0) - Number(b.sequenceNumber ?? 0),
+      );
+
+      const latestRow =
+        sortedRows.find((r) => r.latest === '1') ?? sortedRows[sortedRows.length - 1];
       if (!latestRow) {
         return Result.err({
           code: 'INTERNAL_ERROR',
@@ -169,27 +176,64 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
       }
 
       // 基準日時点の有効性判定 (was_registered_on_reference_date)
-      // 仕様: on or after registration_date, and before cancellation/expiration dates
+      // 履歴行を登録年月日ごとにまとめ、各まとまりの最後の行の取消・失効年月日で登録期間を作る。
+      // 再登録された場合も含め、基準日がいずれかの登録期間に入れば true とする。
       let wasRegisteredOnReferenceDate: boolean | null = null;
       if (referenceDate !== undefined) {
-        const regDate = latestRow.registrationDate;
-        const cancelDate =
-          latestRow.cancelDate && latestRow.cancelDate.trim() !== '' ? latestRow.cancelDate : null;
-        const expireDate =
-          latestRow.expireDate && latestRow.expireDate.trim() !== '' ? latestRow.expireDate : null;
+        const periods: Array<{
+          registrationDate: string;
+          cancelDate: string | null;
+          expireDate: string | null;
+        }> = [];
 
-        const isAfterOrOnReg = referenceDate >= regDate;
-        const isBeforeCancel = cancelDate === null || referenceDate < cancelDate;
-        const isBeforeExpire = expireDate === null || referenceDate < expireDate;
+        const groups = new Map<string, typeof sortedRows>();
+        for (const row of sortedRows) {
+          const regDate = row.registrationDate?.trim();
+          if (!regDate) continue;
+          const group = groups.get(regDate) ?? [];
+          group.push(row);
+          groups.set(regDate, group);
+        }
 
-        wasRegisteredOnReferenceDate = isAfterOrOnReg && isBeforeCancel && isBeforeExpire;
+        for (const [regDate, groupRows] of groups.entries()) {
+          const lastGroupRow = groupRows[groupRows.length - 1];
+          const cancelDate =
+            lastGroupRow?.cancelDate && lastGroupRow.cancelDate.trim() !== ''
+              ? lastGroupRow.cancelDate.trim()
+              : null;
+          const expireDate =
+            lastGroupRow?.expireDate && lastGroupRow.expireDate.trim() !== ''
+              ? lastGroupRow.expireDate.trim()
+              : null;
+          periods.push({
+            registrationDate: regDate,
+            cancelDate,
+            expireDate,
+          });
+        }
+
+        if (periods.length === 0) {
+          // 登録年月日が空の行では判定できないため null
+          wasRegisteredOnReferenceDate = null;
+        } else {
+          // 基準日がいずれかの登録期間に入れば true
+          wasRegisteredOnReferenceDate = periods.some((period) => {
+            const isAfterOrOnReg = referenceDate >= period.registrationDate;
+            const isBeforeCancel = period.cancelDate === null || referenceDate < period.cancelDate;
+            const isBeforeExpire = period.expireDate === null || referenceDate < period.expireDate;
+            return isAfterOrOnReg && isBeforeCancel && isBeforeExpire;
+          });
+        }
       }
 
       return Result.ok({
         registration_number: latestRow.registrationNumber,
         status,
         business_type: businessType,
-        registration_date: latestRow.registrationDate,
+        registration_date:
+          latestRow.registrationDate && latestRow.registrationDate.trim() !== ''
+            ? latestRow.registrationDate.trim()
+            : null,
         cancellation_date:
           latestRow.cancelDate && latestRow.cancelDate.trim() !== '' ? latestRow.cancelDate : null,
         expiration_date:

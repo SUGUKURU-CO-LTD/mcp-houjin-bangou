@@ -196,13 +196,14 @@ describe('lookup_invoice_issuer tool unit tests', () => {
 
       const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
       expect(summaryText).toContain(
-        'スグクル株式会社（登録番号: T9340001026142）は適格請求書発行事業者として登録されています。',
+        'スグクル株式会社（登録番号: T9340001026142）は、データ時点（2026-10-01）の公表データでは、適格請求書発行事業者として登録されています。',
       );
       expect(summaryText).toContain('事業者区分: 法人');
       expect(summaryText).toContain('所在地: 鹿児島県霧島市国分中央一丁目２−３２');
       expect(summaryText).toContain('登録年月日: 2023-10-01');
       expect(summaryText).toContain('データ時点: 2026-10-01');
       expect(summaryText).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
 
       // ログに登録番号が含まれないこと
       const logString = JSON.stringify(loggedPayloads);
@@ -282,10 +283,11 @@ describe('lookup_invoice_issuer tool unit tests', () => {
 
       const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
       expect(summaryText).toContain(
-        '登録番号: T1111111111111 は適格請求書発行事業者として登録されています。',
+        '登録番号: T1111111111111 は、データ時点（2026-10-01）の公表データでは、適格請求書発行事業者として登録されています。',
       );
       expect(summaryText).toContain('事業者区分: 個人事業者');
       expect(summaryText).not.toContain('所在地:');
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
     });
 
     it('取消 (cancelled): status: cancelled と取消日を返却すること', async () => {
@@ -329,6 +331,7 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       expect(summaryText).toContain(
         '基準日（2024-04-01）時点では有効な登録事業者ではありませんでした。',
       );
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
     });
 
     it('失効 (expired): status: expired と失効日を返却すること', async () => {
@@ -365,6 +368,7 @@ describe('lookup_invoice_issuer tool unit tests', () => {
 
       const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
       expect(summaryText).toContain('失効年月日: 2024-06-30');
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
     });
 
     it('公表データ該当なし (not_found): 正常レスポンス (isError: false, status: not_found) を返し、注記を含むこと', async () => {
@@ -377,7 +381,7 @@ describe('lookup_invoice_issuer tool unit tests', () => {
         expiration_date: null,
         corporate_name: null,
         location: null,
-        was_registered_on_reference_date: false,
+        was_registered_on_reference_date: null,
         data_as_of: '2026-10-01',
         attribution: NTA_INVOICE_HOST_ATTRIBUTION,
         tax_disclaimer: INVOICE_TAX_DISCLAIMER,
@@ -402,11 +406,13 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       const sc = result.structuredContent as Record<string, unknown>;
       expect(sc.status).toBe('not_found');
       expect(sc.business_type).toBe('unknown');
-      expect(sc.was_registered_on_reference_date).toBe(false);
+      expect(sc.was_registered_on_reference_date).toBeNull();
 
       const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
       expect(summaryText).toContain('該当する公表データは見つかりませんでした');
       expect(summaryText).toContain('未登録であることを確定するものではありません');
+      expect(summaryText).not.toContain('基準日');
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
     });
   });
 

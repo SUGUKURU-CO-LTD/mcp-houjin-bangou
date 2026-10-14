@@ -176,13 +176,13 @@ export function registerLookupInvoiceIssuerTool(
       } else if (val.status === 'registered') {
         if (val.business_type === 'individual') {
           summaryLines.push(
-            `登録番号: ${registration_number} は適格請求書発行事業者として登録されています。`,
+            `登録番号: ${registration_number} は、データ時点（${val.data_as_of}）の公表データでは、適格請求書発行事業者として登録されています。`,
             `事業者区分: ${businessTypeLabel}`,
             `登録年月日: ${val.registration_date}`,
           );
         } else {
           summaryLines.push(
-            `${val.corporate_name ?? ''}（登録番号: ${registration_number}）は適格請求書発行事業者として登録されています。`,
+            `${val.corporate_name ?? ''}（登録番号: ${registration_number}）は、データ時点（${val.data_as_of}）の公表データでは、適格請求書発行事業者として登録されています。`,
             `事業者区分: ${businessTypeLabel}`,
             `所在地: ${val.location ?? '公表なし'}`,
             `登録年月日: ${val.registration_date}`,
@@ -223,6 +223,9 @@ export function registerLookupInvoiceIssuerTool(
 
       // 公表データ共通メタデータ（データ時点と出典）
       summaryLines.push(`データ時点: ${val.data_as_of}`, `出典: ${val.attribution}`);
+
+      // 税務免責事項
+      summaryLines.push(val.tax_disclaimer);
 
       const summaryText = summaryLines.join('\n');
 

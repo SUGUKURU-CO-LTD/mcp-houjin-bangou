@@ -70,6 +70,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
   const mockInvoiceData = [
     {
       registrationNumber: 'T9340001026142',
+      sequenceNumber: 1,
       datasetVersionId: 1,
       process: '01',
       correct: '0',
@@ -93,6 +94,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     },
     {
       registrationNumber: 'T1000000000001',
+      sequenceNumber: 1,
       datasetVersionId: 1,
       process: '01',
       correct: '0',
@@ -111,6 +113,54 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       addressCity: '世田谷区',
       addressDetail: '豪徳寺１丁目',
       headOfficeAddress: '東京都世田谷区豪徳寺１丁目',
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+    {
+      registrationNumber: 'T2000000000002',
+      sequenceNumber: 1,
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '2',
+      country: '1',
+      latest: '0',
+      registrationDate: '2023-10-01',
+      updateDate: '2023-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: '2024-03-31',
+      legalName: '再登録テスト株式会社',
+      tradeName: null,
+      kana: 'サイトウロクテストカブシキガイシャ',
+      addressPrefecture: '東京都',
+      addressCity: '千代田区',
+      addressDetail: '丸の内１丁目',
+      headOfficeAddress: '東京都千代田区丸の内１丁目',
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+    {
+      registrationNumber: 'T2000000000002',
+      sequenceNumber: 2,
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '2',
+      country: '1',
+      latest: '1',
+      registrationDate: '2024-10-01',
+      updateDate: '2024-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: null,
+      legalName: '再登録テスト株式会社',
+      tradeName: null,
+      kana: 'サイトウロクテストカブシキガイシャ',
+      addressPrefecture: '東京都',
+      addressCity: '千代田区',
+      addressDetail: '丸の内１丁目',
+      headOfficeAddress: '東京都千代田区丸の内１丁目',
       declaredAddress: null,
       domesticOfficeAddress: null,
     },
@@ -296,13 +346,14 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(
-      'スグクル株式会社（登録番号: T9340001026142）は適格請求書発行事業者として登録されています。',
+      `スグクル株式会社（登録番号: T9340001026142）は、データ時点（${currentDataAsOf}）の公表データでは、適格請求書発行事業者として登録されています。`,
     );
     expect(textContent).toContain('事業者区分: 法人');
     expect(textContent).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
     expect(textContent).toContain('基準日（2024-01-01）時点で有効な登録事業者でした。');
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
   it('lookup_invoice_issuer: 個人事業者の場合は氏名・屋号・所在地がnullで返ること', async () => {
@@ -322,19 +373,20 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(
-      '登録番号: T1000000000001 は適格請求書発行事業者として登録されています。',
+      `登録番号: T1000000000001 は、データ時点（${currentDataAsOf}）の公表データでは、適格請求書発行事業者として登録されています。`,
     );
     expect(textContent).toContain('事業者区分: 個人事業者');
     expect(textContent).not.toContain('山田');
     expect(textContent).not.toContain('世田谷区');
+    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
-  it('lookup_invoice_issuer: 未登録・非公表の番号の場合は status: not_found で返ること', async () => {
+  it('lookup_invoice_issuer: 未登録・非公表の番号の場合は status: not_found で返り、基準日指定時も判定文が出ず null となること', async () => {
     const { client } = await setupHostClient();
 
     const result = await client.callTool({
       name: 'lookup_invoice_issuer',
-      arguments: { registration_number: 'T9999999999999' },
+      arguments: { registration_number: 'T9999999999999', reference_date: '2024-01-01' },
     });
 
     expect(result.isError).toBeFalsy();
@@ -342,9 +394,53 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(sc).toBeDefined();
     expect(sc.status).toBe('not_found');
     expect(sc.business_type).toBe('unknown');
+    expect(sc.was_registered_on_reference_date).toBeNull();
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain('該当する公表データは見つかりませんでした');
     expect(textContent).toContain('未登録であることを確定するものではありません');
+    expect(textContent).not.toContain('基準日');
+    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
+  });
+
+  it('lookup_invoice_issuer: 再登録された番号で前の登録期間中の日付が true になること', async () => {
+    const { client } = await setupHostClient();
+
+    // 1. 前の登録期間（2023-10-01〜2024-03-31）内の日付を指定: true
+    const resultPast = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T2000000000002', reference_date: '2023-12-01' },
+    });
+    expect(resultPast.isError).toBeFalsy();
+    const scPast = resultPast.structuredContent as Record<string, unknown>;
+    expect(scPast.was_registered_on_reference_date).toBe(true);
+    const textPast = (resultPast.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textPast).toContain('基準日（2023-12-01）時点で有効な登録事業者でした。');
+
+    // 2. 取消中期間（2024-04-01〜2024-09-30）の日付を指定: false
+    const resultMiddle = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T2000000000002', reference_date: '2024-06-01' },
+    });
+    expect(resultMiddle.isError).toBeFalsy();
+    const scMiddle = resultMiddle.structuredContent as Record<string, unknown>;
+    expect(scMiddle.was_registered_on_reference_date).toBe(false);
+    const textMiddle = (resultMiddle.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textMiddle).toContain(
+      '基準日（2024-06-01）時点では有効な登録事業者ではありませんでした。',
+    );
+
+    // 3. 再登録後期間（2024-10-01〜）の日付を指定: true
+    const resultReRegistered = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T2000000000002', reference_date: '2024-11-01' },
+    });
+    expect(resultReRegistered.isError).toBeFalsy();
+    const scReRegistered = resultReRegistered.structuredContent as Record<string, unknown>;
+    expect(scReRegistered.was_registered_on_reference_date).toBe(true);
+    const textReRegistered = (
+      resultReRegistered.content as Array<{ type: string; text: string }>
+    )[0]?.text;
+    expect(textReRegistered).toContain('基準日（2024-11-01）時点で有効な登録事業者でした。');
   });
 });
