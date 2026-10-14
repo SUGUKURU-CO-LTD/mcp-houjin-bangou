@@ -135,42 +135,65 @@ export const corporateNumbersStaging = pgTable(
 /**
  * 3. インボイス発行事業者テーブル (本番)
  *
- * 【重要設計制約】
- * 国税庁のダウンロードデータでは個人事業者の氏名等は削除されている（国税庁インボイスQ&A 問21）。
- * 念のため、パーサーでも除外している。
- * テーブルスキーマでも個人事業者の氏名・屋号の列は作成しない（設計レベルでの非保持）。
- * 法人・人格のない社団等の公表商号・所在地のみを保持する。
+ * 根拠・出典 / Source:
+ *   - 国税庁 適格請求書発行事業者公表システム「リソース定義書（全件データ・差分データ）1.5版」（令和6年5月改訂）
+ *     URL: https://www.invoice-kohyo.nta.go.jp/files/k-resource-dl.pdf （確認日: 2026-10-14）
+ *     ダウンロードページ: https://www.invoice-kohyo.nta.go.jp/download/index.html （確認日: 2026-10-14）
+ *   - 国税庁 お知らせ「全件データファイル及び差分データファイルの提供再開について（令和5年4月4日更新）」
+ *     URL: https://www.invoice-kohyo.nta.go.jp/news/r04/r04news04.html （確認日: 2026-10-14）
  *
- * 事業者区分（kind）の出典:
- * 国税庁適格請求書発行事業者公表システム「リソース定義書（全件データ・差分データ）」
- * （01: 法人、02: 個人事業者、03: 人格のない社団等）
+ * 【重要設計制約】
+ *   1. リソース定義書1.5版（1.4版・令和4年12月改訂以降）では、令和4年9月26日から個人のダウンロードデータの
+ *      項番21〜30（公表申出所在地・カナ・氏名又は名称・国内事業所所在地・主たる屋号・通称旧姓）は空文字で提供される。
+ *   2. 本システムでは、人格区分（kind）が「1」（個人）の行、および区分が不明な行は、
+ *      名称・所在地・カナ・屋号・通称を保持しない（パーサーで破棄し、テーブルにも主たる屋号・通称旧姓の列を作らない）。
+ *      人格区分（kind）は「1: 個人」「2: 法人（人格のない社団等を含む）」の2種類（src/domain/invoice-codes.ts と一致）。
+ *   3. 全件データは前月末時点の最新情報（履歴情報含む）であり、同一登録番号（registration_number）に対して
+ *      最新行（latest='1'）と過去履歴行（latest='0'）の複数行が存在する。
+ *      取引日時点の有効性判定に必要な登録・取消・失効の年月日を失わないよう、
+ *      主キーを (registration_number, sequence_number, dataset_version_id) として全履歴行を保持する。
+ *      なお、リソース定義書1.5版では、法人のファイルは地域ごとの分割ファイルごとに一連番号（sequence_number）を付し、
+ *      人格のない社団等・個人は分割前の全体で付す。同じ登録番号（registration_number）は1つの分割ファイルにしか
+ *      現れないため、登録番号と一連番号の組み合わせで全件データ内において一意となる。
  */
 export const invoiceIssuers = pgTable(
   'invoice_issuers',
   {
-    registrationNumber: varchar('registration_number', { length: 14 }).notNull(), // T + 13桁
-    process: varchar('process', { length: 2 }), // 処理区分: 01:新規, etc.
-    correct: varchar('correct', { length: 1 }), // 訂正区分
-    kind: varchar('kind', { length: 2 }).notNull(), // 事業者区分 (01:法人, 02:個人事業者, 03:人格のない社団等)
-    corporateNumber: varchar('corporate_number', { length: 13 }), // 法人番号 (法人のみ)
-    legalName: varchar('legal_name', { length: 300 }), // 法人・人格のない社団等の公表名称 (個人事業者はNULL)
-    prefectureName: varchar('prefecture_name', { length: 10 }), // 法人所在地（都道府県）
-    cityName: varchar('city_name', { length: 20 }), // 法人所在地（市区町村）
-    streetNumber: varchar('street_number', { length: 300 }), // 法人所在地（町名番地）
-    postCode: varchar('post_code', { length: 7 }), // 郵便番号
-    addressOutside: varchar('address_outside', { length: 300 }), // 国外所在地
-    registrationDate: varchar('registration_date', { length: 10 }).notNull(), // 登録年月日 (YYYY-MM-DD)
-    updateDate: varchar('update_date', { length: 10 }).notNull(), // 更新年月日 (YYYY-MM-DD)
-    cancelDate: varchar('cancel_date', { length: 10 }), // 取消年月日 (YYYY-MM-DD)
-    expireDate: varchar('expire_date', { length: 10 }), // 失効年月日 (YYYY-MM-DD)
+    sequenceNumber: varchar('sequence_number', { length: 8 }).notNull(), // 項番7 (CSV 1列目): 一連番号
+    registrationNumber: varchar('registration_number', { length: 14 }).notNull(), // 項番8 (CSV 2列目): 登録番号 (T+13桁)
+    process: varchar('process', { length: 2 }).notNull(), // 項番9 (CSV 3列目): 事業者処理区分 (01/02/03/04/99)
+    correct: varchar('correct', { length: 1 }).notNull().default('0'), // 項番10 (CSV 4列目): 訂正区分 (0/1)
+    kind: varchar('kind', { length: 2 }).notNull(), // 項番11 (CSV 5列目): 人格区分 (1:個人, 2:法人(人格のない社団等を含む))
+    country: varchar('country', { length: 1 }), // 項番12 (CSV 6列目): 国内外区分 (1:国内, 2:特定国外, 3:その他国外)
+    latest: varchar('latest', { length: 1 }).notNull().default('1'), // 項番13 (CSV 7列目): 最新履歴 (0:過去情報, 1:最新情報)
+    registrationDate: varchar('registration_date', { length: 10 }).notNull(), // 項番14 (CSV 8列目): 登録年月日 (YYYY-MM-DD)
+    updateDate: varchar('update_date', { length: 10 }).notNull(), // 項番15 (CSV 9列目): 更新年月日 (YYYY-MM-DD)
+    cancelDate: varchar('cancel_date', { length: 10 }), // 項番16 (CSV 10列目): 取消年月日 (YYYY-MM-DD)
+    expireDate: varchar('expire_date', { length: 10 }), // 項番17 (CSV 11列目): 失効年月日 (YYYY-MM-DD)
+    headOfficeAddress: varchar('head_office_address', { length: 600 }), // 項番18 (CSV 12列目): 本店又は主たる事務所の所在地（法人）
+    headOfficePrefectureCode: varchar('head_office_prefecture_code', { length: 2 }), // 項番19 (CSV 13列目): 都道府県コード（法人）
+    headOfficeCityCode: varchar('head_office_city_code', { length: 3 }), // 項番20 (CSV 14列目): 市区町村コード（法人）
+    declaredAddress: varchar('declared_address', { length: 600 }), // 項番21 (CSV 15列目): 本店又は主たる事務所の所在地（公表申出・人格のない社団等のみ保持）
+    declaredPrefectureCode: varchar('declared_prefecture_code', { length: 2 }), // 項番22 (CSV 16列目): 都道府県コード（公表申出）
+    declaredCityCode: varchar('declared_city_code', { length: 3 }), // 項番23 (CSV 17列目): 市区町村コード（公表申出）
+    kana: varchar('kana', { length: 500 }), // 項番24 (CSV 18列目): 日本語（カナ）（kind='2'のみ保持）
+    legalName: varchar('legal_name', { length: 300 }), // 項番25 (CSV 19列目): 氏名又は名称（kind='2'のみ保持、個人・区分不明はNULL）
+    domesticOfficeAddress: varchar('domestic_office_address', { length: 600 }), // 項番26 (CSV 20列目): 国内事務所等の所在地（kind='2'のみ保持）
+    domesticOfficePrefectureCode: varchar('domestic_office_prefecture_code', { length: 2 }), // 項番27 (CSV 21列目): 国内事務所等の都道府県コード
+    domesticOfficeCityCode: varchar('domestic_office_city_code', { length: 3 }), // 項番28 (CSV 22列目): 国内事務所等の市区町村コード
+    // 項番29 (CSV 23列目): 主たる屋号 — 個人用項目のため列を作らない
+    // 項番30 (CSV 24列目): 通称・旧姓 — 個人用項目のため列を作らない
     datasetVersionId: integer('dataset_version_id')
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),
   },
   (table) => [
-    primaryKey({ columns: [table.registrationNumber, table.datasetVersionId] }),
+    primaryKey({
+      name: 'invoice_issuers_reg_num_seq_num_version_id_pk',
+      columns: [table.registrationNumber, table.sequenceNumber, table.datasetVersionId],
+    }),
     index('idx_invoice_issuers_reg_number').on(table.registrationNumber),
-    index('idx_invoice_issuers_corp_number').on(table.corporateNumber),
+    index('idx_invoice_issuers_reg_latest').on(table.registrationNumber, table.latest),
     index('idx_invoice_issuers_version').on(table.datasetVersionId),
   ],
 );
@@ -181,24 +204,36 @@ export const invoiceIssuers = pgTable(
 export const invoiceIssuersStaging = pgTable(
   'invoice_issuers_staging',
   {
+    sequenceNumber: varchar('sequence_number', { length: 8 }).notNull(),
     registrationNumber: varchar('registration_number', { length: 14 }).notNull(),
-    process: varchar('process', { length: 2 }),
-    correct: varchar('correct', { length: 1 }),
+    process: varchar('process', { length: 2 }).notNull(),
+    correct: varchar('correct', { length: 1 }).notNull().default('0'),
     kind: varchar('kind', { length: 2 }).notNull(),
-    corporateNumber: varchar('corporate_number', { length: 13 }),
-    legalName: varchar('legal_name', { length: 300 }),
-    prefectureName: varchar('prefecture_name', { length: 10 }),
-    cityName: varchar('city_name', { length: 20 }),
-    streetNumber: varchar('street_number', { length: 300 }),
-    postCode: varchar('post_code', { length: 7 }),
-    addressOutside: varchar('address_outside', { length: 300 }),
+    country: varchar('country', { length: 1 }),
+    latest: varchar('latest', { length: 1 }).notNull().default('1'),
     registrationDate: varchar('registration_date', { length: 10 }).notNull(),
     updateDate: varchar('update_date', { length: 10 }).notNull(),
     cancelDate: varchar('cancel_date', { length: 10 }),
     expireDate: varchar('expire_date', { length: 10 }),
+    headOfficeAddress: varchar('head_office_address', { length: 600 }),
+    headOfficePrefectureCode: varchar('head_office_prefecture_code', { length: 2 }),
+    headOfficeCityCode: varchar('head_office_city_code', { length: 3 }),
+    declaredAddress: varchar('declared_address', { length: 600 }),
+    declaredPrefectureCode: varchar('declared_prefecture_code', { length: 2 }),
+    declaredCityCode: varchar('declared_city_code', { length: 3 }),
+    kana: varchar('kana', { length: 500 }),
+    legalName: varchar('legal_name', { length: 300 }),
+    domesticOfficeAddress: varchar('domestic_office_address', { length: 600 }),
+    domesticOfficePrefectureCode: varchar('domestic_office_prefecture_code', { length: 2 }),
+    domesticOfficeCityCode: varchar('domestic_office_city_code', { length: 3 }),
     datasetVersionId: integer('dataset_version_id')
       .notNull()
       .references(() => datasetVersions.id, { onDelete: 'cascade' }),
   },
-  (table) => [primaryKey({ columns: [table.registrationNumber, table.datasetVersionId] })],
+  (table) => [
+    primaryKey({
+      name: 'invoice_issuers_staging_reg_num_seq_num_version_id_pk',
+      columns: [table.registrationNumber, table.sequenceNumber, table.datasetVersionId],
+    }),
+  ],
 );

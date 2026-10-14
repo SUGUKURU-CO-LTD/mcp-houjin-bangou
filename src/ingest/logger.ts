@@ -30,6 +30,12 @@ export function createIngestLogger(output: NodeJS.WritableStream = process.stder
         count: metrics.count,
         duration_ms: metrics.durationMs,
         status: metrics.status,
+        ...(metrics.unknownKindCount !== undefined
+          ? { unknown_kind_count: metrics.unknownKindCount }
+          : {}),
+        ...(metrics.invalidRowCount !== undefined
+          ? { invalid_row_count: metrics.invalidRowCount }
+          : {}),
         ...(message ? { msg: message } : {}),
       });
     },
@@ -45,6 +51,12 @@ export function createIngestLogger(output: NodeJS.WritableStream = process.stder
         duration_ms: metrics.durationMs ?? 0,
         status: 'failed',
         error_type: metrics.errorType,
+        ...(metrics.unknownKindCount !== undefined
+          ? { unknown_kind_count: metrics.unknownKindCount }
+          : {}),
+        ...(metrics.invalidRowCount !== undefined
+          ? { invalid_row_count: metrics.invalidRowCount }
+          : {}),
         ...(message ? { msg: message } : {}),
       });
     },
