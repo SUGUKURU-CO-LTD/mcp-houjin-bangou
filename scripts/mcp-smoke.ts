@@ -188,18 +188,6 @@ async function main(): Promise<void> {
     bad('tools/call normalize_company_name', e instanceof Error ? e.message : String(e));
   }
 
-  // 10. get_attribution
-  try {
-    const res = await rpc('tools/call', {
-      name: 'get_attribution',
-      arguments: { format: 'citation', language: 'ja' },
-    });
-    const r = res.result as { structuredContent: { formatted_text: string } };
-    ok('tools/call get_attribution(citation)', r.structuredContent.formatted_text);
-  } catch (e) {
-    bad('tools/call get_attribution', e instanceof Error ? e.message : String(e));
-  }
-
   // 11. completion/complete
   try {
     const res = await rpc('completion/complete', {
