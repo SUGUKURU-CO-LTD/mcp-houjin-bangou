@@ -41,7 +41,7 @@ describe('pagination cursor', () => {
   it('computeNextCursor returns next page cursor', () => {
     const next = computeNextCursor(1, 3, 'key');
     expect(next).not.toBeNull();
-    const decoded = decodeCursor(next!);
+    const decoded = decodeCursor(next ?? undefined);
     expect(decoded?.divide).toBe(2);
     expect(decoded?.queryKey).toBe('key');
   });

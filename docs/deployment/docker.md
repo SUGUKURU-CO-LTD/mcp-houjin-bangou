@@ -1,12 +1,10 @@
-# Docker 配布 (v0.3.0 予定)
+# Docker 構成ガイド
 
-> **v0.1.0 では npx 配布のみです。Docker イメージは v0.3.0 でリリース予定。**
+本ドキュメントは `@sugukuru/mcp-houjin-bangou` をコンテナ環境で実行する際の設計メモです。
 
-本ドキュメントは v0.3.0 に向けた設計メモを兼ねます。
+## イメージ名（例）
 
-## 予定しているイメージ
-
-`ghcr.io/sugukurukabe/mcp-houjin-bangou:v0.3.0` (GitHub Container Registry)
+`ghcr.io/sugukuru-co-ltd/mcp-houjin-bangou:v1.0.0`
 
 ## Dockerfile 設計方針
 
@@ -15,7 +13,7 @@
 - 最終イメージサイズ < 150MB 目標
 - `pnpm deploy` で本番依存のみを bundle
 
-## Dockerfile (v0.3.0 予定)
+## Dockerfile 例
 
 ```dockerfile
 # Stage 1: build
@@ -42,7 +40,7 @@ CMD ["dist/server.js"]
 ```bash
 docker run --rm -p 3001:3001 \
   -e NTA_APPLICATION_ID=your-id \
-  ghcr.io/sugukurukabe/mcp-houjin-bangou:v0.3.0
+  ghcr.io/sugukuru-co-ltd/mcp-houjin-bangou:v1.0.0
 ```
 
 ## Health check
@@ -52,6 +50,6 @@ HEALTHCHECK --interval=30s --timeout=5s \
   CMD wget -q -O- http://localhost:3001/health || exit 1
 ```
 
-## Kubernetes/Cloud Run への展開
+## 本番環境への展開
 
-v0.5.0 で Cloud Run Hosted 版をリリース予定です。詳細は [cloud-run.md](cloud-run.md) 参照。
+データベースの権限分離およびセルフホスティング運用については、[db-roles.md](db-roles.md) および [self-hosting.md](self-hosting.md) を参照してください。

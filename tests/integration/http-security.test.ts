@@ -355,7 +355,7 @@ describe('SLA2-327 (PR A): Origin検証・IPレート制限・capabilities・Ser
       ]);
 
       const maintainer = httpCard['maintainer'] as { email: string };
-      expect(maintainer.email).toBe('dev@sugu-kuru.co.jp');
+      expect(maintainer.email).toBe('info@sugu-kuru.co.jp');
     });
   });
 

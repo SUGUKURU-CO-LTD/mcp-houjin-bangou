@@ -1,127 +1,90 @@
-# Usage Cookbook — 具体的な LLM プロンプト例 10 個
+# Usage Cookbook — 実務プロンプト例
 
-本ドキュメントは、Claude Desktop / Cursor / VS Code Copilot で本 MCP を使って実務の課題を解く具体例集です。
+本ドキュメントは、Claude / ChatGPT / Cursor / VS Code Copilot で本 MCP サーバーを使って取引先確認・経理照合・マスタ整備を行う具体例集です。
 
 ---
 
-## 1. 法人番号が正しいか確認したい (API 呼出なし)
+## 1. 法人番号のチェックデジットを検証する（外部通信なし）
 
 > 法人番号 `5111101000006` は有効ですか？チェックデジットだけでいいのでローカルで確認して。
 
-**使用 tool**: `validate_corporate_number` — ローカル計算のみ、国税庁 API は叩かない。
+**使用ツール**: `validate_corporate_number` — ローカル計算のみ、DB や国税庁 API にはアクセスしません。
 
 ---
 
-## 2. 法人番号から本店所在地を引く
+## 2. 法人番号から本店所在地とインボイス登録状況を同時に引く
 
-> 法人番号 `5111101000006` と `4111101000007` の本店所在地を教えて。テーブルにまとめて。
+> 法人番号 `5111101000006` の正式商号・本店所在地と、インボイス（適格請求書発行事業者）の登録状況を教えて。
 
-**使用 tool**: `lookup_corporate_by_number` (最大10件カンマ区切りで一括取得可能)
+**使用ツール**: `lookup_corporate_by_number` (`include_invoice_status: true`)
 
 ---
 
-## 3. 名刺の会社名から法人番号を特定
+## 3. 請求書のインボイス登録番号（T番号）が取引日時点で有効か確認する
 
-> 「（株）高橋商事」という会社の法人番号と本店所在地を調べて。
+> 受け取った請求書に記載されている登録番号 `T5111101000006` が、取引日 `2026-10-01` 時点で有効な登録期間内にあるか確認して。
+
+**使用ツール**: `lookup_invoice_issuer` (`registration_number: "T5111101000006"`, `reference_date: "2026-10-01"`)
+
+---
+
+## 4. 会社名の表記揺れから法人番号を特定する
+
+> 「（株）髙橋商事」という会社の法人番号と本店所在地を調べて。
 
 **実行される呼出**: `normalize_company_name` → `search_corporate_by_name`
 
-LLM は T7 で「(株)高橋商事 / 高橋商事 / 高橋商事株式会社」の3候補を取得、信頼度降順で search を実行。
+旧字体（髙→高）や前株・後株の展開候補を自動生成して検索します。
 
 ---
 
-## 4. 表記揺れを正規化するだけ (検索しない)
+## 5. 表記揺れ候補だけを生成する（検索しない）
 
-> 「Sugukuru K.K.」を国税庁の検索で使える日本語表記に変換したい。候補を出して。
+> 「Sugukuru K.K.」を国税庁の検索で使える日本語表記候補に変換して。
 
-**使用 tool**: `normalize_company_name` — 英語法人名サフィックスを検出、`suggested_target="3"` で英語検索を推奨。
-
----
-
-## 5. 鹿児島の「スグクル」で始まる全法人を探す
-
-> 鹿児島県の「スグクル」で始まる法人を全部教えて。登記閉鎖済みも含めて。
-
-**使用 tool**: `search_corporate_by_name` (`prefecture="46"`, `match_mode="prefix"`, `include_closed=true`)
+**使用ツール**: `normalize_company_name`
 
 ---
 
-## 6. 営業リスト 50 件を一括 enrich
+## 6. 都道府県・市区町村を指定して法人を検索する
 
-> 以下の会社名リストを国税庁で調べて、法人番号・正式名称・本店所在地を Markdown テーブルで教えて:
->
-> ```
-> （株）高橋商事
-> 有限会社テスト
-> スグクル
-> （略、全 50 件）
-> ```
+> 鹿児島県霧島市の「スグクル」を含む法人を検索して。登記閉鎖済みも含めて。
 
-**使用 prompt**: `sales-list-enrichment` (引数 `company_names`, `output_format="markdown_table"`)
+**使用ツール**: `search_corporate_by_name` (`query: "スグクル"`, `prefecture_code: "46"`, `city_name: "霧島市"`, `include_closed: true`)
 
 ---
 
-## 7. 顧客マスタの重複を検知
+## 7. 取引先マスタ登録用レコードを作成する（Prompt: `company-master-record`）
 
-> 以下の顧客レコード (JSONL) を国税庁法人番号で名寄せして、重複グループを提示して:
->
+> 会社名「（株）スグクル」、住所メモ「鹿児島県霧島市」から取引先マスタ登録用の法人情報を整形して。
+
+**使用プロンプト**: `company-master-record` (`company_name`, `address_hint`)
+※ 自然人の氏名や連絡先などの個人情報は入力・処理しません。
+
+---
+
+## 8. 営業・取引先リストに法人番号と住所を一括付与する（Prompt: `sales-list-enrichment`）
+
+> 以下の会社名リストを調べて、法人番号・正式名称・本店所在地を Markdown テーブルでまとめて：
+> - （株）高橋商事
+> - スグクル株式会社
+
+**使用プロンプト**: `sales-list-enrichment` (`company_names`, `output_format: "markdown_table"`)
+
+---
+
+## 9. 顧客マスタの重複レコードを名寄せする（Prompt: `customer-master-dedup`）
+
+> 以下の顧客レコード（JSONL）を法人番号で名寄せして、重複グループを提示して：
 > ```jsonl
 > {"id":"C001","name":"(株)高橋商事","address":"鹿児島市..."}
 > {"id":"C002","name":"株式会社高橋商事","address":"鹿児島市..."}
 > ```
 
-**使用 prompt**: `customer-master-dedup` (引数 `dedup_criteria="strict_corporate_number"`)
+**使用プロンプト**: `customer-master-dedup` (`records_jsonl`, `dedup_criteria: "strict_corporate_number"`)
 
 ---
 
-## 8. インボイス登録番号 (T番号) の現状確認 (v0.3.0 で統合予定)
+## 10. データの基準日（`data_as_of`）と出典を確認する
 
-> 「T1340001023456」は適格請求書発行事業者として有効ですか？
-
-**v0.1.0 の対応**: `validate_corporate_number` で 13 桁部分 (T を除く) の形式検証のみ可能。
-
-**v0.3.0 予定**: `lookup_invoice_issuer` tool を追加、同じアプリケーション ID で 適格請求書発行事業者 Web-API にアクセスして登録状態を確認 (登録年月日・失効情報含む)。
-
----
-
-## 9. 法人の商号変更履歴を調べる
-
-> 法人番号 `8040001999013` の商号変更履歴を全部教えて。
-
-**使用 tool**: `lookup_corporate_by_number` with `include_history=true`
-
-→ NTA API の `history=1` で変更履歴 (過去の商号・所在地) も含めて取得。
-
----
-
-## 10. 本 MCP から取得したデータを社内資料に転載するときの出典
-
-> 本 MCP から取得した法人情報を社内資料に転載する際、国税庁への出典はどう書けばよいですか？
-
-**使用 tool**: `get_attribution` with `format="citation"`
-
-→ 「出典: 国税庁法人番号公表サイト（国税庁）https://www.houjin-bangou.nta.go.jp/」形式の引用文を生成。
-
-加工利用する場合は「加工して作成」の旨も併記 (別添3 公共データ利用規約 第1.0版)。
-
----
-
-## Tips
-
-### Prompt vs 直接 tool 呼び出し
-
-MCP Prompts (`business-card-to-database` 等) は「ツールを順番に呼ぶ手順」を LLM に構造化して与えるテンプレートです。慣れないうちは Prompt 経由が最も事故が少なく、使い込むと直接ツール呼出しの方がトークン効率が良くなります。
-
-### レート制限に引っかからないために
-
-- 大量の `search_corporate_by_name` を並列実行しない (本 MCP が 1 RPS に抑えていますが、複数プロセスでは抑制不可)
-- 営業リスト 50 件以上は分割実行を推奨
-- 403 受信時は自動で指数バックオフ (30s → 1m → 5m → 30m)、しばらく待つ
-
-### 3年無利用停止を避ける
-
-アプリケーション ID は 3 年間未使用で停止される可能性があります (第一編 §5.3)。週 1 回 `validate_corporate_number` でも呼べば OK です。本プロジェクトの GitHub Actions に同梱の `api-health-check.yml` を有効化すると自動で維持できます。
-
-### プライバシー・個人情報保護
-
-本 MCP は法人の公開情報のみを扱います (登記公表データ)。自然人の個人情報は扱わず、第一編 別添2 の個人情報保護方針に準拠した設計です。
+すべての照会ツール（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）の応答には、公表データの基準日（`data_as_of`）および国税庁の出典・免責情報（`attribution`）が自動的に含まれます。ホスト版では月1回（前月末時点のデータ）で更新されるため、月途中の最新変更を確認したい場合は国税庁の各公表サイトを直接参照してください。

@@ -41,7 +41,7 @@ seksual.
 
 ## 適用 / Enforcement
 
-違反は `conduct@sugukuru.co.jp` までご連絡ください。すべての報告は内密に調査・検討されます。
+違反は `info@sugu-kuru.co.jp` までご連絡ください。すべての報告は内密に調査・検討されます。
 
 This Code of Conduct is adapted from the [Contributor Covenant][homepage],
 version 2.1, available at

@@ -186,7 +186,7 @@ Claude Desktop を再起動して試す:
 
 鹿児島のインドネシア人特定技能派遣会社 (スグクル株式会社) がオープンソースで日本経済に貢献する、という挑戦の 1 本目です。次は `mcp-jp-subsidy-hub` (補助金統合 MCP)、`mcp-immigration-ja` (入管手続 MCP) を予定しています。
 
-GitHub: https://github.com/sugukurukabe/mcp-houjin-bangou
+GitHub: https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
 npm: https://www.npmjs.com/package/@sugukuru/mcp-houjin-bangou
 
 Issue や PR はもちろん開いています。ただ、このプロジェクトの中心は露出ではありません。次の仕様書を読み、次の schema を固め、次の release を出すことです。
@@ -197,9 +197,9 @@ Issue や PR はもちろん開いています。ただ、このプロジェク�
 
 ## Appendix: 本記事で触れられなかった MCP 仕様関連 Deep Dive
 
-- 2026 MCP Roadmap の Top 4 ("Transport Evolution / Agent Communication / Governance / Enterprise Readiness") と本プロジェクトの整合性 → [docs/architecture.md](https://github.com/sugukurukabe/mcp-houjin-bangou/blob/main/docs/architecture.md)
-- プロンプトインジェクション防御の 6 層詳細 → [docs/security/prompt-injection-defense.md](https://github.com/sugukurukabe/mcp-houjin-bangou/blob/main/docs/security/prompt-injection-defense.md)
-- ADR (Architecture Decision Records) 0001-0010 → [docs/adr/](https://github.com/sugukurukabe/mcp-houjin-bangou/tree/main/docs/adr)
+- 2026 MCP Roadmap の Top 4 ("Transport Evolution / Agent Communication / Governance / Enterprise Readiness") と本プロジェクトの整合性 → [docs/architecture.md](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/docs/architecture.md)
+- プロンプトインジェクション防御の 6 層詳細 → [docs/security/prompt-injection-defense.md](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/docs/security/prompt-injection-defense.md)
+- ADR (Architecture Decision Records) 0001-0010 → [docs/adr/](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/tree/main/docs/adr)
 
 ---
 

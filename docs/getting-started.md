@@ -1,67 +1,57 @@
-# Getting Started / クイックスタート / Panduan Memulai
+# Getting Started / クイックスタート
 
-## 1. 国税庁アプリケーション ID を取得
+## 1. 利用形態の選択
 
-**必須**: 本 MCP サーバを動かすには、国税庁の Web-API アプリケーション ID が必要です。
+本 MCP サーバーは、以下の 2 つのモードで動作します。
 
-1. 下記 URL にアクセス
-    https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/
-2. メールアドレスを入力・送信
-3. 届いたメールの URL をクリック、届出情報を入力
-4. 数営業日以内に ID (13桁) がメールで届きます
-5. 完全無料、添付書類・手数料不要 (国税庁仕様書 第一編 §5.1)
+1. **ローカル Web-API モード（手軽な個人・社内利用）**:
+   - 国税庁から無料で発行される Web-API アプリケーション ID（`NTA_APPLICATION_ID`）を取得し、`npx` で起動します。
+2. **PostgreSQL DB モード（ホスト版・高速検索・インボイス照会対応）**:
+   - 国税庁の公開ダウンロードデータ（全件 CSV）を取り込んだ PostgreSQL 16 データベース（`DATABASE_URL`）に接続して動作します。
 
-**Tip**: 同じ ID で **適格請求書発行事業者 Web-API** も利用できます (v0.3.0 でサポート予定)。
+---
 
-## 2. 動作環境
+## 2. 国税庁アプリケーション ID の取得（ローカル Web-API モード用）
 
-- **Node.js**: 20.19.0 以上 (`.nvmrc` で固定)
-- **pnpm**: 9 以上 (推奨、npm/yarn でも可)
-- **MCP Host**: Claude Desktop / Cursor / VS Code Copilot / Goose / MCPJam 等
+1. https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/ にアクセスします。
+2. メールアドレスを入力・送信し、届いたメールの URL から届出情報を入力します。
+3. 数営業日以内にアプリケーション ID（13桁）がメールで届きます（無料）。
 
-## 3. インストール方法
+---
 
-### Option A: npx (ゼロインストール、推奨)
+## 3. 動作環境
+
+- **Node.js**: 20.19.0 以上（`.nvmrc` で固定）
+- **pnpm**: 9 以上
+- **MCP クライアント**: Claude Desktop / Claude.ai / ChatGPT / Cursor / VS Code Copilot 等
+
+---
+
+## 4. インストールと起動方法
+
+### Option A: npx（ゼロインストール）
 
 ```bash
 NTA_APPLICATION_ID=your-id-here npx -y @sugukuru/mcp-houjin-bangou
 ```
 
-### Option B: セルフホスト
+### Option B: リポジトリをクローンしてビルド
 
 ```bash
-git clone https://github.com/sugukurukabe/mcp-houjin-bangou.git
+git clone https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou.git
 cd mcp-houjin-bangou
 pnpm install
 cp .env.example .env
-# .env の NTA_APPLICATION_ID を設定
+# .env の NTA_APPLICATION_ID または DATABASE_URL を設定
 pnpm build
 pnpm start
 ```
 
-## 4. Claude Desktop 設定
+---
 
-`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) を編集:
+## 5. Claude Desktop / Cursor の設定
 
-```json
-{
-  "mcpServers": {
-    "houjin-bangou": {
-      "command": "npx",
-      "args": ["-y", "@sugukuru/mcp-houjin-bangou"],
-      "env": {
-        "NTA_APPLICATION_ID": "YOUR_ID_HERE"
-      }
-    }
-  }
-}
-```
-
-Claude Desktop を再起動。
-
-## 5. Cursor 設定
-
-`~/.cursor/mcp.json` を編集:
+`~/Library/Application Support/Claude/claude_desktop_config.json`（Claude Desktop）または `~/.cursor/mcp.json`（Cursor）に以下を追加します：
 
 ```json
 {
@@ -77,60 +67,37 @@ Claude Desktop を再起動。
 }
 ```
 
-Cursor を再起動 (または設定の "MCP Servers" から Reload)。
+---
 
-## 6. 動作確認 — 5 つの prompt を試す
+## 6. 動作確認 — 5 つのツールを試す
 
-### 本番 API 接続確認
+### UC-1: 法人番号で検索 (`lookup_corporate_by_number`)
 
-アプリケーション ID 取得後、まず live smoke を実行してください。ID は表示されません。
+> 株式会社スグクルの法人番号 5111101000006 について、本店所在地・法人種別・インボイス登録状況を教えてください。
 
-```bash
-NTA_APPLICATION_ID=your-id pnpm smoke:live
-```
+### UC-2: 法人名で検索 (`search_corporate_by_name`)
 
-成功すると `/4/num` と `/4/name` の両方が確認されます。
-live smoke では、仕様書サンプル番号ではなく、本番 API で実在する法人番号 `7000012050002` を使います。
+> 鹿児島県の「スグクル」を含む法人を検索してください。
 
-Claude Desktop または Cursor で:
+### UC-3: インボイス登録番号と取引日時点の有効確認 (`lookup_invoice_issuer`)
 
-### UC-1: 法人番号で検索
+> 登録番号 T5111101000006 が 2026-10-01 時点で適格請求書発行事業者として有効な登録期間内にあるか確認してください。
 
-> 株式会社スグクルの法人番号 5111101000006 について、本店所在地・登記日・法人種別を教えてください。
+### UC-4: 会社名の表記揺れ正規化 (`normalize_company_name`)
 
-→ `lookup_corporate_by_number` が実行され、国税庁のデータが返る。
+> 「（株）髙橋商事」という会社名の表記揺れ正規化候補を出してください。
 
-### UC-2: 法人名で検索
+### UC-5: チェックデジット検証 (`validate_corporate_number`)
 
-> 鹿児島県の「スグクル」で始まる法人を検索してください。結果をテーブルで表示してください。
+> 法人番号 5111101000006 のチェックデジットが正しいかローカルで検証してください。
 
-→ `search_corporate_by_name` + prefecture=46 フィルタ。
+---
 
-### UC-3: 名刺から正規化 → 検索
+## 7. 関連ドキュメント
 
-> 「（株）高橋商事」という名刺に書かれた会社名から、正規化候補を作って国税庁で検索し、法人番号・本店住所・登記年月日を教えてください。表記揺れ (髙橋 / 高橋 / 株式会社高橋商事 / 高橋商事株式会社) すべて試してください。
-
-→ `normalize_company_name` → `search_corporate_by_name` の連続呼出。
-
-### UC-4: チェックデジット検証 (API 不要)
-
-> 法人番号 1340001023456 は有効な番号ですか？チェックデジットだけ確認してください（API は叩かずに）。
-
-→ `validate_corporate_number` がローカルで検証、国税庁 API を一切呼ばない。
-
-### UC-5: 出典文取得
-
-> 本 MCP から取得した情報を自社のレポートに載せる際、国税庁への出典としてどう書けばよいですか？
-
-→ `get_attribution` が Web-API 機能利用規約 別添1 第6条 準拠の文言を返す。
-
-## 7. トラブルシューティング
-
-[`docs/troubleshooting.md`](troubleshooting.md) を参照。
-
-## 8. 次のステップ
-
-- 本リポジトリの [README.ja.md](../README.ja.md) で機能一覧を確認
-- [architecture.md](architecture.md) で内部構造を把握
-- [ADR 0001-0010](adr/) で設計判断の根拠を確認
-- セキュリティ設計は [prompt-injection-defense.md](security/prompt-injection-defense.md)
+- [API リファレンス](api-reference.md)
+- [活用クックブック (Usage Cookbook)](usage-cookbook.md)
+- [トラブルシューティング](troubleshooting.md)
+- [セルフホストガイド](deployment/self-hosting.md)
+- [DB ロール設計と権限分離](deployment/db-roles.md)
+- [プライバシーポリシー](policy/privacy-policy.md)
