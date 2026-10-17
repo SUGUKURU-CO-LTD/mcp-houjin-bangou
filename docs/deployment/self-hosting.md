@@ -11,7 +11,7 @@
 ## インストール
 
 ```bash
-git clone https://github.com/sugukurukabe/mcp-houjin-bangou.git
+git clone https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou.git
 cd mcp-houjin-bangou
 pnpm install --frozen-lockfile
 pnpm build
@@ -76,8 +76,8 @@ pino の JSON ログが journald 経由で Datadog/Loki 等に転送できます
 
 1. **Application ID は `.env` に保存、git commit 禁止** — `.gitignore` で除外済み
 2. **HTTPS 化** — nginx/Caddy/Cloudflare 経由で TLS を提供
-3. **Origin validation** — MCP Host 以外からの POST を nginx でブロック
-4. **rate limiting** — 本 MCP 内の 1 RPS に加え、nginx 側で IP 毎に制限
+3. **Origin validation** — 本サーバーの `ALLOWED_ORIGINS` 環境変数、および nginx で制御
+4. **rate limiting** — 本サーバー内の HTTP レート制限（`RATE_LIMIT_BURST` / `RATE_LIMIT_PER_MIN`）および nginx 側で IP 毎に制限
 5. **DoS 対策** — `client_max_body_size 64k;` (本 MCP も 64kB に制限)
 
 ## nginx reverse proxy 例
@@ -126,7 +126,7 @@ node dist/server.js 2>&1 | logger -t mcp-houjin-bangou
 ```bash
 cd /opt/mcp-houjin-bangou
 git fetch --tags
-git checkout v0.2.0  # 新バージョン
+git checkout v1.0.0  # 新バージョン
 pnpm install --frozen-lockfile
 pnpm build
 sudo systemctl restart mcp-houjin-bangou
@@ -134,15 +134,13 @@ sudo systemctl restart mcp-houjin-bangou
 
 breaking change がある場合は `CHANGELOG.md` を必ず確認。
 
-## Hosted 版との比較
+## ローカル（Web-API）運用と DB（公開ダウンロードデータ）運用の比較
 
-| 項目 | Self-hosting (v0.1.0) | Hosted (v0.5.0 予定) |
+| 項目 | Web-API モード (`DATA_BACKEND=nta_api`) | DB モード (`DATA_BACKEND=postgres`) |
 |---|---|---|
-| Application ID 管理 | 利用者 | Sugukuru 側 |
-| TLS 終端 | 利用者 | Sugukuru 側 |
-| レート監視 | 利用者 | Sugukuru + Cloud Armor |
-| Enterprise Auth | 非対応 | ID-JAG (SEP-990) + OAuth Client Credentials |
-| SLA | (なし) | Sugukuru エンタープライズ契約に従う |
-| 料金 | 無料 | (エンタープライズ向け別料金) |
+| データ取得元 | 国税庁 Web-API (リアルタイム) | 国税庁 公開ダウンロードデータ CSV を PostgreSQL に月1回取り込み |
+| Application ID | 利用者自身の `NTA_APPLICATION_ID` が必要 | 不要（Web-API ID を使用しない） |
+| DB ロール分離 | なし | `houjin_migrator` / `houjin_ingester` / `houjin_reader`（[db-roles.md](db-roles.md) 参照） |
+| インボイス登録確認 (`lookup_invoice_issuer`) | ローカル DB 接続時、またはリモート接続時に対応 | 対応 |
 
-Hosted 版は 2026-09 頃を予定しています。エンタープライズ向け問合せは `engineering@sugukuru.co.jp` まで。
+お問い合わせは `info@sugu-kuru.co.jp` まで。

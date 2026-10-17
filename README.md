@@ -1,33 +1,41 @@
 # @sugukuru/mcp-houjin-bangou
 
-> **Model Context Protocol server for Japan's National Corporate Number (法人番号) Web-API by the National Tax Agency.**
-> Full activation of all 7 MCP primitives + deterministic company-name normalization for real-world fuzzy data.
+> **Model Context Protocol (MCP) server for looking up and verifying Japanese Corporate Numbers (法人番号) and Qualified Invoice Issuers (適格請求書発行事業者) published by the National Tax Agency of Japan.**
 
 [![npm version](https://img.shields.io/npm/v/@sugukuru/mcp-houjin-bangou.svg)](https://www.npmjs.com/package/@sugukuru/mcp-houjin-bangou)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/sugukurukabe/mcp-houjin-bangou/actions/workflows/ci.yml/badge.svg)](https://github.com/sugukurukabe/mcp-houjin-bangou/actions/workflows/ci.yml)
+[![CI](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml/badge.svg)](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml)
 [![MCP Spec 2025-11-25](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io/specification/2025-11-25)
 
 🇯🇵 日本語版 README: [README.ja.md](README.ja.md)
 
-## What this is
+## Overview
 
-An MCP server that lets Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible client:
+An MCP server that enables Claude, ChatGPT, Cursor, VS Code Copilot, and any MCP-compatible client to:
 
-1. **Look up** a Japanese corporation by its 13-digit National Corporate Number (up to 10 at once)
-2. **Search** by name with NTA's built-in fuzzy matching (hiragana↔katakana, case, dot deletion auto-handled)
-3. **Normalize** fuzzy company names for the 7 patterns NTA's `target=1` fuzzy search *doesn't* cover
-4. **Validate** check digits locally without consuming API quota
-5. **Attribute** — returns the mandatory citation text per NTA ToS Article 6
+1. **Look up a Japanese corporation** by its 13-digit National Corporate Number (`lookup_corporate_by_number`), with optional side-by-side Qualified Invoice Issuer (`T` + 13 digits) registration status.
+2. **Search corporations by name** (`search_corporate_by_name`) with prefecture/city/status filters, cursor-based pagination, and automatic company-name normalization.
+3. **Verify a Qualified Invoice Issuer** by registration number (`lookup_invoice_issuer`, `T` + 13 digits), including historical registration periods (`registration_periods`) and factual period verification against a transaction reference date (`reference_date` → `valid_on_reference_date`).
+4. **Validate check digits locally** (`validate_corporate_number`) with zero external network calls.
+5. **Normalize fuzzy company names** (`normalize_company_name`) across 7 Japanese corporate-name patterns (position swaps of `(株)` / `株式会社`, corporate kind extraction, English-to-Japanese suffixes, NFKC, old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
 
-All 5 tools come with **MCP Resources**, **Resource Templates** (`corp://{corporate_number}`), **Completion**, **Logging**, **Pagination**, and a **Server Card** at `/.well-known/mcp.json`. The implementation follows the official MCP primitives rather than treating this as a thin API wrapper.
+---
 
-## Quick start
+## Two Operating Modes
 
-### Claude Desktop
+### 1. Hosted / PostgreSQL Mode (Remote Streamable HTTP)
 
-1. Get a free NTA application ID from https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/ (same ID works for the 適格請求書発行事業者 API too).
+- Serves queries from a PostgreSQL 16 (`pg_trgm`) database populated monthly from the National Tax Agency's public bulk download datasets (all-records CSVs for Corporate Numbers and Qualified Invoice Issuers).
+- Does not use an NTA Web-API Application ID at runtime.
+- Enforces `Origin` header allowlist verification, per-IP rate limiting, and 3-role database privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`).
 
+### 2. Local / Self-Hosted Mode (stdio or HTTP)
+
+- Runs locally via `npx @sugukuru/mcp-houjin-bangou` using the user's own NTA Web-API Application ID (`NTA_APPLICATION_ID`) or a local PostgreSQL database (`DATABASE_URL`).
+
+#### Claude Desktop Configuration (Local Mode)
+
+1. Obtain a free NTA Web-API Application ID from `https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/`.
 2. Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
@@ -44,155 +52,68 @@ All 5 tools come with **MCP Resources**, **Resource Templates** (`corp://{corpor
 }
 ```
 
-3. Restart Claude Desktop. Try:
+See [`examples/`](examples/) for Cursor and VS Code configurations.
 
-After receiving the NTA application ID, first run the live smoke check locally:
+---
 
-```bash
-NTA_APPLICATION_ID=your-id pnpm smoke:live
-```
+## Tools (5)
 
-The ID is never printed. The command verifies both `/4/num` and `/4/name`.
-The live smoke uses a known real NTA corporate number (`7000012050002`), not the fictional numbers shown in NTA sample documents.
-
-> "株式会社スグクルの法人番号と本店所在地を教えて"
-
-### Cursor / VS Code
-
-See [`examples/`](examples/) for host-specific configs.
-
-## Tools
-
-| Tool | Purpose | API | Notes |
+| Tool | Purpose | Annotations (`readOnly` / `destructive` / `idempotent` / `openWorld`) | Notes |
 |---|---|---|---|
-| `lookup_corporate_by_number` | Look up by 13-digit number | NTA `/4/num` | Up to 10 numbers at once (spec-enforced) |
-| `search_corporate_by_name` | Search by company name | NTA `/4/name` | Pagination, prefecture/kind filters, fuzzy/exact/english modes |
-| `validate_corporate_number` | Check digit validation | — | Local, no API call, no quota cost |
-| `normalize_company_name` | Fuzzy name normalization | — | 7 patterns beyond NTA's `target=1` built-in fuzzy |
-| `get_attribution` | Required citation text | — | Per NTA ToS Article 6 + 公共データ利用規約 v1.0 |
+| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `false` | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `false` | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
+| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `false` | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `validate_corporate_number` | Local Modulo-9 check-digit validation | `true` / `false` / `true` / `false` | Pure function; no DB or network access. |
+| `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates. |
 
-## Design stance
+---
 
-### 1. All 7 MCP primitives activated (not just Tools)
+## Prompts (3) & UI Resources (2)
 
-The server activates:
+- **Prompts**:
+  - `company-master-record`: Normalize a company name, search NTA records, and format a clean corporate master entry (strictly corporate data only; no personal contact fields).
+  - `sales-list-enrichment`: Enrich a list of company names with 13-digit corporate numbers and registered head-office addresses.
+  - `customer-master-dedup`: Detect duplicate customer master records caused by notation variants, mergers, or relocations.
+- **MCP Apps UI Resources (`@modelcontextprotocol/ext-apps` v1.7)**:
+  - `ui://corporate-card/mcp-app.html`: Card view for corporate and invoice issuer lookup results.
+  - `ui://search-results/mcp-app.html`: Table view for name search results with one-click drill-down.
+  - Every tool also returns complete human-readable text (`content`) and machine-readable `structuredContent`, so clients that do not render MCP Apps UI can fulfill all workflows without loss of information.
 
-- **Tools** × 5 (above)
-- **Prompts** × 3 (`business-card-to-database`, `sales-list-enrichment`, `customer-master-dedup`) — pre-built workflow templates for real-world B2B use cases
-- **Resources** (`attribution://houjin-bangou`)
-- **UI Resources** (`ui://corporate-card/mcp-app.html`, `ui://search-results/mcp-app.html`) — v0.2.0 display layer preparation
-- **Resource Templates** (`corp://{corporate_number}` — fetch a corporation as a resource)
-- **Completion** — type `株式会社スグク…` and get suggestions from T7 normalizer in real-time; prompt argument enum completion also supported
-- **Logging** — structured RFC 5424 severity logs via `notifications/message`
-- **Pagination** — opaque cursors for the 2000+ result case (NTA spec mandates `divide`/`divideSize`)
-- **Server Card** — `/.well-known/mcp.json` per SEP-2127 Draft + Transport WG (Dec 2025) direction
+---
 
-### 2. NTA fuzzy search awareness
+## Privacy, Security & Data Freshness
 
-We **read the NTA spec §4.6.2** and found that `target=1` already handles:
+- **No input logging**: Corporate numbers, invoice registration numbers, and search queries are never written to application logs.
+- **Sole proprietor protection**: For individual (sole proprietor) invoice issuers, personal names, trade names, and addresses are never imported into the database or returned by any tool—only the registration number (`T` + 13 digits), entity classification, and registration/revocation/expiration dates are stored.
+- **Monthly data refresh**: The hosted database is updated once per month (snapshot as of the end of the preceding month). Mid-month changes, revocations, or deletion requests (process code `99`) are reflected in the next monthly update. Every response includes `data_as_of`.
+- **Factual lookup only**: Date comparisons (`valid_on_reference_date`) represent a mechanical comparison against published registration periods and do not constitute tax or legal advice.
 
-- hiragana ↔ katakana
-- upper / lower case
-- middle dot (·) / full-width space deletion
-
-…so we skip these. Instead, `normalize_company_name` covers the 7 patterns NTA **doesn't**:
-
-1. `(株)` / `㈱` / `株式会社` / `（株）` position swap (前株 ↔ 後株 ↔ 省略)
-2. Corporate kind classification (株式 / 有限 / 合同 / 合名 / 合資 / 一般社団 / 特定非営利活動)
-3. English → Japanese corp-name mapping (K.K. / Kabushiki Kaisha / Co.,Ltd. / Inc. / LLC)
-4. NFKC normalization (half/full-width alphanumeric)
-5. Old-character → new-character (髙→高, 齋→斎, 﨑→崎, …)
-6. IVS (Ideographic Variation Selectors) removal
-7. Whitespace canonicalization
-
-### 3. Security by design
-
-- **Read-only** — no write/delete/exec tools, `destructiveHint: false` everywhere
-- **Application ID** from env only (never as a tool argument)
-- **Log redaction** of `id=***`, bearer tokens, PII
-- **Rate limit** 1 RPS + exponential backoff (avoids NTA 403 per ToS Article 9.1.3)
-- **Prompt injection defense** layered across 6 levels — see [`docs/security/prompt-injection-defense.md`](docs/security/prompt-injection-defense.md)
-- **Supply chain**: pnpm-lock committed, Dependabot weekly, CodeQL, `pnpm publish --provenance`
-
-### 4. Spec-compliant at every level
-
-- Every design decision cites NTA spec section (第一編・第二編・第六編)
-- Every MCP feature cites its 2025-11-25 spec or SEP
-- `docs/adr/0001-0010.md` records every major decision in Michael Nygard format
-
-## Roadmap
-
-| Version | ETA | Highlights |
-|---|---|---|
-| **v0.2.0** | 2026-05 | 5 tools + 7 primitives + Server Card |
-| v0.2.0 | 2026-06 | MCP **Prompts** (business-card → DB / sales-list enrichment / customer-master dedup) + UI Resources |
-| v0.3.0 | 2026-07 | Integration with **Qualified Invoice Issuer** (T番号) API — same application ID, doubles B2B KYC value |
-| v0.5.0 | 2026-09 | Hosted edition + **Enterprise-Managed Authorization** (SEP-990) + **OAuth Client Credentials** + **Tasks** primitive (SEP-1699) for diff ingestion |
-| v1.0.0 | 2026-10 | 6-host verification + Anthropic Directory submission + Skills (SEP-2076/2640) evaluation |
-
-## Use case: business card OCR → CRM
-
-Planned for v0.2.0 as the flagship MCP Prompt:
-
-```
-Step 1. User pastes business card OCR text into Claude
-Step 2. Prompt `business-card-to-database` invokes:
-   normalize_company_name(raw_text)
-   → search_corporate_by_name(candidates[0])
-   → Returns verified corporate number + address + kind
-Step 3. LLM synthesizes a CRM record with attribution
-Step 4. User reviews & inserts into their DB (HITL)
-```
-
-Enterprise integration (Document AI + secure DB write) is out of scope for the OSS and handled by Sugukuru's professional services — see [Sugukuru Inc.](https://sugukuru.co.jp).
+---
 
 ## Documentation
 
-- [Architecture Decision Records](docs/adr/)
-- [Prompt Injection Defense](docs/security/prompt-injection-defense.md)
+- [API Reference](docs/api-reference.md)
+- [Getting Started](docs/getting-started.md)
+- [Usage Cookbook](docs/usage-cookbook.md)
 - [Privacy Policy](docs/policy/privacy-policy.md)
 - [Terms of Service](docs/policy/terms-of-service.md)
-- [SECURITY](SECURITY.md)
-- [CONTRIBUTING](CONTRIBUTING.md)
-- [CODE OF CONDUCT](CODE_OF_CONDUCT.md)
+- [Database Roles & Privilege Separation](docs/deployment/db-roles.md)
+- [Self-Hosting Guide](docs/deployment/self-hosting.md)
+- [Prompt Injection Defense](docs/security/prompt-injection-defense.md)
+- [Architecture Decision Records](docs/adr/)
+- [SECURITY](SECURITY.md) / [CONTRIBUTING](CONTRIBUTING.md) / [CODE OF CONDUCT](CODE_OF_CONDUCT.md)
 
-## Verification
-
-This project treats tests and benchmarks as part of the public interface.
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm bench
-pnpm publish --dry-run --no-git-checks --access public
-```
-
-Current local verification snapshot:
-
-| Check | Result |
-|---|---:|
-| Unit + integration tests | 154 passing |
-| Property-based generated cases | 11,500+ |
-| `computeCheckDigit` | ~18.8M ops/sec |
-| `isValidCheckDigit` | ~10.1M ops/sec |
-| `normalizeCompanyName` | ~344k ops/sec |
-| `parseNtaCsv` | ~389k ops/sec |
-| npm dry-run tarball | 250.6 kB / 151 files |
+---
 
 ## Attribution
 
-This project uses the **National Corporate Number System Web-API** provided by the National Tax Agency of Japan.
+- **Corporate Number Data**: National Tax Agency Corporate Number Publication Site (`https://www.houjin-bangou.nta.go.jp/`) — Public Data License v1.0 (公共データ利用規約 第1.0版)
+- **Qualified Invoice Issuer Data**: National Tax Agency Qualified Invoice Issuer Publication Site (`https://www.invoice-kohyo.nta.go.jp/`)
+- **Web-API Disclaimer**:
+  > このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。
 
-> **このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。**
+## License & Maintainer
 
-Source: **国税庁法人番号公表サイト** (https://www.houjin-bangou.nta.go.jp/)
-License: **公共データ利用規約 第1.0版** (Japanese Public Data License v1.0)
-API Version: **Ver.4.0**
-
-## License
-
-MIT © 2026 Sugukuru K.K. (鹿児島 / Kagoshima, Japan)
-
-## About Sugukuru
-
-Sugukuru Inc. is an Indonesian-specialist human-resource dispatch company in Kagoshima, Japan, sending Specified Skilled Worker (特定技能) staff to farms nationwide. We build AI-enabled backoffice tools for immigration, agriculture, and small-business compliance. This is the first OSS in our **Sugukuru OSS Lab** series. Stay tuned for `mcp-jp-subsidy-hub`, `mcp-immigration-ja`, and more.
+- **License**: MIT © 2026 Sugukuru K.K. (スグクル株式会社, Kagoshima, Japan)
+- **Website**: [https://sugu-kuru.co.jp](https://sugu-kuru.co.jp)
+- **Contact**: `info@sugu-kuru.co.jp`

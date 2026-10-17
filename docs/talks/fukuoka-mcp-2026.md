@@ -335,7 +335,7 @@ docs/methodology/
 - 段階的 release → v0.1.0 → v1.0.0 で 5 回の実装機会
 - 再利用可能な skill 化 → Sugukuru OSS Lab の創設リポとして次作以降のテンプレート
 
-GitHub: https://github.com/sugukurukabe/mcp-houjin-bangou
+GitHub: https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
 Zenn: https://zenn.dev/sugukuru/articles/mcp-houjin-bangou-v0.1.0
 
 ---

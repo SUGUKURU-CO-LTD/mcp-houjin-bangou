@@ -3,8 +3,8 @@
 ## Current package / 現在のパッケージ / Paket saat ini
 
 - npm package: `@sugukuru/mcp-houjin-bangou`
-- GitHub repository: `sugukurukabe/mcp-houjin-bangou`
-- Release tag: `v0.2.0`
+- GitHub repository: `SUGUKURU-CO-LTD/mcp-houjin-bangou`
+- Release tag: `v1.0.0`
 
 ## First publish checklist / 初回公開チェックリスト / Daftar periksa publikasi pertama
 
@@ -18,11 +18,11 @@ GitHub Actions sudah berhasil menjalankan build / test / pack / tanda tangan pro
 2. Confirm the `@sugukuru` scope exists and the account can publish public scoped packages.
 3. In npm Trusted Publishing, create a package connection:
   - Package: `@sugukuru/mcp-houjin-bangou`
-  - Repository owner: `sugukurukabe`
+  - Repository owner: `SUGUKURU-CO-LTD`
   - Repository name: `mcp-houjin-bangou`
   - Workflow filename: `release.yml`
   - Environment: leave empty unless npm requires one
-4. Re-run the GitHub Actions `Release` workflow for tag `v0.2.0`, or move the `v0.2.0` tag to the current commit again.
+4. Re-run the GitHub Actions `Release` workflow for tag `v1.0.0`, or push the `v1.0.0` tag to the release commit.
 
 ## Evidence from failed run / 失敗ログの根拠 / Bukti dari log gagal
 
@@ -54,8 +54,6 @@ pnpm build
 pnpm publish --dry-run --no-git-checks --access public
 
 name: @sugukuru/mcp-houjin-bangou
-version: 0.2.0
-package size: 250.6 kB
-total files: 151
+version: 1.0.0
 ```
 

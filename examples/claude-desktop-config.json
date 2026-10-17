@@ -10,12 +10,12 @@
     }
   },
   "_demo_prompts": {
-    "UC-1_lookup_by_number": "株式会社スグクルの法人番号 5111101000006 について、本店所在地・登記日・法人種別を教えてください。",
-    "UC-2_search_by_name": "鹿児島県の「スグクル」で始まる法人を検索してください。結果をテーブルで表示してください。",
-    "UC-3_normalize_then_search": "「（株）高橋商事」という名刺に書かれた会社名から、正規化候補を作って国税庁で検索し、法人番号・本店住所・登記年月日を教えてください。表記揺れ (髙橋 / 高橋 / 株式会社高橋商事 / 高橋商事株式会社) すべて試してください。",
-    "UC-4_validate_no_api_call": "法人番号 1340001023456 は有効な番号ですか？チェックデジットだけ確認してください（API は叩かずに）。",
-    "UC-5_attribution": "本 MCP から取得した情報を自社のレポートに載せる際、国税庁への出典としてどう書けばよいですか？"
+    "UC-1_lookup_by_number": "株式会社スグクルの法人番号 5111101000006 について、本店所在地・法人種別・インボイス登録状況を教えてください。",
+    "UC-2_search_by_name": "鹿児島県の「スグクル」を含む法人を検索してください。結果をテーブルで表示してください。",
+    "UC-3_lookup_invoice_issuer": "登録番号 T5111101000006 が 2026-10-01 時点で適格請求書発行事業者として有効な登録期間内にあるか確認してください。",
+    "UC-4_normalize_then_search": "「（株）髙橋商事」という会社名から正規化候補を作って検索し、法人番号と本店所在地を教えてください。",
+    "UC-5_validate_no_api_call": "法人番号 5111101000006 は有効な番号ですか？チェックデジットだけローカルで確認してください。"
   },
-  "_note_ja": "env.NTA_APPLICATION_ID には国税庁適格請求書発行事業者公表サイトのフォーム (https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/) から発行したアプリケーション ID をセットしてください。発行は無料、同じ ID で適格請求書発行事業者 API (v0.3.0 以降サポート予定) も利用できます。",
+  "_note_ja": "env.NTA_APPLICATION_ID には国税庁適格請求書発行事業者公表サイトのフォーム (https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/) から発行したアプリケーション ID をセットしてください。",
   "_note_en": "Set env.NTA_APPLICATION_ID to the application ID issued via https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/ (free)."
 }
