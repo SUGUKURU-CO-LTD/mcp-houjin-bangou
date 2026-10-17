@@ -55,3 +55,22 @@ tmp/
 
 # cookbook-scout local candidates
 .cookbook-candidates/
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+backend.hcl
+!*.tfvars.example
+!backend.hcl.example
+

@@ -203,6 +203,29 @@ async function runBenchmarkImportAndSwap(
   const indexDuration = (performance.now() - indexStart) / 1000;
   console.log(`  ✓ 索引作成所要時間: ${indexDuration.toFixed(2)} 秒`);
 
+  // 4b. RENAME Swap 直前（旧表＋新表＋両方の索引が同時存在するピーク時）の容量計測
+  console.log('- RENAME Swap 直前のピーク時容量を計測中 (pg_total_relation_size)...');
+  const peakSizeRes = await ingestDb.execute(sql`
+    SELECT
+      pg_total_relation_size('corporate_numbers') AS active_total_bytes,
+      pg_relation_size('corporate_numbers') AS active_table_bytes,
+      pg_indexes_size('corporate_numbers') AS active_indexes_bytes,
+      pg_total_relation_size('corporate_numbers_new') AS staging_total_bytes,
+      pg_relation_size('corporate_numbers_new') AS staging_table_bytes,
+      pg_indexes_size('corporate_numbers_new') AS staging_indexes_bytes,
+      pg_size_pretty(
+        pg_total_relation_size('corporate_numbers') + pg_total_relation_size('corporate_numbers_new')
+      ) AS peak_combined_pretty,
+      (pg_total_relation_size('corporate_numbers') + pg_total_relation_size('corporate_numbers_new')) AS peak_combined_bytes;
+  `);
+  const peakRow = (peakSizeRes.rows[0] ?? {}) as Record<string, string | number>;
+  console.log(
+    `  ✓ Swap直前 新テーブル (corporate_numbers_new): 合計 ${Number(peakRow.staging_total_bytes ?? 0).toLocaleString()} bytes (表: ${Number(peakRow.staging_table_bytes ?? 0).toLocaleString()} bytes, 索引: ${Number(peakRow.staging_indexes_bytes ?? 0).toLocaleString()} bytes)`,
+  );
+  console.log(
+    `  ✓ Swap直前 ピーク合計 (旧表+新表): ${String(peakRow.peak_combined_pretty ?? '0 bytes')} (${Number(peakRow.peak_combined_bytes ?? 0).toLocaleString()} bytes)`,
+  );
+
   // 5. 単一トランザクション内での RENAME Swap
   console.log(
     '- 単一トランザクション内でテーブル名・索引名・制約名のアトミック入れ替えを実行中...',
@@ -283,6 +306,21 @@ async function runBenchmarkImportAndSwap(
   const analyzeDuration = (performance.now() - analyzeStart) / 1000;
   console.log(`  ✓ 統計情報収集所要時間: ${analyzeDuration.toFixed(2)} 秒`);
 
+  // 8. 入れ替え完了後の稼働時容量計測 (pg_total_relation_size)
+  const postSwapSizeRes = await ingestDb.execute(sql`
+    SELECT
+      pg_total_relation_size('corporate_numbers') AS total_bytes,
+      pg_size_pretty(pg_total_relation_size('corporate_numbers')) AS total_pretty,
+      pg_relation_size('corporate_numbers') AS table_bytes,
+      pg_size_pretty(pg_relation_size('corporate_numbers')) AS table_pretty,
+      pg_indexes_size('corporate_numbers') AS indexes_bytes,
+      pg_size_pretty(pg_indexes_size('corporate_numbers')) AS indexes_pretty;
+  `);
+  const postSwapRow = (postSwapSizeRes.rows[0] ?? {}) as Record<string, string | number>;
+  console.log(
+    `- 稼働時容量 (corporate_numbers): 合計 ${String(postSwapRow.total_pretty ?? '0 bytes')} (${Number(postSwapRow.total_bytes ?? 0).toLocaleString()} bytes / 表: ${String(postSwapRow.table_pretty ?? '0 bytes')}, 索引: ${String(postSwapRow.indexes_pretty ?? '0 bytes')})`,
+  );
+
   const totalDuration = (performance.now() - totalStartTime) / 1000;
   console.log(`\n🎉 取り込み＆RENAME Swap 全行程完了: 合計 ${totalDuration.toFixed(2)} 秒`);
 
@@ -294,6 +332,12 @@ async function runBenchmarkImportAndSwap(
     swapDurationMs,
     dropDurationMs,
     totalDuration,
+    storageBytes: {
+      activeTotalBytes: Number(postSwapRow.total_bytes ?? 0),
+      activeTableBytes: Number(postSwapRow.table_bytes ?? 0),
+      activeIndexesBytes: Number(postSwapRow.indexes_bytes ?? 0),
+      peakCombinedBytes: Number(peakRow.peak_combined_bytes ?? 0),
+    },
   };
 }
 
@@ -349,6 +393,21 @@ async function main() {
   const countResult = await db.execute(sql`SELECT count(*) as cnt FROM corporate_numbers;`);
   const currentCount = (countResult.rows[0] as { cnt: string | number })?.cnt ?? '0';
   console.log(`Current corporate_numbers count: ${Number(currentCount).toLocaleString()} 件`);
+
+  // テーブル容量の確認 (pg_total_relation_size)
+  const sizeResult = await db.execute(sql`
+    SELECT
+      pg_total_relation_size('corporate_numbers') AS total_bytes,
+      pg_size_pretty(pg_total_relation_size('corporate_numbers')) AS total_pretty,
+      pg_relation_size('corporate_numbers') AS table_bytes,
+      pg_size_pretty(pg_relation_size('corporate_numbers')) AS table_pretty,
+      pg_indexes_size('corporate_numbers') AS indexes_bytes,
+      pg_size_pretty(pg_indexes_size('corporate_numbers')) AS indexes_pretty;
+  `);
+  const sizeRow = (sizeResult.rows[0] ?? {}) as Record<string, string | number>;
+  console.log(
+    `Current corporate_numbers size: ${String(sizeRow.total_pretty ?? '0 bytes')} (${Number(sizeRow.total_bytes ?? 0).toLocaleString()} bytes / table: ${String(sizeRow.table_pretty ?? '0 bytes')}, indexes: ${String(sizeRow.indexes_pretty ?? '0 bytes')})`,
+  );
 
   // Step 2: 検索クエリの EXPLAIN (ANALYZE, BUFFERS) 測定
   console.log('\n====================================================');

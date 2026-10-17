@@ -51,6 +51,7 @@
     "build:csp": "tsx scripts/compute-csp-hashes.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
+    "db:migrate": "node dist/db/migrate.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

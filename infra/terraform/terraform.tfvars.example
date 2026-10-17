@@ -1,0 +1,24 @@
+# Copy this file to terraform.tfvars (not tracked by git) and fill in actual values.
+# Never commit real project IDs, service account names, or email addresses to the repository.
+
+project_id                        = "<YOUR_GCP_PROJECT_ID>"
+region                            = "asia-northeast1"
+domain                            = "houjin.mcp.sugu-kuru.co.jp"
+image                             = "asia-northeast1-docker.pkg.dev/<YOUR_GCP_PROJECT_ID>/houjin-bangou-mcp/server:<IMAGE_TAG>"
+alert_email                       = "<YOUR_ALERT_EMAIL>"
+max_instances                     = <MAX_INSTANCES>
+trust_proxy                       = 2
+allowed_origins                   = "https://claude.ai,https://chatgpt.com"
+armor_rate_limit_count            = 60
+armor_rate_limit_interval_sec     = 60
+ingest_min_record_count_corporate = <MIN_CORPORATE_RECORDS>
+ingest_min_record_count_invoice   = <MIN_INVOICE_RECORDS>
+staleness_days                    = 40
+lb_log_enabled                    = false
+lb_log_sample_rate                = 1.0
+sql_tier                          = "<SQL_TIER>"
+sql_disk_size_gb                  = <SQL_DISK_SIZE_GB>
+ingest_bucket_name                = "<YOUR_INGEST_GCS_BUCKET>"
+service_account_service_id        = "<SERVICE_SA_ID>"
+service_account_ingest_id         = "<INGEST_SA_ID>"
+service_account_migrate_id        = "<MIGRATE_SA_ID>"
