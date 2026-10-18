@@ -21,7 +21,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { runMigrateCli } from '../../src/db/migrate.js';
 import * as schema from '../../src/db/schema.js';
-import type { DbClient } from '../../src/db/client.js';
+import { closeDbClient, type DbClient } from '../../src/db/client.js';
 import { CORPORATE_INGEST_LOCK_KEY, INVOICE_INGEST_LOCK_KEY } from '../../src/ingest/importer.js';
 import { parseIngestCliArgs, resolveCsvFilesInDir, runIngestCli } from '../../src/ingest/cli.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
@@ -101,8 +101,9 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
     if (pool) {
       await pool.end();
     }
+    await closeDbClient();
     if (adminPool) {
-      await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME} WITH (FORCE);`);
+      await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME};`);
       await adminPool.end();
     }
     if (tempRootDir && fs.existsSync(tempRootDir)) {
