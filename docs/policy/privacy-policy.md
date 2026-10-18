@@ -114,7 +114,7 @@
     - **Google Cloud SQL for PostgreSQL**: 公表データの保管および検索
     - **Google Cloud Load Balancing**: HTTPS 終端および負荷分散（アクセスログ無効化）
     - **Google Cloud Armor**: エッジでの DDoS / レート制限防御（IP単位・60秒ウィンドウ）
-    - **Google Cloud Storage**: 月次全件取り込み用 CSV の一時配置（取り込み処理完了後に削除）
+    - **Google Cloud Storage**: 月次全件取り込み用 CSV の一時配置（取り込み処理完了後に運用手順に基づき速やかに削除）
     - **Google Cloud Logging**: アプリケーションログおよび Cloud Run 標準リクエストログの保管
   - **データ保管リージョン**: 日本（東京リージョン `asia-northeast1`）
 
@@ -124,10 +124,10 @@
 
 - **インフラ基盤のリクエストログおよびアプリケーションログ**: Google Cloud Logging 上で原則 **30 日間** 保存した後、自動的に削除されます。Google Cloud Load Balancing のアクセスログは無効化しています。
 - **レート制限用カウンタ**: Google Cloud Armor およびアプリケーションのメモリ上でのみ一時保持され、集計ウィンドウ（60秒間）の経過後に破棄されます（ディスクやデータベースには保存されません）。
-- **一時データ（Cloud Storage）**: 月次全件データ更新のために Cloud Storage に一時配置された CSV ファイルは、データベースへの取り込み処理完了後に速やかに削除されます。
+- **一時データ（Cloud Storage）**: 月次全件データ更新のために Cloud Storage に一時配置された CSV ファイルは、データベースへの取り込み処理完了後に運用手順（[`docs/deployment/hosted.md`](docs/deployment/hosted.md)）に基づき速やかに削除されます。
 - **公表データのテーブルおよびバックアップ**:
   - 月次の全件データ入れ替えが正常に完了した時点で、旧世代のテーブルは `DROP TABLE` により速やかに削除されます。
-  - Google Cloud SQL の日次自動バックアップは **7 日間** 保持された後、自動的に破棄されます。ポイントインタイムリカバリ（PITR）は無効化しています。
+  - Google Cloud SQL の日次自動バックアップは **7 日間** 保持（`retained_backups = 7`）された後、自動的に破棄されます。ポイントインタイムリカバリ（PITR）は無効化しています。
 
 ---
 

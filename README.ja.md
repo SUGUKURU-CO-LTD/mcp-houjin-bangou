@@ -78,8 +78,9 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 | `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
 
 ※ **`openWorld` アノテーションに関する注記**:
-- **ホスト版**（自社データベース参照）: 外部ネットワーク通信を行わないため、全 5 ツールで `openWorld: false` となります。
-- **ローカル版**（国税庁 Web-API 照会モード）: 外部 Web-API 通信を行う 3 ツール（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）は `openWorld: true` となり、純粋関数の 2 ツール（`validate_corporate_number`, `normalize_company_name`）は `openWorld: false` となります（仕様書 v1.7 準拠）。
+`openWorldHint` はサーバーがツールごとに宣言する注釈（メタデータ）であり、クライアントから送信されるものではありません。
+- **ホスト版**（自社データベース参照）: 外部ネットワークへの問い合わせを行わないため、`false` となります。
+- **ローカル版**（国税庁 Web-API 照会モード）: 国税庁 Web-API に問い合わせるため `true` となります（※外部通信を行わない純粋関数の 2 ツール `validate_corporate_number`, `normalize_company_name` は常に `false` です。仕様書 v1.7 準拠）。
 
 ---
 

@@ -143,6 +143,10 @@ resource "google_sql_database_instance" "postgres" {
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = false
+      backup_retention_settings {
+        retained_backups = 7
+        retention_unit   = "COUNT"
+      }
     }
 
     ip_configuration {

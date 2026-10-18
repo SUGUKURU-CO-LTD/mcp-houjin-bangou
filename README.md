@@ -78,8 +78,9 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 | `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates (both modes). |
 
 * **Note on `openWorld` annotation**:
-- **Hosted Edition** (internal database): Declares `openWorld: false` across all 5 tools as no external network calls are performed.
-- **Local Mode** (NTA Web-API lookup): Tools performing outbound Web-API requests (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`) declare `openWorld: true`, while the 2 local pure functions declare `openWorld: false` (per v1.7 frozen specification).
+`openWorldHint` is declared by the server for each tool as metadata and is not sent by clients.
+- **Hosted Edition** (internal database): `false` across tools as no external network inquiries are made.
+- **Local Mode** (NTA Web-API lookup): `true` for tools querying the National Tax Agency Web-API (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`), and `false` for the 2 local pure functions (`validate_corporate_number`, `normalize_company_name`) per v1.7 specification.
 
 ---
 
