@@ -31,6 +31,7 @@ describe('env validation', () => {
     delete process.env['TRUST_PROXY'];
     delete process.env['RATE_LIMIT_WINDOW_MS'];
     delete process.env['RATE_LIMIT_MAX_REQUESTS'];
+    delete process.env['OPENAI_APPS_CHALLENGE_TOKEN'];
     const env = getEnv();
     expect(env.PORT).toBe(3001);
     expect(env.LOG_LEVEL).toBe('info');
@@ -40,6 +41,7 @@ describe('env validation', () => {
     expect(env.TRUST_PROXY).toBe(1);
     expect(env.RATE_LIMIT_WINDOW_MS).toBe(60_000);
     expect(env.RATE_LIMIT_MAX_REQUESTS).toBe(60);
+    expect(env.OPENAI_APPS_CHALLENGE_TOKEN).toBe('');
   });
 
   it('カスタム PORT を数値化', () => {
@@ -73,10 +75,12 @@ describe('env validation', () => {
     process.env['TRUST_PROXY'] = '0';
     process.env['RATE_LIMIT_WINDOW_MS'] = '30000';
     process.env['RATE_LIMIT_MAX_REQUESTS'] = '15';
+    process.env['OPENAI_APPS_CHALLENGE_TOKEN'] = 'test-challenge-token-123';
     const env = getEnv();
     expect(env.ALLOWED_ORIGINS).toBe('https://claude.ai,https://chatgpt.com');
     expect(env.TRUST_PROXY).toBe(0);
     expect(env.RATE_LIMIT_WINDOW_MS).toBe(30000);
     expect(env.RATE_LIMIT_MAX_REQUESTS).toBe(15);
+    expect(env.OPENAI_APPS_CHALLENGE_TOKEN).toBe('test-challenge-token-123');
   });
 });

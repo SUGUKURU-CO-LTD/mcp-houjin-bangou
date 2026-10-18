@@ -1,9 +1,9 @@
-# 取引先確認MCP インターフェース仕様書 v1.7
+# 取引先確認MCP インターフェース仕様書 v1.8
 
-- **作成日**: 2026-10-14 JST (v1.7更新)
-- **対象ブランチ**: `a-kabe/corp-check-b4-db-ingest`
+- **作成日**: 2026-10-19 JST (v1.8更新)
+- **対象ブランチ**: `a-kabe/sla2-329-submission-fixes`
 - **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.7（承認済み・凍結）
+- **ステータス**: v1.8（承認済み・凍結）
 
 ---
 
@@ -11,13 +11,13 @@
 
 提出時点において提供するツールの一覧、入出力スキーマ、およびアノテーション4種の値とその設定理由を以下に定めます。
 
-なお、提出（Claudeコネクタディレクトリ・ChatGPTアプリディレクトリ）における `openWorldHint` の値および設定理由は、ホスト版（Cloud Run）の動作に合わせて申請します。ローカル版（npx / Web-API直接呼出）実行時は、起動設定に応じて内部的に値が切り替わります（M5）。
+なお、提出（Claudeコネクタディレクトリ・ChatGPTアプリディレクトリ）における `openWorldHint` の値および設定理由は、ChatGPTの掲載基準（公開された実体エンティティを扱うツールは true）に基づき、照会ツール3種はホスト版・ローカル版ともに `true` で統一します。外部通信を行わない純粋関数ツール2種は `false` となります。
 
 | ツール名 | ホスト版 openWorldHint | ローカル版 openWorldHint | 理由（ホスト版 / 提出用） |
 | :--- | :--- | :--- | :--- |
-| `lookup_corporate_by_number` | `false` | `true` | 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため |
-| `search_corporate_by_name` | `false` | `true` | 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため |
-| `lookup_invoice_issuer` | `false` | `true` | 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため |
+| `lookup_corporate_by_number` | `true` | `true` | 日本で登記された法人という公開された実在対象を扱うため（ChatGPT基準適合） |
+| `search_corporate_by_name` | `true` | `true` | 日本で登記された法人という公開された実在対象を扱うため（ChatGPT基準適合） |
+| `lookup_invoice_issuer` | `true` | `true` | 適格請求書発行事業者という公開された実在対象を扱うため（ChatGPT基準適合） |
 | `validate_corporate_number` | `false` | `false` | 外部通信や公表データを参照せず、ローカル計算のみで完結するため |
 | `normalize_company_name` | `false` | `false` | 外部通信を行わず、ローカル文字列正規化のみで完結するため |
 
@@ -38,8 +38,8 @@
     - **設定理由**: データの破壊・消去・上書きなどの副作用を生じさせないため。
   - `idempotentHint`: `true`
     - **設定理由**: 同一の法人番号に対する参照は、同一データ時点において同一の結果を返すため。
-  - `openWorldHint`: `false`（ホスト版提出時。ローカル版は `true`）
-    - **設定理由**: 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため。
+  - `openWorldHint`: `true`（ホスト版・ローカル版共通）
+    - **設定理由**: 日本で登記された法人という公開された実在対象を扱うため（ChatGPTの掲載基準「公開された・範囲の定まらない対象は true」に適合）。
 - **入力スキーマ**:
   ```json
   {
@@ -110,8 +110,8 @@
     - **設定理由**: 副作用を持たず、データを破棄しないため。
   - `idempotentHint`: `true`
     - **設定理由**: 同一の検索条件・カーソルでの取得結果は、同一データ時点において同一であるため。
-  - `openWorldHint`: `false`（ホスト版提出時。ローカル版は `true`）
-    - **設定理由**: 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため。
+  - `openWorldHint`: `true`（ホスト版・ローカル版共通）
+    - **設定理由**: 日本で登記された法人という公開された実在対象を扱うため（ChatGPTの掲載基準「公開された・範囲の定まらない対象は true」に適合）。
 - **入力スキーマ**:
   ```json
   {
@@ -209,15 +209,15 @@
 - **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
 - **説明文（英語）**: Look up registered invoice issuer status by T-number (T+13 digits) from NTA public records with optional reference date. Returns factual registration status only without tax advice.
 - **アノテーション**:
-  - `title`: "Lookup Registered Invoice Issuer by T-number"
+  - `title`: "Look up Registered Invoice Issuer by T-number"
   - `readOnlyHint`: `true`
     - **設定理由**: 公表データの参照のみを行い、外部状態の変更を行わないため。
   - `destructiveHint`: `false`
     - **設定理由**: 破壊的処理を行わないため。
   - `idempotentHint`: `true`
     - **設定理由**: 同一番号・同一基準日での問い合わせは、同一データ時点において同一の事実結果を返すため。
-  - `openWorldHint`: `false`（ホスト版提出時。ローカル版は `true`）
-    - **設定理由**: 自社DBに保持した公表データの写しを読むだけで、外部システムへの接続・投稿・公開を行わないため。
+  - `openWorldHint`: `true`（ホスト版・ローカル版共通）
+    - **設定理由**: 適格請求書発行事業者という公開された実在対象を扱うため（ChatGPTの掲載基準「公開された・範囲の定まらない対象は true」に適合）。
 - **入力スキーマ**:
   ```json
   {
@@ -664,4 +664,17 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
   - ※プライバシーポリシーへの記載（更新頻度、削除の反映が次の更新まで遅れること）は SLA2-329（B8）にて行います。
 - **ステータス更新**:
   - 仕様書ステータスを「v1.7（承認済み・凍結）」としました。
+
+---
+
+## 15. v1.8の変更点
+
+2026-10-19のディレクトリ提出対応（壁代表決定、Linear SLA2-329）に基づき、以下の2点を反映しました。
+
+- **1. 照会ツール3種の openWorldHint をホスト版・ローカル版ともに true へ統一**:
+  - **理由**: ChatGPT（OpenAI Plugins/Apps Directory）の掲載基準において「公開された・範囲の定まらない対象（public or open-ended entities）を扱うツールは openWorldHint: true」「false にできるのは範囲の決まった非公開のアカウント・ワークスペース・カタログに限られるもの」と規定されているため。日本国内で登記された法人および適格請求書発行事業者という公開実体を扱う照会ツール3種（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）について、データの取得方式（自社DB保持またはWeb-API直接呼出）にかかわらず `openWorldHint: true` としました。外部通信を行わない純粋計算ツール2種（`validate_corporate_number`, `normalize_company_name`）は `false` を維持します。
+- **2. `lookup_invoice_issuer` の title 表記統一**:
+  - **理由**: ツール名表記の統一性を高めるため、`Lookup Registered Invoice Issuer by T-number` から `Look up Registered Invoice Issuer by T-number`（Look up と2語に統一）へ改めました。
+- **ステータス更新**:
+  - 仕様書ステータスを「v1.8（承認済み・凍結）」としました（決定日: 2026-10-19）。
 

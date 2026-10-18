@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ChatGPT Apps ドメイン確認エンドポイント (`GET /.well-known/openai-apps-challenge`)**:
+  - 環境変数 `OPENAI_APPS_CHALLENGE_TOKEN` の値をそのまま `text/plain` で返却（未設定時は `404`）。
+  - クローラーからの検証リクエストを確実に受けるため、`/mcp` の Origin 検証対象外として実装。
+  - Terraform (`infra/terraform/variables.tf`, `infra/terraform/main.tf`) に `openai_apps_challenge_token` 変数および Cloud Run サービス環境変数を追加。`.env.example` にコメント例を追加。
+
+### Changed
+
+- **ツールアノテーションを仕様 v1.8 に更新（ChatGPT ディレクトリ掲載基準への適合 / Linear SLA2-329）**:
+  - 公開された公的データを扱う照会ツール 3 種（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）の `openWorldHint` を、データ取得方式（ホスト版 DB / ローカル版 Web-API）にかかわらず一律 `true` に統一。純粋計算ツール 2 種（`validate_corporate_number`, `normalize_company_name`）は `false` を維持。
+  - `lookup_invoice_issuer` の `title` を `Look up Registered Invoice Issuer by T-number` に統一。
+  - インターフェース仕様書 `docs/plan/corp-check-interface-v1.md` を v1.8（凍結）に改訂し、README（日英）のツール表を更新。
+
 ## [1.0.0] - 2026-10-18
 
 ### Added

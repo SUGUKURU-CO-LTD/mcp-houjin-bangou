@@ -230,6 +230,11 @@ resource "google_cloud_run_v2_service" "mcp" {
       }
 
       env {
+        name  = "OPENAI_APPS_CHALLENGE_TOKEN"
+        value = var.openai_apps_challenge_token
+      }
+
+      env {
         name = "DATABASE_URL"
         value_source {
           secret_key_ref {

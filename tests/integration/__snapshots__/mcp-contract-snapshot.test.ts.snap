@@ -82,7 +82,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "readOnlyHint": true,
         "title": "Look up Corporation by Corporate Number",
       },
@@ -206,7 +206,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "readOnlyHint": true,
         "title": "Search Corporations by Name",
       },
@@ -338,9 +338,9 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "readOnlyHint": true,
-        "title": "Lookup Registered Invoice Issuer by T-number",
+        "title": "Look up Registered Invoice Issuer by T-number",
       },
       "description": "適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。",
       "execution": {
@@ -454,7 +454,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         ],
         "type": "object",
       },
-      "title": "Lookup Registered Invoice Issuer by T-number",
+      "title": "Look up Registered Invoice Issuer by T-number",
     },
     {
       "_meta": undefined,
@@ -842,7 +842,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "idempotentHint": true,
         "openWorldHint": true,
         "readOnlyHint": true,
-        "title": "Lookup Registered Invoice Issuer by T-number",
+        "title": "Look up Registered Invoice Issuer by T-number",
       },
       "description": "適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。",
       "execution": {
@@ -956,7 +956,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         ],
         "type": "object",
       },
-      "title": "Lookup Registered Invoice Issuer by T-number",
+      "title": "Look up Registered Invoice Issuer by T-number",
     },
     {
       "_meta": undefined,

@@ -123,3 +123,10 @@ variable "dns_zone_dns_name" {
   description = "DNS name of the Google Cloud DNS managed zone (no default value; e.g. mcp.sugu-kuru.co.jp.)"
   type        = string
 }
+
+variable "openai_apps_challenge_token" {
+  description = "Challenge token for OpenAI/ChatGPT domain verification at /.well-known/openai-apps-challenge (default empty string = disabled)"
+  type        = string
+  default     = ""
+}
+

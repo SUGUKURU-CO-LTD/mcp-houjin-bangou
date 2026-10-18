@@ -294,7 +294,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     return { client, mcpServer };
   }
 
-  it('tools/list で各ツールの openWorldHint が false に設定されていること', async () => {
+  it('tools/list で各照会ツールの openWorldHint が true に設定されていること（仕様 v1.8）', async () => {
     const { client } = await setupHostClient();
     const toolsResult = await client.listTools();
 
@@ -303,13 +303,13 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const invoiceTool = toolsResult.tools.find((t) => t.name === 'lookup_invoice_issuer');
 
     expect(lookupTool).toBeDefined();
-    expect(lookupTool?.annotations?.openWorldHint).toBe(false);
+    expect(lookupTool?.annotations?.openWorldHint).toBe(true);
 
     expect(searchTool).toBeDefined();
-    expect(searchTool?.annotations?.openWorldHint).toBe(false);
+    expect(searchTool?.annotations?.openWorldHint).toBe(true);
 
     expect(invoiceTool).toBeDefined();
-    expect(invoiceTool?.annotations?.openWorldHint).toBe(false);
+    expect(invoiceTool?.annotations?.openWorldHint).toBe(true);
   });
 
   it('lookup_corporate_by_number: DBから取得し、ホスト版出典表示を返すこと', async () => {

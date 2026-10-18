@@ -71,16 +71,16 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 
 | Tool | Purpose | Annotations (`readOnly` / `destructive` / `idempotent` / `openWorld`*) | Notes |
 |---|---|---|---|
-| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `false` (Hosted) | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
-| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `false` (Hosted) | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
-| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `false` (Hosted) | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `true` | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `true` | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
+| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `true` | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
 | `validate_corporate_number` | Local Modulo-9 check-digit validation | `true` / `false` / `true` / `false` | Pure function; no DB or network access (both modes). |
 | `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates (both modes). |
 
 * **Note on `openWorld` annotation**:
 `openWorldHint` is declared by the server for each tool as metadata and is not sent by clients.
-- **Hosted Edition** (internal database): `false` across tools as no external network inquiries are made.
-- **Local Mode** (NTA Web-API lookup): `true` for tools querying the National Tax Agency Web-API (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`), and `false` for the 2 local pure functions (`validate_corporate_number`, `normalize_company_name`) per v1.7 specification.
+- In accordance with directory submission guidelines for public/open-ended entities (v1.8 specification), data lookup tools (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`) declare `openWorldHint: true` across both Hosted Edition and Local Mode.
+- Pure calculation tools (`validate_corporate_number`, `normalize_company_name`) declare `openWorldHint: false` in both modes as they operate purely in memory without external data lookups.
 
 ---
 
