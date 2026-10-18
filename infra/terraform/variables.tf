@@ -113,3 +113,13 @@ variable "logging_bucket_id" {
   description = "Bucket ID for the regional Cloud Logging bucket in asia-northeast1 (no default value)"
   type        = string
 }
+
+variable "dns_zone_name" {
+  description = "Name of the Google Cloud DNS managed zone for MCP delegation (no default value; e.g. mcp-zone)"
+  type        = string
+}
+
+variable "dns_zone_dns_name" {
+  description = "DNS name of the Google Cloud DNS managed zone (no default value; e.g. mcp.sugu-kuru.co.jp.)"
+  type        = string
+}

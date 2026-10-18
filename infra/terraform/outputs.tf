@@ -53,3 +53,8 @@ output "logging_bucket_id" {
   value       = google_logging_project_bucket_config.regional_logging_bucket.bucket_id
 }
 
+output "dns_zone_name_servers" {
+  description = "Name servers of the Google Cloud DNS managed zone (register these as NS records in the parent zone sugu-kuru.co.jp)"
+  value       = google_dns_managed_zone.mcp_zone.name_servers
+}
+
