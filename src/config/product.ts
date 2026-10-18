@@ -10,17 +10,14 @@
 /** 製品名（日本語） - 人の決定待ち */
 export const PRODUCT_NAME_JA = '（仮）スグクル取引先チェック';
 
-/** 製品名（英語） - 人の決定待ち */
-export const PRODUCT_NAME_EN = '(TBD)';
+/** 製品名（英語） - 決定済み */
+export const PRODUCT_NAME_EN = 'Japan Corporate Number & Invoice Check';
 
 /** UI下部のクレジット表記 - 人の決定待ち（案a: リンクなしを仮置き） */
 export const UI_CREDIT = '提供：スグクル株式会社';
 
-/** 公開ドメイン（ベースURL） - 人の決定待ち */
-export const PUBLIC_BASE_URL = 'https://example.invalid';
+/** 公開ドメイン（ベースURL） - 決定済み */
+export const PUBLIC_BASE_URL = 'https://houjin.mcp.sugu-kuru.co.jp';
 
 /** サポート連絡先（決定済み） */
 export const SUPPORT_EMAIL = 'dev@sugu-kuru.co.jp';
-
-/** GCPプロジェクトID - 人の決定待ち */
-export const GCP_PROJECT_ID = 'TBD';

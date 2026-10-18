@@ -88,11 +88,36 @@ function resolvePoolConfig(config?: DbConfig, forIngest = false): pg.PoolConfig 
 }
 
 /**
+ * プール待機中接続の異常切断（Cloud SQL メンテナンスやネットワーク断等）で
+ * プロセスが強制終了するのを防ぎ、安全にログ記録するエラーハンドラ
+ */
+function attachPoolErrorHandler(pool: pg.Pool, poolType: 'query' | 'ingest'): void {
+  pool.on('error', (err) => {
+    // node-postgres は待機中接続の異常切断時に pool 単位で 'error' イベントを発行する。
+    // リスナーがないと EventEmitter が unhandled error としてプロセスを強制終了するため、
+    // ここで安全に捕捉・記録してプロセス終了を防ぐ（本番 Cloud SQL メンテナンス等に対応）。
+    // 接続文字列やパスワードはログに出さない。
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const errCode = (err as { code?: string })?.code;
+    const payload = {
+      level: 'error',
+      time: new Date().toISOString(),
+      logger: 'db_pool',
+      pool_type: poolType,
+      error_message: errMessage,
+      ...(errCode ? { error_code: errCode } : {}),
+    };
+    process.stderr.write(JSON.stringify(payload) + '\n');
+  });
+}
+
+/**
  * 検索用 DB クライアント作成（statement_timeout: 5000ms 既定）
  */
 export function createDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient } {
   const poolConfig = resolvePoolConfig(config, false);
   const pool = new Pool(poolConfig);
+  attachPoolErrorHandler(pool, 'query');
   const db = drizzle(pool, { schema });
   return { pool, db };
 }
@@ -103,6 +128,7 @@ export function createDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient
 export function createIngestDbClient(config?: DbConfig): { pool: pg.Pool; db: DbClient } {
   const poolConfig = resolvePoolConfig(config, true);
   const pool = new Pool(poolConfig);
+  attachPoolErrorHandler(pool, 'ingest');
   const db = drizzle(pool, { schema });
   return { pool, db };
 }

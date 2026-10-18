@@ -1,0 +1,6 @@
+# Copy this file to backend.hcl (not tracked by git) and fill in your state bucket name.
+# Usage:
+#   terraform init -backend-config=backend.hcl
+
+bucket = "<YOUR_TERRAFORM_STATE_BUCKET>"
+prefix = "houjin-bangou-mcp/prod"
