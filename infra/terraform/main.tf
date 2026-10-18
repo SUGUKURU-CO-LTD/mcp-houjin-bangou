@@ -3,6 +3,7 @@ locals {
     "artifactregistry.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
+    "dns.googleapis.com",
     "iam.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
@@ -669,3 +670,24 @@ resource "google_logging_project_bucket_config" "regional_logging_bucket" {
 
   depends_on = [google_project_service.apis]
 }
+
+# 16. Cloud DNS Managed Zone and Record Set (SLA2-327)
+resource "google_dns_managed_zone" "mcp_zone" {
+  name        = var.dns_zone_name
+  dns_name    = endswith(var.dns_zone_dns_name, ".") ? var.dns_zone_dns_name : "${var.dns_zone_dns_name}."
+  description = "Managed DNS public zone for MCP subdomains delegated from sugu-kuru.co.jp"
+  visibility  = "public"
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_dns_record_set" "domain_a" {
+  name         = endswith(var.domain, ".") ? var.domain : "${var.domain}."
+  managed_zone = google_dns_managed_zone.mcp_zone.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.lb_ip.address]
+
+  depends_on = [google_project_service.apis]
+}
+

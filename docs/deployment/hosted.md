@@ -45,21 +45,39 @@ Cloud SQL for PostgreSQL 16 (houjin-bangou-pg16)
    - Terraform の state を保存する GCS バケットを作成し、バージョニングを有効化します。
 3. **`backend.hcl` と `terraform.tfvars` の作成**
    - `infra/terraform/backend.hcl.example` を `infra/terraform/backend.hcl` にコピーし、state バケット名を設定します。
-   - `infra/terraform/terraform.tfvars.example` を `infra/terraform/terraform.tfvars` にコピーし、プロジェクト ID・ドメイン・イメージ URI・Cloud SQL ティアとディスク容量・件数下限・取り込みジョブのタイムアウト秒数（`ingest_timeout_sec`、初回の実測で決める）・通知先メールアドレス等の変数を設定します（これら2ファイルは `.gitignore` により Git 管理外となります）。
+   - `infra/terraform/terraform.tfvars.example` を `infra/terraform/terraform.tfvars` にコピーし、プロジェクト ID・ドメイン・DNS ゾーン名・DNS ゾーン DNS 名・イメージ URI・Cloud SQL ティアとディスク容量・件数下限・取り込みジョブのタイムアウト秒数（`ingest_timeout_sec`、初回の実測で決める）・通知先メールアドレス等の変数を設定します（これら2ファイルは `.gitignore` により Git 管理外となります）。
 
-### 2.2 API・グローバル静的 IP の先行作成と DNS 登録
+### 2.2 API・グローバル静的 IP・Cloud DNS ゾーンの先行作成と委任登録
 
-Google 管理 SSL 証明書の発行には、ドメインの DNS `A` レコードがロードバランサのグローバル IP を向いている必要があります。証明書の発行待ち時間を短縮するため、先に API と IP アドレスを作成して DNS を登録します。
+Google 管理 SSL 証明書の発行には、ドメインの DNS `A` レコードがロードバランサのグローバル IP を向いている必要があります。また、`sugu-kuru.co.jp` の DNS 管理事業者移管の影響を避けるため、`mcp.sugu-kuru.co.jp` 配下を Google Cloud DNS に委任し、レコードを Terraform で一元管理します。
+証明書の発行待ち時間を短縮するため、先に API・IP アドレス・Cloud DNS ゾーン・A レコードを作成して親ゾーンへ委任登録を行います。
 
 ```bash
 terraform -chdir=infra/terraform init -backend-config=backend.hcl
 terraform -chdir=infra/terraform apply \
   -target=google_project_service.apis \
-  -target=google_compute_global_address.lb_ip
+  -target=google_compute_global_address.lb_ip \
+  -target=google_dns_managed_zone.mcp_zone \
+  -target=google_dns_record_set.domain_a
 ```
 
-1. `terraform -chdir=infra/terraform output load_balancer_ip` で出力された IPv4 アドレスを確認します。
-2. `sugu-kuru.co.jp` の DNS 管理画面にて、`houjin.mcp.sugu-kuru.co.jp` の `A` レコードに上記 IP アドレスを登録します。
+1. **委任用ネームサーバーの確認**
+   - `terraform -chdir=infra/terraform output dns_zone_name_servers` で出力された Cloud DNS のネームサーバー一覧を確認します。
+2. **親ゾーン（sugu-kuru.co.jp）への NS レコード登録**
+   - 親ゾーン（`sugu-kuru.co.jp`）の管理者に、出力されたネームサーバーを `mcp.sugu-kuru.co.jp` の委任 NS レコードとして登録してもらいます。
+3. **名前解決の確認**
+   - 登録後、以下のコマンドで委任と名前解決が正常に行われているかを確認します。
+     ```bash
+     dig NS mcp.sugu-kuru.co.jp +short
+     dig houjin.mcp.sugu-kuru.co.jp +short
+     ```
+   - `dig houjin.mcp.sugu-kuru.co.jp +short` で、ロードバランサのグローバル IP アドレス（`terraform -chdir=infra/terraform output load_balancer_ip`）が返ることを確認します。
+4. **SSL 証明書の発行待機**
+   - DNS の伝播完了後、後続の手順でロードバランサ全体を適用した際に Google 管理 SSL 証明書が正常に発行される状態になります。
+
+> [!IMPORTANT]
+> **親ゾーンの DNS 事業者移管時の引き継ぎについて**
+> 親ゾーン（`sugu-kuru.co.jp`）の DNS 管理事業者を移管・移行する場合は、新事業者の DNS 設定へ **`mcp.sugu-kuru.co.jp` の NS レコード委任設定（Cloud DNS ネームサーバー）を必ず引き継いで登録** してください。引き継ぎが漏れると、`houjin.mcp.sugu-kuru.co.jp` の名前解決ができなくなり、サービス停止および SSL 証明書の自動更新失敗につながります。
 
 ### 2.3 Artifact Registry の作成とコンテナイメージのビルド・プッシュ
 
