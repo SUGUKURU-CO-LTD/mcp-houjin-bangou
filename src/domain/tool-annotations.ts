@@ -24,7 +24,7 @@ export interface ToolAnnotations {
 
 export function getToolAnnotations(
   toolName: ToolName,
-  dataSource: DataSourceMode = 'web-api',
+  _dataSource: DataSourceMode = 'web-api',
 ): ToolAnnotations {
   switch (toolName) {
     case 'lookup_corporate_by_number':
