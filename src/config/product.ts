@@ -7,8 +7,8 @@
  * Antigravity が勝手に値を選ばず、壁（代表・意思決定者）による最終決定を待つ項目です。
  */
 
-/** 製品名（日本語） - 人の決定待ち */
-export const PRODUCT_NAME_JA = '（仮）スグクル取引先チェック';
+/** 製品名（日本語） - 決定済み */
+export const PRODUCT_NAME_JA = '法人番号・インボイス照会';
 
 /** 製品名（英語） - 決定済み */
 export const PRODUCT_NAME_EN = 'Japan Corporate Number & Invoice Check';

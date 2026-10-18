@@ -1,6 +1,6 @@
 # 利用規約 / Terms of Service
 
-**最終更新日 / Last updated**: 2026-10-18
+**最終更新日 / Last updated**: 2026-10-19
 
 > **正式版 / Official version**: https://sugu-kuru.co.jp/mcp/houjin/terms
 >
@@ -10,7 +10,7 @@
 
 ## 1. 適用範囲とソフトウェアライセンス / Scope & Software License
 
-- 本サービス「Japan Corporate Number & Invoice Check」のソースコード（GitHub リポジトリ [SUGUKURU-CO-LTD/mcp-houjin-bangou](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou)）および npm パッケージ（`@sugukuru/mcp-houjin-bangou`）は、[MIT License](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/LICENSE) の下で提供されます。
+- 本サービス「法人番号・インボイス照会」（英語名: Japan Corporate Number & Invoice Check）のソースコード（GitHub リポジトリ [SUGUKURU-CO-LTD/mcp-houjin-bangou](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou)）および npm パッケージ（`@sugukuru/mcp-houjin-bangou`）は、[MIT License](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/LICENSE) の下で提供されます。
 - 本サービス（スグクル株式会社が運用するホスト版 MCP サーバー、およびローカル実行版ソフトウェア）を利用して取得・表示される法人番号公表データおよび適格請求書発行事業者公表データの利用にあたっては、本規約および国税庁が定める各利用規約が適用されます。
 
 ---
@@ -89,7 +89,7 @@
 
 ## 7. お問い合わせ窓口 / Contact
 
-- **運営事業者**: スグクル株式会社（Sugukuru K.K.）
-- **所在地**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ 3F
+- **運営事業者**: スグクル株式会社（SUGUKURU CO., LTD.）
+- **所在地**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ ポーラビル３階
 - **連絡先メールアドレス**: `info@sugu-kuru.co.jp`
 - **プライバシーポリシー**: [privacy-policy.md](privacy-policy.md)
