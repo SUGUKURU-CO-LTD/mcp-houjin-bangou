@@ -28,8 +28,9 @@ Cloud Run Service (houjin-bangou-mcp)
   ▼ Cloud SQL Auth Proxy (Unix Socket)
 Cloud SQL for PostgreSQL 16 (houjin-bangou-pg16)
   ▲
-  ├── Cloud Run Job: houjin-bangou-migrate (DB Role: houjin_admin)
-  └── Cloud Run Job: houjin-bangou-ingest  (DB Role: houjin_ingest + Read-only GCS Volume `/mnt/ingest`)
+  ├── Cloud Run Job: houjin-bangou-migrate           (DB Role: houjin_admin)
+  ├── Cloud Run Job: houjin-bangou-ingest-corporate  (DB Role: houjin_ingest + Read-only GCS Volume `/mnt/ingest`)
+  └── Cloud Run Job: houjin-bangou-ingest-invoice    (DB Role: houjin_ingest + Read-only GCS Volume `/mnt/ingest`)
 ```
 
 ---
@@ -44,37 +45,58 @@ Cloud SQL for PostgreSQL 16 (houjin-bangou-pg16)
    - Terraform の state を保存する GCS バケットを作成し、バージョニングを有効化します。
 3. **`backend.hcl` と `terraform.tfvars` の作成**
    - `infra/terraform/backend.hcl.example` を `infra/terraform/backend.hcl` にコピーし、state バケット名を設定します。
-   - `infra/terraform/terraform.tfvars.example` を `infra/terraform/terraform.tfvars` にコピーし、プロジェクト ID・ドメイン・イメージ URI・Cloud SQL ティアとディスク容量・件数下限・通知先メールアドレス等の変数を設定します（これら2ファイルは `.gitignore` により Git 管理外となります）。
+   - `infra/terraform/terraform.tfvars.example` を `infra/terraform/terraform.tfvars` にコピーし、プロジェクト ID・ドメイン・イメージ URI・Cloud SQL ティアとディスク容量・件数下限・取り込みジョブのタイムアウト秒数（`ingest_timeout_sec`、初回の実測で決める）・通知先メールアドレス等の変数を設定します（これら2ファイルは `.gitignore` により Git 管理外となります）。
 
-### 2.2 グローバル静的 IP の先行作成と DNS 登録
+### 2.2 API・グローバル静的 IP の先行作成と DNS 登録
 
-Google 管理 SSL 証明書の発行には、ドメインの DNS `A` レコードがロードバランサのグローバル IP を向いている必要があります。証明書の発行待ち時間を短縮するため、先に IP アドレスを作成して DNS を登録します。
+Google 管理 SSL 証明書の発行には、ドメインの DNS `A` レコードがロードバランサのグローバル IP を向いている必要があります。証明書の発行待ち時間を短縮するため、先に API と IP アドレスを作成して DNS を登録します。
 
 ```bash
 terraform -chdir=infra/terraform init -backend-config=backend.hcl
-terraform -chdir=infra/terraform apply -target=google_project_service.apis -target=google_compute_global_address.lb_ip
+terraform -chdir=infra/terraform apply \
+  -target=google_project_service.apis \
+  -target=google_compute_global_address.lb_ip
 ```
 
 1. `terraform -chdir=infra/terraform output load_balancer_ip` で出力された IPv4 アドレスを確認します。
 2. `sugu-kuru.co.jp` の DNS 管理画面にて、`houjin.mcp.sugu-kuru.co.jp` の `A` レコードに上記 IP アドレスを登録します。
 
-### 2.3 コンテナイメージのビルド・プッシュと Terraform 全体適用
+### 2.3 Artifact Registry の作成とコンテナイメージのビルド・プッシュ
 
 1. Artifact Registry リポジトリを作成します。
    ```bash
-   terraform -chdir=infra/terraform apply -target=google_artifact_registry_repository.repo
+   terraform -chdir=infra/terraform apply \
+     -target=google_artifact_registry_repository.repo
    ```
-2. コンテナイメージをビルドし、Artifact Registry へ push します（サービスと2つのジョブは同一イメージを使用し、起動コマンドのみ切り替えます）。
+2. コンテナイメージをビルドし、Artifact Registry へ push します（サービスと3つのジョブは同一イメージを使用し、起動コマンド・引数のみ切り替えます）。
    ```bash
    docker build -t "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>" .
    docker push "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>"
    ```
-3. Terraform 全体を適用します。
-   ```bash
-   terraform -chdir=infra/terraform apply
-   ```
 
-### 2.4 Cloud SQL ロール作成・Secret Manager 登録・マイグレーション
+### 2.4 Cloud SQL・DB・Secret・サービスアカウント・権限の先行作成
+
+Cloud Run サービスおよびジョブは起動・作成時に Secret Manager の `latest` バージョンを参照するため、全体 `apply` の前に Cloud SQL・DB・Secret・サービスアカウント・権限だけを `-target` で作成します。
+
+```bash
+terraform -chdir=infra/terraform apply \
+  -target=google_sql_database_instance.postgres \
+  -target=google_sql_database.database \
+  -target=google_secret_manager_secret.db_url_reader \
+  -target=google_secret_manager_secret.db_url_ingest \
+  -target=google_secret_manager_secret.db_url_admin \
+  -target=google_service_account.service \
+  -target=google_service_account.ingest \
+  -target=google_service_account.migrate \
+  -target=google_project_iam_member.service_cloudsql_client \
+  -target=google_project_iam_member.ingest_cloudsql_client \
+  -target=google_project_iam_member.migrate_cloudsql_client \
+  -target=google_secret_manager_secret_iam_member.reader_secret_access \
+  -target=google_secret_manager_secret_iam_member.ingest_secret_access \
+  -target=google_secret_manager_secret_iam_member.admin_secret_access
+```
+
+### 2.5 DB のロールとユーザー作成・Secret Manager への値登録
 
 DB のユーザーとパスワードは Terraform state に残さないため、[`docs/deployment/db-roles.md`](./db-roles.md) および [`docs/deployment/db-roles.sql`](./db-roles.sql) に従って手動で設定します。
 
@@ -84,15 +106,23 @@ DB のユーザーとパスワードは Terraform state に残さないため、
    - Terraform が作成した3つの Secret（`houjin-db-url-admin`, `houjin-db-url-ingest`, `houjin-db-url-reader`）に対し、Unix ソケット形式の接続文字列を登録します。
    - 形式例:
      `postgresql://<USER>:<PASSWORD>@localhost/corp_check?host=/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16`
-3. **`migrate` ジョブの実行**
+
+### 2.6 Terraform 全体適用・マイグレーション・Phase 3 の実行
+
+1. **Terraform 全体の適用**
+   - Cloud Run サービス、3つの Cloud Run Job、Cloud Armor、外部 Application Load Balancer、監視・アラートを含めて全体を適用します。
+   ```bash
+   terraform -chdir=infra/terraform apply
+   ```
+2. **`migrate` ジョブの実行**
    - Cloud Run Job `houjin-bangou-migrate`（内部コマンド: `node dist/db/migrate.js`）を実行し、テーブルと索引を作成します。
    ```bash
    gcloud run jobs execute houjin-bangou-migrate --region=asia-northeast1 --wait
    ```
-4. **Phase 3 の実行（テーブル所有権とデフォルト権限の付与）**
+3. **Phase 3 の実行（テーブル所有権とデフォルト権限の付与）**
    - マイグレーション完了後、`docs/deployment/db-roles.sql` の Phase 3 を実行し、`corporate_numbers` / `invoice_issuers` の所有権を `houjin_ingest` に移譲し、`houjin_reader` に `SELECT` 権限および `ALTER DEFAULT PRIVILEGES` を設定します。
 
-### 2.5 SSL 証明書の有効化と直接アクセス遮断の確認
+### 2.7 SSL 証明書の有効化と直接アクセス遮断の確認
 
 1. **SSL 証明書のステータス確認**
    - Google 管理 SSL 証明書（`houjin-bangou-ssl-cert`）のステータスが `ACTIVE` になっていることを確認します。
@@ -136,25 +166,24 @@ DB のユーザーとパスワードは Terraform state に残さないため、
 
 > `src/ingest/cli.ts` は指定ディレクトリ直下の `.csv` ファイルをファイル名の昇順で読み込み、1つのデータセットバージョンとしてストリーミング投入したうえで、全索引を構築してから単一トランザクションの `RENAME` で本番テーブルと入れ替えます。
 
-### 3.3 Cloud Run Job（`houjin-bangou-ingest`）の実行
+### 3.3 Cloud Run Job（`houjin-bangou-ingest-corporate` / `houjin-bangou-ingest-invoice`）の実行
 
 GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専用でマウントされています。
+各ジョブには `INGEST_MIN_RECORD_COUNT`（`ingest_min_record_count_corporate` / `ingest_min_record_count_invoice`）および `--type`（`corporate` / `invoice`）があらかじめ設定されているため、実行時は `--dir` と `--data-as-of` を渡します。なお、取り込みジョブのタイムアウト（`ingest_timeout_sec`）は初回の実測で決めます。
 
 1. **法人番号データの取り込み実行**
    ```bash
-   gcloud run jobs execute houjin-bangou-ingest \
+   gcloud run jobs execute houjin-bangou-ingest-corporate \
      --region=asia-northeast1 \
-     --args="--type,corporate,--dir,/mnt/ingest/corporate/2026-10,--data-as-of,2026-09-30" \
+     --args="--dir,/mnt/ingest/corporate/2026-10,--data-as-of,2026-09-30" \
      --wait
    ```
 
 2. **インボイスデータの取り込み実行**
-   - インボイス側の最小件数下限（`ingest_min_record_count_invoice`）を環境変数 `INGEST_MIN_RECORD_COUNT` として渡して実行します。
    ```bash
-   gcloud run jobs execute houjin-bangou-ingest \
+   gcloud run jobs execute houjin-bangou-ingest-invoice \
      --region=asia-northeast1 \
-     --update-env-vars="INGEST_MIN_RECORD_COUNT=<MIN_INVOICE_RECORDS>" \
-     --args="--type,invoice,--dir,/mnt/ingest/invoice/2026-10,--data-as-of,2026-09-30" \
+     --args="--dir,/mnt/ingest/invoice/2026-10,--data-as-of,2026-09-30" \
      --wait
    ```
 
@@ -189,7 +218,7 @@ GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専�
 ## 5. アラート通知の試験手順
 
 1. GCS バケットの試験用パス（例: `gs://<INGEST_BUCKET>/test-invalid/broken.csv`）に、列数が不正なダミー CSV を配置します。
-2. `houjin-bangou-ingest` ジョブを `--dir,/mnt/ingest/test-invalid` で手動実行して意図的に失敗させます。
+2. `houjin-bangou-ingest-corporate` ジョブを `--dir,/mnt/ingest/test-invalid` で手動実行して意図的に失敗させます。
 3. 本番データが壊れず前の版のまま維持されていること、および通知先メールアドレスにアラート通知が届くことを確認します。
 4. 試験用パス（`gs://<INGEST_BUCKET>/test-invalid/`）を削除します。
 
@@ -211,4 +240,5 @@ GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専�
    - Cloud Run サービスのイメージタグを直前の正常稼働リビジョンに戻します（または `terraform.tfvars` の `image` を前バージョンのダイジェスト／タグに戻して `terraform apply` を実行します）。
 2. **データセットの切り戻し（万一不正なデータが active になった場合）**
    - 自動検証で中止された場合は自動的に前の `active` 版が維持されているため操作は不要です。
-   - 万一、入れ替え完了後にデータの不備が判明した場合は、直前の正常な月次 CSV ディレクトリを指定して `houjin-bangou-ingest` ジョブを再実行するか、Cloud SQL のポイントインタイムリカバリ（PITR）／自動バックアップから復元します。
+   - 万一、入れ替え完了後にデータの不備が判明した場合は、直前の正常な月次 CSV ディレクトリを指定して `houjin-bangou-ingest-corporate` または `houjin-bangou-ingest-invoice` ジョブを再実行するか、Cloud SQL の日次自動バックアップから復元します。
+

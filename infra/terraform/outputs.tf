@@ -38,12 +38,13 @@ output "migrate_job_name" {
   value       = google_cloud_run_v2_job.migrate.name
 }
 
-output "ingest_job_name" {
-  description = "Cloud Run Job name for dataset ingestion"
-  value       = google_cloud_run_v2_job.ingest.name
+output "ingest_corporate_job_name" {
+  description = "Cloud Run Job name for corporate number dataset ingestion"
+  value       = google_cloud_run_v2_job.ingest_corporate.name
 }
 
-output "ingest_min_record_count_invoice" {
-  description = "Configured minimum record count for invoice ingestion (pass as --update-env-vars INGEST_MIN_RECORD_COUNT=<value> when running invoice job)"
-  value       = var.ingest_min_record_count_invoice
+output "ingest_invoice_job_name" {
+  description = "Cloud Run Job name for invoice issuer dataset ingestion"
+  value       = google_cloud_run_v2_job.ingest_invoice.name
 }
+

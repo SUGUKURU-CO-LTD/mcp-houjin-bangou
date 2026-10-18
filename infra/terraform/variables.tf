@@ -62,10 +62,9 @@ variable "ingest_min_record_count_invoice" {
   type        = number
 }
 
-variable "staleness_days" {
-  description = "Alert threshold in days when no successful dataset ingestion log has been observed"
+variable "ingest_timeout_sec" {
+  description = "Execution timeout in seconds for dataset ingestion Cloud Run Jobs (no default value; determined from initial full-scale measurement)"
   type        = number
-  default     = 40
 }
 
 variable "lb_log_enabled" {

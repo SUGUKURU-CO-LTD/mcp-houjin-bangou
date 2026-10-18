@@ -1,7 +1,9 @@
 locals {
   required_apis = [
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
+    "iam.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
     "run.googleapis.com",
@@ -56,18 +58,24 @@ resource "google_project_iam_member" "service_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.service.email}"
+
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_project_iam_member" "ingest_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.ingest.email}"
+
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_project_iam_member" "migrate_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.migrate.email}"
+
+  depends_on = [google_project_service.apis]
 }
 
 # 4. Secret Manager secrets (3 containers for DATABASE_URL; secret versions are populated manually)
@@ -117,7 +125,7 @@ resource "google_secret_manager_secret_iam_member" "admin_secret_access" {
   member    = "serviceAccount:${google_service_account.migrate.email}"
 }
 
-# 5. Cloud SQL for PostgreSQL 16 (deletion protection, automated backups, no authorized networks)
+# 5. Cloud SQL for PostgreSQL 16 (deletion protection, daily automated backups, no PITR, no authorized networks)
 resource "google_sql_database_instance" "postgres" {
   name                = "houjin-bangou-pg16"
   region              = var.region
@@ -125,15 +133,16 @@ resource "google_sql_database_instance" "postgres" {
   deletion_protection = true
 
   settings {
-    tier              = var.sql_tier
-    disk_size         = var.sql_disk_size_gb
-    disk_type         = "PD_SSD"
-    disk_autoresize   = true
-    availability_type = "ZONAL"
+    tier                        = var.sql_tier
+    disk_size                   = var.sql_disk_size_gb
+    disk_type                   = "PD_SSD"
+    disk_autoresize             = true
+    availability_type           = "ZONAL"
+    deletion_protection_enabled = true
 
     backup_configuration {
       enabled                        = true
-      point_in_time_recovery_enabled = true
+      point_in_time_recovery_enabled = false
     }
 
     ip_configuration {
@@ -299,8 +308,8 @@ resource "google_cloud_run_v2_job" "migrate" {
   ]
 }
 
-resource "google_cloud_run_v2_job" "ingest" {
-  name     = "houjin-bangou-ingest"
+resource "google_cloud_run_v2_job" "ingest_corporate" {
+  name     = "houjin-bangou-ingest-corporate"
   location = var.region
 
   template {
@@ -308,7 +317,7 @@ resource "google_cloud_run_v2_job" "ingest" {
       service_account       = google_service_account.ingest.email
       execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
       max_retries           = 0
-      timeout               = "3600s"
+      timeout               = "${var.ingest_timeout_sec}s"
 
       volumes {
         name = "cloudsql"
@@ -328,7 +337,7 @@ resource "google_cloud_run_v2_job" "ingest" {
       containers {
         image   = var.image
         command = ["node"]
-        args    = ["dist/ingest/cli.js"]
+        args    = ["dist/ingest/cli.js", "--type", "corporate"]
 
         env {
           name  = "NODE_ENV"
@@ -338,6 +347,78 @@ resource "google_cloud_run_v2_job" "ingest" {
         env {
           name  = "INGEST_MIN_RECORD_COUNT"
           value = tostring(var.ingest_min_record_count_corporate)
+        }
+
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url_ingest.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+
+        volume_mounts {
+          name       = "ingest-gcs"
+          mount_path = "/mnt/ingest"
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_iam_member.ingest_secret_access,
+    google_project_iam_member.ingest_cloudsql_client,
+    google_storage_bucket_iam_member.ingest_bucket_viewer,
+  ]
+}
+
+resource "google_cloud_run_v2_job" "ingest_invoice" {
+  name     = "houjin-bangou-ingest-invoice"
+  location = var.region
+
+  template {
+    template {
+      service_account       = google_service_account.ingest.email
+      execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
+      max_retries           = 0
+      timeout               = "${var.ingest_timeout_sec}s"
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.postgres.connection_name]
+        }
+      }
+
+      volumes {
+        name = "ingest-gcs"
+        gcs {
+          bucket    = google_storage_bucket.ingest.name
+          read_only = true
+        }
+      }
+
+      containers {
+        image   = var.image
+        command = ["node"]
+        args    = ["dist/ingest/cli.js", "--type", "invoice"]
+
+        env {
+          name  = "NODE_ENV"
+          value = "production"
+        }
+
+        env {
+          name  = "INGEST_MIN_RECORD_COUNT"
+          value = tostring(var.ingest_min_record_count_invoice)
         }
 
         env {
@@ -505,7 +586,7 @@ resource "google_compute_global_forwarding_rule" "http_redirect" {
   ip_address            = google_compute_global_address.lb_ip.id
 }
 
-# 11. Log-based Metrics, Notification Channel, and Alert Policies (D9)
+# 11. Log-based Metric, Notification Channel, and Alert Policies (D9)
 resource "google_monitoring_notification_channel" "email" {
   display_name = "MCP Operations Email Alert Channel"
   type         = "email"
@@ -520,20 +601,6 @@ resource "google_logging_metric" "ingest_failed" {
   name        = "houjin_ingest_failed_count"
   description = "Count of failed dataset ingestion runs (logger=dataset_ingest, status=failed)"
   filter      = "resource.type=\"cloud_run_job\" AND jsonPayload.logger=\"dataset_ingest\" AND jsonPayload.status=\"failed\""
-
-  metric_descriptor {
-    metric_kind = "DELTA"
-    value_type  = "INT64"
-    unit        = "1"
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_logging_metric" "ingest_active" {
-  name        = "houjin_ingest_active_count"
-  description = "Count of successful dataset ingestion swaps (logger=dataset_ingest, status=active)"
-  filter      = "resource.type=\"cloud_run_job\" AND jsonPayload.logger=\"dataset_ingest\" AND jsonPayload.status=\"active\""
 
   metric_descriptor {
     metric_kind = "DELTA"
@@ -584,29 +651,6 @@ resource "google_monitoring_alert_policy" "job_execution_failed_alert" {
         alignment_period   = "60s"
         per_series_aligner = "ALIGN_SUM"
       }
-    }
-  }
-
-  notification_channels = [google_monitoring_notification_channel.email.id]
-}
-
-# Alert 3: Dataset staleness (no successful ingestion observed within staleness_days)
-resource "google_monitoring_alert_policy" "ingest_staleness_alert" {
-  display_name = "MCP Dataset Ingestion Staleness Alert"
-  combiner     = "OR"
-
-  conditions {
-    display_name = "No successful dataset_ingest active log within staleness window"
-    condition_monitoring_query_language {
-      query    = <<-EOT
-        fetch cloud_run_job
-        | metric 'logging.googleapis.com/user/${google_logging_metric.ingest_active.name}'
-        | align delta(${var.staleness_days * 24}h)
-        | every 1h
-        | group_by [], [val: sum(value.houjin_ingest_active_count)]
-        | condition val < 1
-      EOT
-      duration = "0s"
     }
   }
 
