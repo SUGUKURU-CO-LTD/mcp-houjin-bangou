@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated**: 2026-10-18
+**Last updated**: 2026-10-19
 
 > **This English version is a reference translation.** The official version is the Japanese text published at https://sugu-kuru.co.jp/mcp/houjin/privacy (the same text is in [privacy-policy.md](privacy-policy.md)). If there is any discrepancy between the Japanese and English versions, the Japanese version prevails.
 
@@ -8,7 +8,7 @@
 
 ## 1. Scope
 
-This Privacy Policy describes how Sugukuru K.K. ("we", "us" or "our") handles information in **the hosted edition (remote MCP server)** and **the self-hosted edition (run locally with npx, Docker, etc.)** of "Japan Corporate Number & Invoice Check", an MCP server for looking up Japanese corporate numbers and qualified invoice issuers (npm package `@sugukuru/mcp-houjin-bangou`; the "Service").
+This Privacy Policy describes how SUGUKURU CO., LTD. ("we", "us" or "our") handles information in **the hosted edition (remote MCP server)** and **the self-hosted edition (run locally with npx, Docker, etc.)** of "Japan Corporate Number & Invoice Check" (Japanese name: 法人番号・インボイス照会), an MCP server for looking up Japanese corporate numbers and qualified invoice issuers (npm package `@sugukuru/mcp-houjin-bangou`; the "Service").
 
 ---
 
@@ -147,6 +147,6 @@ We use the information we obtain and hold only for the following purposes:
 
 ### 9.2 Contact
 
-- **Operator**: Sugukuru K.K. (スグクル株式会社)
-- **Address**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ 3F, Japan
+- **Operator**: SUGUKURU CO., LTD. (スグクル株式会社)
+- **Address**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ ポーラビル３階, Japan
 - **Email**: `info@sugu-kuru.co.jp`

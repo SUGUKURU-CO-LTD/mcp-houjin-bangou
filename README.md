@@ -130,6 +130,6 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 
 ## License & Maintainer
 
-- **License**: MIT © 2026 Sugukuru K.K. (スグクル株式会社, Kagoshima, Japan)
+- **License**: MIT © 2026 SUGUKURU CO., LTD. (スグクル株式会社, Kagoshima, Japan)
 - **Website**: [https://sugu-kuru.co.jp](https://sugu-kuru.co.jp)
 - **Contact**: `info@sugu-kuru.co.jp`

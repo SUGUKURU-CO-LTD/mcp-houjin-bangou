@@ -1,6 +1,6 @@
 # プライバシーポリシー / Privacy Policy
 
-**最終更新日 / Last updated**: 2026-10-18
+**最終更新日 / Last updated**: 2026-10-19
 
 > **正式版 / Official version**: https://sugu-kuru.co.jp/mcp/houjin/privacy
 >
@@ -10,7 +10,7 @@
 
 ## 1. 対象範囲 / Scope
 
-本プライバシーポリシーは、スグクル株式会社（以下「当社」）が提供する法人番号・適格請求書発行事業者照会 MCP サーバー「Japan Corporate Number & Invoice Check」（npm パッケージ `@sugukuru/mcp-houjin-bangou`、以下「本サービス」）の **ホスト版（リモート MCP サーバー）** および **ローカル実行版（npx / Docker 等によるセルフホスト）** における情報の取扱いを定めるものです。
+本プライバシーポリシーは、スグクル株式会社（以下「当社」）が提供する法人番号・適格請求書発行事業者照会 MCP サーバー「法人番号・インボイス照会」（英語名: Japan Corporate Number & Invoice Check、npm パッケージ `@sugukuru/mcp-houjin-bangou`、以下「本サービス」）の **ホスト版（リモート MCP サーバー）** および **ローカル実行版（npx / Docker 等によるセルフホスト）** における情報の取扱いを定めるものです。
 
 ---
 
@@ -149,6 +149,6 @@
 
 ### 9.2 お問い合わせ窓口
 
-- **運営事業者**: スグクル株式会社（Sugukuru K.K.）
-- **所在地**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ 3F
+- **運営事業者**: スグクル株式会社（SUGUKURU CO., LTD.）
+- **所在地**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ ポーラビル３階
 - **連絡先メールアドレス**: `info@sugu-kuru.co.jp`

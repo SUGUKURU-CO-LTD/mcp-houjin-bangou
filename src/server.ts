@@ -319,7 +319,7 @@ export function buildServerCard(): Record<string, unknown> {
         'このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。',
     },
     maintainer: {
-      name: 'Sugukuru K.K.',
+      name: 'SUGUKURU CO., LTD.',
       email: SUPPORT_EMAIL,
       location: 'Kagoshima, Japan',
     },

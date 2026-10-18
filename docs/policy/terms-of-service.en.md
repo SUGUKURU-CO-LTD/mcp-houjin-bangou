@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated**: 2026-10-18
+**Last updated**: 2026-10-19
 
 > **This English version is a reference translation.** The official version is the Japanese text published at https://sugu-kuru.co.jp/mcp/houjin/terms (the same text is in [terms-of-service.md](terms-of-service.md)). If there is any discrepancy between the Japanese and English versions, the Japanese version prevails.
 
@@ -8,8 +8,8 @@
 
 ## 1. Scope and Software License
 
-- The source code of the Service, "Japan Corporate Number & Invoice Check" (GitHub repository [SUGUKURU-CO-LTD/mcp-houjin-bangou](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou)), and the npm package (`@sugukuru/mcp-houjin-bangou`) are provided under the [MIT License](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/LICENSE).
-- The use of corporate number data and qualified invoice issuer data obtained or displayed through the Service (the hosted MCP server operated by Sugukuru K.K. and the self-hosted software) is subject to these Terms and to the applicable terms of use set by the National Tax Agency (NTA).
+- The source code of the Service, "Japan Corporate Number & Invoice Check" (Japanese name: 法人番号・インボイス照会; GitHub repository [SUGUKURU-CO-LTD/mcp-houjin-bangou](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou)), and the npm package (`@sugukuru/mcp-houjin-bangou`) are provided under the [MIT License](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/LICENSE).
+- The use of corporate number data and qualified invoice issuer data obtained or displayed through the Service (the hosted MCP server operated by SUGUKURU CO., LTD. and the self-hosted software) is subject to these Terms and to the applicable terms of use set by the National Tax Agency (NTA).
 
 ---
 
@@ -44,11 +44,11 @@ The Service includes a source statement in the responses of its data lookup tool
   - Corporate number data:
     > 出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/ ）。同サイトの公表データをもとにスグクル株式会社が加工して作成
 
-    (Source: NTA Corporate Number Publication Site (National Tax Agency). Processed and prepared by Sugukuru K.K. based on the data published on that site.)
+    (Source: NTA Corporate Number Publication Site (National Tax Agency). Processed and prepared by SUGUKURU CO., LTD. based on the data published on that site.)
   - Qualified invoice issuer data:
     > 出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html ）。同サイトの公表データをもとにスグクル株式会社が加工して作成
 
-    (Source: NTA Qualified Invoice Issuer Publication Site (National Tax Agency). Processed and prepared by Sugukuru K.K. based on the data published on that site.)
+    (Source: NTA Qualified Invoice Issuer Publication Site (National Tax Agency). Processed and prepared by SUGUKURU CO., LTD. based on the data published on that site.)
 - **Self-hosted edition (Web-API)** (the statement designated by Article 6 of the Terms of Use of the Corporate Number System Web-API):
   > このサービスは、国税庁法人番号システムWeb-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない
 
@@ -85,7 +85,7 @@ To call the NTA Web-API directly from the self-hosted edition, you need to set a
 
 ## 6. Disclaimer
 
-- This software and the hosted service are provided "as is". Sugukuru K.K. and the contributors to this software make no express or implied warranty as to the completeness, accuracy, timeliness, fitness for a particular purpose or continuous availability of the Service.
+- This software and the hosted service are provided "as is". SUGUKURU CO., LTD. and the contributors to this software make no express or implied warranty as to the completeness, accuracy, timeliness, fitness for a particular purpose or continuous availability of the Service.
 - Except in cases of our willful misconduct or gross negligence, we are not liable for any damage incurred by users from the use of, or inability to use, the Service (including loss of data, interruption of business and lost profits).
 - If the contract between us and a user under these Terms is a consumer contract as defined in the Consumer Contract Act, our liability for damages caused by our negligence (excluding gross negligence) is limited to direct and ordinary damages actually incurred by the user.
 
@@ -93,7 +93,7 @@ To call the NTA Web-API directly from the self-hosted edition, you need to set a
 
 ## 7. Contact
 
-- **Operator**: Sugukuru K.K. (スグクル株式会社)
-- **Address**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ 3F, Japan
+- **Operator**: SUGUKURU CO., LTD. (スグクル株式会社)
+- **Address**: 〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ ポーラビル３階, Japan
 - **Email**: `info@sugu-kuru.co.jp`
 - **Privacy Policy**: [privacy-policy.en.md](privacy-policy.en.md)
