@@ -80,7 +80,7 @@ variable "lb_log_sample_rate" {
 }
 
 variable "sql_tier" {
-  description = "Cloud SQL machine tier (no default value; determined after full-scale capacity measurement)"
+  description = "Enterprise エディションのティア（例 db-custom-1-3840）"
   type        = string
 }
 
