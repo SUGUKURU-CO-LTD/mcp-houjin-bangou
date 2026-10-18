@@ -29,24 +29,35 @@ An MCP server that enables Claude, ChatGPT, Cursor, VS Code Copilot, and any MCP
 - Does not use an NTA Web-API Application ID at runtime.
 - Enforces `Origin` header allowlist verification, per-IP rate limiting, and 3-role database privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`).
 
-### 2. Local / Self-Hosted Mode (stdio or HTTP)
+### 2. Local / Self-Hosted Mode (HTTP)
 
-- Runs locally via `npx @sugukuru/mcp-houjin-bangou` using the user's own NTA Web-API Application ID (`NTA_APPLICATION_ID`) or a local PostgreSQL database (`DATABASE_URL`).
+- Runs locally as an HTTP server (default port `3001`) using the user's own NTA Web-API Application ID (`NTA_APPLICATION_ID`) or a local PostgreSQL database (`DATABASE_URL`).
 
-#### Claude Desktop Configuration (Local Mode)
+```bash
+# Run in NTA Web-API mode (default port: 3001)
+NTA_APPLICATION_ID="YOUR_NTA_APPLICATION_ID" npx @sugukuru/mcp-houjin-bangou
+```
 
-1. Obtain a free NTA Web-API Application ID from `https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/`.
-2. Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+#### MCP Client Configuration Examples
 
+##### Hosted Edition (Remote Streamable HTTP)
 ```json
 {
   "mcpServers": {
     "houjin-bangou": {
-      "command": "npx",
-      "args": ["-y", "@sugukuru/mcp-houjin-bangou"],
-      "env": {
-        "NTA_APPLICATION_ID": "YOUR_ID_HERE"
-      }
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
+##### Local HTTP Mode (Self-Hosted)
+After starting the local server with the command above:
+```json
+{
+  "mcpServers": {
+    "houjin-bangou-local": {
+      "url": "http://localhost:3001/mcp"
     }
   }
 }
@@ -58,13 +69,17 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 
 ## Tools (5)
 
-| Tool | Purpose | Annotations (`readOnly` / `destructive` / `idempotent` / `openWorld`) | Notes |
+| Tool | Purpose | Annotations (`readOnly` / `destructive` / `idempotent` / `openWorld`*) | Notes |
 |---|---|---|---|
-| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `false` | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
-| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `false` | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
-| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `false` | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
-| `validate_corporate_number` | Local Modulo-9 check-digit validation | `true` / `false` / `true` / `false` | Pure function; no DB or network access. |
-| `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates. |
+| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `false` (Hosted) | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `false` (Hosted) | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
+| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `false` (Hosted) | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `validate_corporate_number` | Local Modulo-9 check-digit validation | `true` / `false` / `true` / `false` | Pure function; no DB or network access (both modes). |
+| `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates (both modes). |
+
+* **Note on `openWorld` annotation**:
+- **Hosted Edition** (internal database): Declares `openWorld: false` across all 5 tools as no external network calls are performed.
+- **Local Mode** (NTA Web-API lookup): Tools performing outbound Web-API requests (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`) declare `openWorld: true`, while the 2 local pure functions declare `openWorld: false` (per v1.7 frozen specification).
 
 ---
 

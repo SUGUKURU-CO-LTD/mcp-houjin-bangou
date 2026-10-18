@@ -1,11 +1,10 @@
 {
   "mcpServers": {
     "houjin-bangou": {
-      "command": "npx",
-      "args": ["-y", "@sugukuru/mcp-houjin-bangou"],
-      "env": {
-        "NTA_APPLICATION_ID": "<YOUR_APPLICATION_ID>"
-      }
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    },
+    "houjin-bangou-local": {
+      "url": "http://localhost:3001/mcp"
     }
   }
 }

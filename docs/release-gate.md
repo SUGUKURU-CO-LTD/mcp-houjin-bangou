@@ -1,5 +1,8 @@
 # v0.2.0 Release Gate Checklist
 
+> [!NOTE]
+> 本チェックリストは v0.2.0 リリース当時のゲート記録です。現行の v1.0.0 のリリースゲートや受け入れ条件とは異なります。
+
 Release date target: **2026-05-22**
 
 ## コード品質 / Code quality

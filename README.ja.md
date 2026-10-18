@@ -29,24 +29,35 @@ Claude、ChatGPT、Cursor、VS Code Copilot などの MCP 対応クライアン�
 - 実行時に国税庁 Web-API のアプリケーション ID を使用しません。
 - `Origin` ヘッダ許可リスト検証、接続元 IP アドレス単位のレート制限、およびデータベースの 3 ロール権限分離（`houjin_admin` / `houjin_ingest` / `houjin_reader`）を備えています。
 
-### 2. ローカル実行 / セルフホストモード（stdio または HTTP）
+### 2. ローカル実行 / セルフホストモード（HTTP）
 
-- 利用者自身の環境で `npx @sugukuru/mcp-houjin-bangou` を起動し、利用者自身が取得した国税庁 Web-API アプリケーション ID（`NTA_APPLICATION_ID`）または手元の PostgreSQL（`DATABASE_URL`）を使って利用できます。
+- 利用者自身の環境でローカル HTTP サーバー（既定ポート `3001`）を起動し、利用者自身が取得した国税庁 Web-API アプリケーション ID（`NTA_APPLICATION_ID`）または手元の PostgreSQL（`DATABASE_URL`）を使って利用できます。
 
-#### Claude Desktop での設定例（ローカル Web-API モード）
+```bash
+# 国税庁 Web-API モードで起動（既定ポート: 3001）
+NTA_APPLICATION_ID="あなたのアプリケーションID" npx @sugukuru/mcp-houjin-bangou
+```
 
-1. https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/ から国税庁 Web-API のアプリケーション ID を取得します（無料）。
-2. `~/Library/Application Support/Claude/claude_desktop_config.json` に以下を追加します。
+#### MCP クライアントでの設定例
 
+##### ホスト版（リモート Streamable HTTP）
 ```json
 {
   "mcpServers": {
     "houjin-bangou": {
-      "command": "npx",
-      "args": ["-y", "@sugukuru/mcp-houjin-bangou"],
-      "env": {
-        "NTA_APPLICATION_ID": "あなたのアプリケーションID"
-      }
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
+##### ローカル HTTP モード（セルフホスト）
+手元で上記起動コマンドを実行後、以下のように接続します。
+```json
+{
+  "mcpServers": {
+    "houjin-bangou-local": {
+      "url": "http://localhost:3001/mcp"
     }
   }
 }
@@ -58,13 +69,17 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 
 ## ツール一覧（全5ツール）
 
-| ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`) | 備考 |
+| ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`※) | 備考 |
 |---|---|---|---|
-| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `false` | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
-| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `false` | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
-| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `false` | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
-| `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし） |
-| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし） |
+| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `false`（ホスト版） | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `false`（ホスト版） | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
+| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `false`（ホスト版） | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
+| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
+
+※ **`openWorld` アノテーションに関する注記**:
+- **ホスト版**（自社データベース参照）: 外部ネットワーク通信を行わないため、全 5 ツールで `openWorld: false` となります。
+- **ローカル版**（国税庁 Web-API 照会モード）: 外部 Web-API 通信を行う 3 ツール（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）は `openWorld: true` となり、純粋関数の 2 ツール（`validate_corporate_number`, `normalize_company_name`）は `openWorld: false` となります（仕様書 v1.7 準拠）。
 
 ---
 
