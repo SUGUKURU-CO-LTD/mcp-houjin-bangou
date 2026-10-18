@@ -21,6 +21,3 @@ export const PUBLIC_BASE_URL = 'https://houjin.mcp.sugu-kuru.co.jp';
 
 /** サポート連絡先（決定済み） */
 export const SUPPORT_EMAIL = 'info@sugu-kuru.co.jp';
-
-/** GCPプロジェクトID - 人の決定待ち */
-export const GCP_PROJECT_ID = 'TBD';
