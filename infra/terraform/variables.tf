@@ -108,3 +108,8 @@ variable "service_account_migrate_id" {
   description = "Account ID (prefix) for the migration Cloud Run Job service account"
   type        = string
 }
+
+variable "logging_bucket_id" {
+  description = "Bucket ID for the regional Cloud Logging bucket in asia-northeast1 (no default value)"
+  type        = string
+}

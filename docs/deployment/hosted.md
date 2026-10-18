@@ -130,7 +130,32 @@ DB のユーザーとパスワードは Terraform state に残さないため、
    - Cloud Run サービスの `ingress` は `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` に設定されています。
    - `terraform output cloud_run_service_uri` の `*.run.app` URL に直接 HTTP リクエストを送り、アクセスが拒否されることを確認します。
 
+### 2.8 リージョナルログバケットの設定と _Default シンクのルーティング
+
+プライバシーポリシー（第8条）に基づき、ホスト版で発生する Cloud Run およびロードバランサ等のリクエストログ・アクセスログは、日本国内（東京リージョン `asia-northeast1`）に30日間保持します。
+Terraform により `asia-northeast1` に保存期間30日のログバケット（`google_logging_project_bucket_config`）が作成されますが、プロジェクトの既定シンク（`_Default`）の転送先変更は Terraform に含めず、初回 `apply` 後に運用担当者が手動で実行します。
+
+> **公式ドキュメント**:
+> [Regionalized logs overview and routing](https://docs.cloud.google.com/logging/docs/regionalized-logs)
+
+1. **`_Default` シンクのルーティング先更新**
+   ```bash
+   gcloud logging sinks update _Default \
+     logging.googleapis.com/projects/<PROJECT_ID>/locations/asia-northeast1/buckets/<LOGGING_BUCKET_ID> \
+     --project=<PROJECT_ID>
+   ```
+
+2. **ルーティング設定の確認**
+   ```bash
+   gcloud logging sinks describe _Default --project=<PROJECT_ID>
+   ```
+   出力の `destination` が `logging.googleapis.com/projects/<PROJECT_ID>/locations/asia-northeast1/buckets/<LOGGING_BUCKET_ID>` に更新されていることを確認します。
+
+3. **`_Required` バケットについて**
+   改ざん防止・法令遵守のためのシステム監査ログを保持する `_Required` バケットは Google Cloud の仕様上 `global` ロケーションのまま残ります（`_Required` シンクおよびバケットは転送先やロケーションの変更ができません）。
+
 ---
+
 
 ## 3. 月次データ取り込み手順（手動運用）
 
