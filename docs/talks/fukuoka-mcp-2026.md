@@ -13,8 +13,11 @@ mdc: true
 ---
 
 # 国税庁 target=1 を知り尽くして補完する MCP
-
-## 少し間違った会社名から始まる
+ 
+ > [!NOTE]
+ > 本資料は v0.1.0 当時の勉強会・スライド構想の記録です。現行の v1.0.0（Streamable HTTP トランスポート、リモートホスト版、最新のプロトコル実装等）とは一部の記述やアーキテクチャが異なります。現行仕様についてはルートの README を参照してください。
+ 
+ ## 少し間違った会社名から始まる
 
 #### @sugukuru/mcp-houjin-bangou v0.1.0
 
@@ -335,7 +338,7 @@ docs/methodology/
 - 段階的 release → v0.1.0 → v1.0.0 で 5 回の実装機会
 - 再利用可能な skill 化 → Sugukuru OSS Lab の創設リポとして次作以降のテンプレート
 
-GitHub: https://github.com/sugukurukabe/mcp-houjin-bangou
+GitHub: https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
 Zenn: https://zenn.dev/sugukuru/articles/mcp-houjin-bangou-v0.1.0
 
 ---

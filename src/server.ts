@@ -343,7 +343,6 @@ export function buildServerCard(): Record<string, unknown> {
       'SEP-1303 Input Validation as Tool Errors (Final)',
       'SEP-986 Tool Name Format (Final)',
       'SEP-414 OpenTelemetry Trace Context Propagation (Final)',
-      'RFC 5424 Syslog Protocol',
     ],
     data_source_specs: [
       '国税庁 法人番号 Web-API 機能 Ver.4.0 (第一編 4.9版 / 第二編 1.2版 / 第六編 1.2版)',

@@ -1,22 +1,25 @@
 {
   "name": "@sugukuru/mcp-houjin-bangou",
-  "version": "0.2.0",
-  "description": "Model Context Protocol server for Japan's National Corporate Number (houjin-bangou) Web-API by NTA. MCP 7-primitive full activation + deterministic name normalization.",
+  "mcpName": "jp.co.sugu-kuru/mcp-houjin-bangou",
+  "version": "1.0.0",
+  "description": "Model Context Protocol server for Japan's National Corporate Number (houjin-bangou) and Qualified Invoice Issuer lookup published by the National Tax Agency of Japan, with deterministic company-name normalization.",
   "license": "MIT",
-  "author": "Sugukuru K.K. (Kagoshima) <engineering@sugukuru.co.jp>",
-  "homepage": "https://github.com/sugukurukabe/mcp-houjin-bangou#readme",
+  "author": "Sugukuru K.K. (Kagoshima) <info@sugu-kuru.co.jp>",
+  "homepage": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sugukurukabe/mcp-houjin-bangou.git"
+    "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou.git"
   },
   "bugs": {
-    "url": "https://github.com/sugukurukabe/mcp-houjin-bangou/issues"
+    "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues"
   },
   "keywords": [
     "mcp",
     "model-context-protocol",
     "houjin-bangou",
     "corporate-number",
+    "invoice-issuer",
+    "qualified-invoice",
     "nta",
     "japan",
     "kyc",

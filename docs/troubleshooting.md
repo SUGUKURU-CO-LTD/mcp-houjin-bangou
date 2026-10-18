@@ -66,7 +66,8 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 **対処**:
 
-- `prefecture` パラメータで都道府県を指定
+- `prefecture_code` パラメータで都道府県コード（JIS X 0401 2桁）を指定
+- `city_name` パラメータで市区町村名を絞る
 - `kind` パラメータで法人種別を絞る
 - 会社名をより具体的に入力
 - `match_mode: 'prefix'` に変更
@@ -93,7 +94,7 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 ### Completion が効かない
 
-`completion/complete` は MCP ホスト側の対応が必要です。現時点 (2026-04) で `Completion` をサポートするホスト:
+`completion/complete` は MCP ホスト側の対応が必要です。現時点 (2026-10) で `Completion` をサポートするホスト:
 
 - Claude Desktop (0.7.x+)
 - MCP Inspector
@@ -106,7 +107,7 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 1. 入力を `tools/call normalize_company_name` で直接試し、`applied_rules` を確認
 2. 該当パターンが `src/domain/normalizer.ts` の `OLD_TO_NEW` / `KIND_KEYWORDS_JA` / `EN_SUFFIX_PATTERNS` に含まれているか確認
-3. 含まれていなければ [Feature request](https://github.com/sugukurukabe/mcp-houjin-bangou/issues/new?template=feature_request.yml) を立てる
+3. 含まれていなければ [Feature request](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues/new?template=feature_request.yml) を立てる
 
 ### 「この揺れは国税庁 `target=1` が吸収すべき」と判定された
 
@@ -116,7 +117,7 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 - 英小文字 → 英大文字
 - 中点 (・)・全角スペース削除
 
-これらは T7 では重複実装しません。`search_corporate_by_name` に `search_target: 'fuzzy'` を指定すると国税庁側で自動処理されます。
+これらは T7 では重複実装しません。`search_corporate_by_name` に `search_target: 'fuzzy'` を指定すると自動で処理されます。
 
 ## Node.js バージョン関連
 
@@ -136,6 +137,6 @@ Application ID は自動的にログから redact されます。
 
 ## それでも解決しない場合
 
-1. [SECURITY.md](../SECURITY.md) に該当するセキュリティ問題なら `security@sugukuru.co.jp`
-2. それ以外は [GitHub Issues](https://github.com/sugukurukabe/mcp-houjin-bangou/issues) に `bug_report` テンプレで投稿
+1. [SECURITY.md](../SECURITY.md) に該当するセキュリティ問題なら `info@sugu-kuru.co.jp`
+2. それ以外は [GitHub Issues](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues) に `bug_report` テンプレで投稿
 3. 国税庁 API 仕様変化を疑う場合は `api_drift` テンプレで投稿

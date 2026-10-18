@@ -2,45 +2,73 @@
 
 ## ファイル一覧
 
-- `claude-desktop-config.json` - Claude Desktop 用の mcpServers 設定 + 動作 prompt 5件
-- `cursor-mcp.json` - Cursor 用の設定
+- `claude-desktop-config.json` - Claude Desktop 用の `mcpServers` 設定 + 動作サンプルプロンプト 5 件
+- `cursor-mcp.json` - Cursor 用の `mcpServers` 設定
 
-## 動作 Prompts (UC-1〜UC-5)
+## 動作サンプルプロンプト (UC-1〜UC-5)
 
-### UC-1: 法人番号で検索
+### UC-1: 法人番号で照会（インボイス状態併記）
 
-> 株式会社スグクルの法人番号 5111101000006 について、本店所在地・登記日・法人種別を教えてください。
+> スグクル株式会社の法人番号 9340001026142 について、本店所在地・法人種別・インボイス登録状況を教えてください。
 
 使用ツール: `lookup_corporate_by_number`
 
 ### UC-2: 法人名で検索
 
-> 鹿児島県の「スグクル」で始まる法人を検索してください。結果をテーブルで表示してください。
+> 鹿児島県の「スグクル」を含む法人を検索してください。結果を一覧で表示してください。
 
-使用ツール: `search_corporate_by_name` (prefecture=46 を自動判定)
+使用ツール: `search_corporate_by_name` (`prefecture_code="46"`)
 
-### UC-3: 名刺 OCR → 正規化 → 検索
+### UC-3: インボイス登録番号の取引日時点の有効確認
 
-> 「（株）高橋商事」という名刺に書かれた会社名から、正規化候補を作って国税庁で検索し、法人番号・本店住所・登記年月日を教えてください。
+> 登録番号 T1234567890123（※架空の番号例）が 2026-10-01 時点で適格請求書発行事業者として有効な登録期間内にあるか確認してください。
+
+使用ツール: `lookup_invoice_issuer`
+
+### UC-4: 会社名の表記揺れ正規化 → 検索
+
+> 「（株）髙橋商事」という会社名から正規化候補を作って検索し、法人番号と本店所在地を教えてください。
 
 使用ツール: `normalize_company_name` → `search_corporate_by_name`
 
-### UC-4: チェックデジット検証 (API不要)
+### UC-5: チェックデジット検証（外部通信なし）
 
-> 法人番号 1340001023456 は有効な番号ですか？チェックデジットだけ確認してください（API は叩かずに）。
+> 法人番号 9340001026142 は有効な番号ですか？チェックデジットだけローカルで確認してください。
 
 使用ツール: `validate_corporate_number`
 
-### UC-5: 出典文取得
+## セットアップ手順 / Setup
 
-> 本 MCP から取得した情報を自社のレポートに載せる際、国税庁への出典としてどう書けばよいですか？
+### 1. ホスト版（リモート Streamable HTTP）を利用する場合（推奨）
 
-使用ツール: `get_attribution`
+事前の API キー取得やローカルプロセス起動は不要です。各クライアントの設定ファイルに以下を追加して再起動してください。
 
-## セットアップ / Setup
+```json
+{
+  "mcpServers": {
+    "houjin-bangou": {
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
 
-1. 国税庁アプリケーション ID を取得: https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/
-2. `claude-desktop-config.json` の `<YOUR_NTA_APPLICATION_ID...>` を取得した ID に置換
-3. Claude Desktop の設定 (`~/Library/Application Support/Claude/claude_desktop_config.json`) にコピー
-4. Claude Desktop を再起動
-5. 上記 UC-1〜UC-5 の prompt を試す
+### 2. ローカル HTTP サーバー（セルフホスト）を利用する場合
+
+1. 国税庁 Web-API のアプリケーション ID を取得します（無料）:
+   https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/
+2. ローカル環境で HTTP サーバーを起動します（既定ポート: 3001）:
+   ```bash
+   NTA_APPLICATION_ID="<あなたのアプリケーションID>" npx @sugukuru/mcp-houjin-bangou
+   ```
+3. クライアント設定（`claude-desktop-config.json` や `cursor-mcp.json`）で以下を設定して再起動します:
+   ```json
+   {
+     "mcpServers": {
+       "houjin-bangou-local": {
+         "url": "http://localhost:3001/mcp"
+       }
+     }
+   }
+   ```
+4. 上記 UC-1〜UC-5 のプロンプトをお試しください。

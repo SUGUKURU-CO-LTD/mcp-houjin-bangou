@@ -149,10 +149,12 @@ async function main(): Promise<void> {
       name: 'validate_corporate_number',
       arguments: { corporate_number: '5111101000006' },
     });
-    const r = res.result as { structuredContent: { is_valid: boolean; normalized: string | null } };
+    const r = res.result as {
+      structuredContent: { is_valid: boolean; normalized_number: string | null };
+    };
     ok(
       'tools/call validate_corporate_number(5111101000006)',
-      `is_valid=${r.structuredContent.is_valid}, normalized=${r.structuredContent.normalized}`,
+      `is_valid=${r.structuredContent.is_valid}, normalized_number=${r.structuredContent.normalized_number}`,
     );
   } catch (e) {
     bad('tools/call validate_corporate_number', e instanceof Error ? e.message : String(e));
@@ -180,36 +182,48 @@ async function main(): Promise<void> {
       arguments: { raw_input: '（株）高橋商事' },
     });
     const r = res.result as {
-      structuredContent: { normalized_candidates: Array<{ name: string }> };
+      structuredContent: { candidates: Array<{ name: string }> };
     };
-    const names = r.structuredContent.normalized_candidates.map((c) => c.name).join(' / ');
+    const names = r.structuredContent.candidates.map((c) => c.name).join(' / ');
     ok('tools/call normalize_company_name(（株）高橋商事)', names);
   } catch (e) {
     bad('tools/call normalize_company_name', e instanceof Error ? e.message : String(e));
   }
 
-  // 11. completion/complete
+  // 10. prompts/list
+  try {
+    const res = await rpc('prompts/list');
+    const r = res.result as { prompts: Array<{ name: string }> };
+    const names = r.prompts.map((p) => p.name).join(', ');
+    ok('prompts/list', `${r.prompts.length} prompts: ${names}`);
+  } catch (e) {
+    bad('prompts/list', e instanceof Error ? e.message : String(e));
+  }
+
+  // 11. completion/complete (prompt argument)
   try {
     const res = await rpc('completion/complete', {
-      ref: { type: 'ref/resource', uri: 'corp://{corporate_number}' },
-      argument: { name: 'corporate_number', value: '株式会社スグクル' },
+      ref: { type: 'ref/prompt', name: 'company-master-record' },
+      argument: { name: 'company_name', value: '（株）スグクル' },
     });
     const r = res.result as { completion: { values: string[] } };
-    ok('completion/complete (T7-powered)', r.completion.values.join(' / '));
+    ok('completion/complete (prompt company_name)', r.completion.values.join(' / '));
   } catch (e) {
     bad('completion/complete', e instanceof Error ? e.message : String(e));
   }
 
-  // 12. resources/read attribution
+  // 12. resources/read UI resource
   try {
-    const res = await rpc('resources/read', { uri: 'attribution://houjin-bangou' });
-    const r = res.result as { contents: Array<{ text: string }> };
+    const res = await rpc('resources/read', { uri: 'ui://corporate-card/mcp-app.html' });
+    const r = res.result as { contents: Array<{ uri: string; mimeType: string; text: string }> };
     const first = r.contents[0];
     if (first === undefined) throw new Error('empty');
-    const parsed = JSON.parse(first.text) as { license: string };
-    ok('resources/read attribution://houjin-bangou', `license=${parsed.license}`);
+    ok(
+      'resources/read ui://corporate-card/mcp-app.html',
+      `mimeType=${first.mimeType}, bytes=${first.text.length}`,
+    );
   } catch (e) {
-    bad('resources/read attribution', e instanceof Error ? e.message : String(e));
+    bad('resources/read ui://corporate-card/mcp-app.html', e instanceof Error ? e.message : String(e));
   }
 
   process.stdout.write('\nSmoke test complete.\n');

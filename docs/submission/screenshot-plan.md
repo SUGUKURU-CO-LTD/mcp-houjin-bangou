@@ -1,6 +1,6 @@
 # スクリーンショット撮影計画書 (Screenshot Plan)
 
-本書は、Claude Directory および ChatGPT Directory (App Review) への提出、ならびに公式リポジトリ（README・ドキュメント）掲載用のスクリーンショット撮影手順書です。  
+本書は、Claude Directory および ChatGPT Directory (App Review) への提出、ならびに公開リポジトリ（README・ドキュメント）掲載用のスクリーンショット撮影手順書です。  
 実際の撮影作業は人間（担当者）が実機環境にて実施します。
 
 ---
@@ -8,13 +8,12 @@
 ## 1. 前提知識と基本方針
 
 ### 1.1 クライアントと MCP Apps UI の対応状況
-- **Claude Desktop および ChatGPT は MCP Apps の UI（`ui://...` リソース）に対応しています。**
-- 本 MCP サーバーは、MCP Apps UI 対応クライアント（Claude Desktop、ChatGPT、MCP Inspector 等）において、視覚的で直感的なカード・テーブル表示（`ui://corporate-card/mcp-app.html` および `ui://search-results/mcp-app.html`）を提供します。
-- 同時に、UI を表示できないクライアント（CLI、ターミナル、SDK によるスクリプト連携等）であっても、`content`（要約テキスト）と `structuredContent`（構造化 JSON）のみで各ツールの目的が 100% 完全に果たせるフォールバック設計を実証済みです（`tests/integration/ui-fallback-and-headless.test.ts` で検証）。
+- **本 MCP サーバーは、MCP Apps UI（`ui://...` リソース）に対応したクライアントにおいて、視覚的で直感的なカード・テーブル表示（`ui://corporate-card/mcp-app.html` および `ui://search-results/mcp-app.html`）を提供します。**
+- 同時に、UI を表示できないクライアント（CLI、ターミナル、SDK によるスクリプト連携等）であっても、`content`（要約テキスト）と `structuredContent`（構造化 JSON）のみで各ツールの主たる目的が確実に果たせるフォールバック設計を実証済みです（`tests/integration/ui-fallback-and-headless.test.ts` で検証）。
 
 ### 1.2 提出資料としての目的
 1. **Claude Directory / ChatGPT Directory 審査用**:
-   - ツール呼び出し結果として美しいインタラクティブ UI が安全（厳格な CSP Hash 適用・外部通信遮断）に描画されることを審査員に示す。
+   - ツール呼び出し結果としてインタラクティブ UI が安全（厳格な CSP Hash 適用・外部通信遮断）に描画されることを審査員に示す。
    - プロンプトワークフロー（取引先企業マスタ生成等）を通じて、エージェントが的確にツールを呼び出し、ユーザーが確認・操作できる一連の流れを示す。
 2. **README / 利用者向けガイド用**:
    - 導入検討者が一目で機能と利用価値を把握できる視覚的証跡を提供する。
@@ -31,7 +30,7 @@
 | **2** | 法人詳細カード (Closed) | `lookup_corporate_by_number` (`ui://corporate-card/mcp-app.html`) | 閉鎖法人（清算結了・合併等） | Claude Desktop または ChatGPT | `corporate-card-closed.png` |
 | **3** | 法人名検索結果テーブル | `search_corporate_by_name` (`ui://search-results/mcp-app.html`) | 商号「スグクル」等の検索結果一覧 | Claude Desktop または ChatGPT | `search-results-table.png` |
 | **4** | エージェント対話ワークフロー | Prompt `company-master-record` | 商号入力から正規化・検索・詳細照会・マスタ生成までの一連の対話 | Claude Desktop または ChatGPT | `chat-master-workflow.png` |
-| **5** | インボイス確認 (テキスト＋構造化) | `lookup_invoice_issuer` | 登録番号 `T9340001026142`（法人）および `T...`（個人事業者・氏名非公表） | Claude Desktop または ChatGPT | `invoice-lookup-text.png` |
+| **5** | インボイス確認 (テキスト＋構造化) | `lookup_invoice_issuer` | 登録番号 `T1234567890123`（※架空の番号例、法人）および `T...`（個人事業者・氏名非公表） | Claude Desktop または ChatGPT | `invoice-lookup-text.png` |
 | **6** | UI 非対応環境フォールバック | 全ツール（CLI / ヘッドレス） | ターミナルまたは MCP Inspector のテキスト / JSON 出力 | ターミナル (CLI) / Inspector | `headless-fallback-cli.png` |
 
 ---
@@ -42,7 +41,7 @@
 - **OS**: macOS (Retina ディスプレイ推奨、2x 解像度)
 - **MCP クライアント**:
   - Claude Desktop (最新版)
-  - または ChatGPT (MCP Apps 対応クライアント)
+  - または ChatGPT
   - または MCP Inspector (`npx @modelcontextprotocol/inspector`)
 - **ブラウザ（補助プレビュー用）**: Google Chrome 最新版 または Safari 最新版
 
@@ -73,21 +72,17 @@ pnpm build
 ### ステップ 2: 撮影環境の起動
 
 #### パターン A: Claude Desktop 実機環境での撮影（最優先推奨）
-1. `~/Library/Application Support/Claude/claude_desktop_config.json` に本サーバーを設定します：
+1. `~/Library/Application Support/Claude/claude_desktop_config.json` に本サーバーを設定します（Streamable HTTP 接続）：
    ```json
    {
      "mcpServers": {
        "houjin-bangou": {
-         "command": "node",
-         "args": ["/Users/kabe/houjin_bangou_mcp/dist/server.js"],
-         "env": {
-           "DATA_SOURCE": "db",
-           "DATABASE_URL": "postgres://test:test@localhost:55069/test"
-         }
+         "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
        }
      }
    }
    ```
+   ※ローカル開発環境のサーバーを使用する場合は、事前にローカルサーバー（`pnpm build && pnpm start`）を起動した上で `"url": "http://localhost:3001/mcp"` を指定します。
 2. Claude Desktop を再起動し、右下のハンマーアイコン（ツール一覧）に 5 つのツールが表示されていることを確認します。
 3. チャット欄で以下の指示を入力して実行します：
    - **画面 1（Active カード）**:
@@ -102,9 +97,13 @@ pnpm build
      - エージェントがツールを順次呼び出し、最終的な取引先企業マスタレコードを生成するまでの流れをキャプチャ。
 
 #### パターン B: MCP Inspector での撮影（補助・精密撮影）
-1. MCP Inspector を起動します：
+1. MCP Inspector を起動します（ローカルまたはホスト版の Streamable HTTP エンドポイントを指定）：
    ```bash
-   npx @modelcontextprotocol/inspector node dist/server.js
+   # ホスト版の場合
+   npx @modelcontextprotocol/inspector --uri https://houjin.mcp.sugu-kuru.co.jp/mcp
+
+   # ローカル開発版の場合（別ターミナルで pnpm start 起動後）
+   npx @modelcontextprotocol/inspector --uri http://localhost:3001/mcp
    ```
 2. ブラウザで Inspector（通常 `http://localhost:5173`）を開きます。
 3. `lookup_corporate_by_number` または `search_corporate_by_name` を実行し、UI Resource タブで描画された UI を撮影します。

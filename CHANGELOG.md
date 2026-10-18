@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-18
+
+### Added
+
+- **Qualified Invoice Issuer lookup tool (`lookup_invoice_issuer`)**:
+  - Looks up invoice registration numbers (`T` + 13 digits) with optional `reference_date` (`YYYY-MM-DD`) factual period check (`valid_on_reference_date: boolean | null`) and multi-period history (`registration_periods`).
+  - Handles re-registrations (multiple periods for the same `T` number) and protects sole proprietors by never storing or returning personal names, trade names, or addresses.
+- **PostgreSQL 16 (`pg_trgm`) backend & monthly bulk CSV ingestion for Hosted Edition**:
+  - Ingestion CLI (`src/ingest/cli.ts`, `src/ingest/corporate.ts`, `src/ingest/invoice.ts`, `src/ingest/runner.ts`) supporting streaming CSV ingestion from directory (`--dir`), atomic staging table swap, row-count threshold guards (`INGEST_MIN_RECORD_COUNT`), and process code `99` (deletion) handling.
+  - Provider architecture: `DbCorporateDataProvider` and `DbInvoiceDataProvider` for PostgreSQL backend (`DATA_SOURCE=db`), and `createNtaClient` for NTA Web-API backend (`DATA_SOURCE=web-api`).
+- **Infrastructure as Code & Cloud Operations**:
+  - Terraform configuration for Hosted Edition (`terraform/`): Cloud Run services (`houjin-bangou-mcp`), Cloud Run Jobs (`houjin-bangou-ingest-corporate`, `houjin-bangou-ingest-invoice`), Cloud SQL for PostgreSQL 16 (`pg_trgm`), Cloud Load Balancing, Cloud Armor rate limiting, and Cloud Monitoring alert policies.
+  - Deployment runbook (`docs/deployment/hosted-edition-runbook.md`).
+- **HTTP Transport Security & Database Privilege Separation**:
+  - `Origin` header allowlist middleware (`ALLOWED_ORIGINS`) with DNS rebinding protection and no-Origin allowance for non-browser CLI/Server-to-Server clients.
+  - Per-IP in-memory rate limiting (`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`, default 60 requests / 60 seconds) for `/mcp`, `/health`, and `/.well-known/mcp.json` with `TRUST_PROXY` support for Cloud Run.
+  - 3-role PostgreSQL privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`) documented in `docs/deployment/db-roles.sql` and `docs/deployment/db-roles.md`.
+- **MCP Apps UI (`@modelcontextprotocol/ext-apps` v1.7) & Snapshot Tests**:
+  - Interactive UI views (`ui://corporate-card/mcp-app.html` and `ui://search-results/mcp-app.html`) supporting `lookup_corporate_by_number`, `lookup_invoice_issuer`, and `search_corporate_by_name`.
+  - Contract snapshot tests locking `tools/list`, `prompts/list`, and all 5 tools' `structuredContent` outputs (`tests/integration/mcp-contract-snapshot.test.ts`), plus headless fallback tests (`tests/integration/mcp-apps-headless-fallback.test.ts`).
+- **MCP Registry Metadata (`server.json`)**:
+  - Root `server.json` configured for official MCP Registry submission with `streamable-http` transport and remote endpoint (`https://houjin.mcp.sugu-kuru.co.jp/mcp`).
+
+### Changed (Breaking Changes from v0.2.0)
+
+- **Tool set updated to frozen specification v1.7**:
+  - Removed `get_attribution` tool (attribution is embedded in every data tool's `structuredContent.attribution` and text footer).
+  - `lookup_corporate_by_number` now accepts a single 13-digit `corporate_number` (instead of up to 10 comma-separated numbers) and an optional `include_invoice_status` boolean (default `true`). Removed internal metadata fields (`update_date`, `change_date`, `process`, `correct`, `kind`) from `record` output.
+  - `search_corporate_by_name` input/output schema updated (`query`, `prefecture_code`, `city_name`, `include_closed`, `limit`, `cursor`; outputs `total_count`, `returned_count`, `next_cursor`, `normalized_queries_tried`, `data_as_of`, `results`, `attribution`). 2-character queries use prefix match.
+  - `validate_corporate_number` output field renamed from `normalized` to `normalized_number` and `check_digit` typed as `number | null`.
+  - `normalize_company_name` output schema simplified to `{ raw_input, extracted_core_name, candidates: [{ name, kind_hint, prefix_or_suffix, confidence, applied_rules }] }`.
+  - Tool annotations aligned with v1.7: `readOnlyHint: true` and `destructiveHint: false` across all tools; `openWorldHint` is `false` in Hosted Edition (internal database), and `true` for outbound Web-API tools in Local Edition (`false` for pure local functions).
+- **Prompts & Resources**:
+  - Renamed prompt `business-card-to-database` to `company-master-record` and removed personal contact arguments to avoid accepting PII.
+  - Removed `attribution://houjin-bangou` static resource, `corp://{corporate_number}` resource template, and MCP `logging` capability to keep the surface area minimal and read-only.
+- **Policy & Documentation**:
+  - Updated `docs/policy/privacy-policy.md` and `docs/policy/terms-of-service.md` to reflect the hosted database architecture, monthly update cycle, sole proprietor data handling, unified office address (`〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ 3F`), and unified contact address (`info@sugu-kuru.co.jp`).
+
 ## [0.2.0] - 2026-05-10
 
 ### Added (v0.1.1 quality hardening)
@@ -47,9 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/domain/invoice-codes.ts`: 事業者処理区分 (01/02/03/04/99) + 人格区分 (1/2) + 国内外区分 (1/2/3) + 応答形式 (01/11/21) の辞書
 - `tests/unit/invoice-number.test.ts`: 18 ケース
 - `docs/adr/0012-invoice-api-integration.md`: 適格請求書発行事業者 Web-API 統合計画 (Ver.1.0 仕様差異マトリクス含む)
-- `docs/deployment/nta-application-response.md`: 国税庁 アプリケーションID 発行申請の返信ガイド (Option A/B)
-- `docs/deployment/excel-application-fields.md`: Excel 申請書の完全な埋め込み案
-- `docs/deployment/email-template-option-a.md`: メール返信テンプレート (Option A)
 
 ## [0.1.0] - 2026-05-22
 

@@ -1,196 +1,135 @@
 # @sugukuru/mcp-houjin-bangou
 
-> **国税庁 法人番号 Web-API を MCP (Model Context Protocol) 経由で使える公式推奨準拠・セキュアなサーバー。**
-> MCP 公式 7 機能すべて活性化 + 名刺OCR等の実務データで使える表記揺れ正規化。
+> **国税庁の法人番号公表データおよび適格請求書発行事業者（インボイス）公表データを照会・検証できる MCP (Model Context Protocol) サーバー。**
 
 [![npm version](https://img.shields.io/npm/v/@sugukuru/mcp-houjin-bangou.svg)](https://www.npmjs.com/package/@sugukuru/mcp-houjin-bangou)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml/badge.svg)](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml)
+[![MCP Spec 2025-11-25](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io/specification/2025-11-25)
 
 🌐 English README: [README.md](README.md)
 
-## これは何か
+## 概要
 
-Claude Desktop / Cursor / VS Code Copilot 等の MCP ホストから、以下が可能になります:
+Claude、ChatGPT、Cursor、VS Code Copilot などの MCP 対応クライアントから、以下の機能を利用できます。
 
-1. **法人番号 (13桁) で検索** — 最大10件カンマ区切り対応
-2. **法人名で検索** — 国税庁内蔵の `target=1` あいまい検索 (ひらがな↔カタカナ・英大小・中点削除) を自動活用
-3. **表記揺れを正規化** — 国税庁の `target=1` が拾えない 7 パターンを補完
-4. **チェックデジット検証** — ローカル計算、API 呼出なし
-5. **出典文取得** — 国税庁 Web-API 利用規約別添1 第6条 + 公共データ利用規約 第1.0版 準拠
+1. **法人番号（13桁）による法人照会** (`lookup_corporate_by_number`) — 1件の法人番号から商号・本店所在地・法人種別・登記閉鎖や吸収合併の承継先情報を取得し、あわせて適格請求書発行事業者（インボイス）の登録状態も確認できます。
+2. **法人名による検索** (`search_corporate_by_name`) — 表記揺れの自動正規化・都道府県や市区町村での絞り込み・カーソルページングに対応しています。
+3. **適格請求書発行事業者（T+13桁）の照会** (`lookup_invoice_issuer`) — 登録番号（`T` + 13桁）の登録有無、過去の登録期間履歴（`registration_periods`）、および指定した取引基準日（`reference_date`）が有効な登録期間内にあるかの事実確認（`valid_on_reference_date`）を行います。
+4. **チェックデジットのローカル検証** (`validate_corporate_number`) — 外部通信を一切行わずに13桁の法人番号の検査用数字（モジュロ9）を検証します。
+5. **会社名の表記揺れ正規化** (`normalize_company_name`) — `(株)` / `株式会社` の前後位置展開、法人種別分離、英語表記（K.K. / Inc. 等）の変換、旧字体→新字体変換（髙→高、﨑→崎 等）、異体字セレクタ除去など 7 パターンの正規化候補を生成します。
 
-5 つの Tool すべてが **Resources / Resource Templates / Completion / Logging / Pagination / Server Card** と統合されています。薄い API ラッパーではなく、MCP 公式 primitive に沿った実装として組んでいます。
+---
 
-## クイックスタート
+## 2つの動作モード
 
-### 1. 国税庁アプリケーション ID を取得
+### 1. ホスト版 / PostgreSQL モード（リモート Streamable HTTP）
 
-https://www.invoice-kohyo.nta.go.jp/web-api/pre-reg/ から無料で発行されます (メール経由)。
+- 国税庁の「法人番号公表サイト」および「適格請求書発行事業者公表サイト」の公開ダウンロードデータ（全件 CSV）を月1回取り込んだ PostgreSQL 16（`pg_trgm`）データベースから高速に応答します。
+- 実行時に国税庁 Web-API のアプリケーション ID を使用しません。
+- `Origin` ヘッダ許可リスト検証、接続元 IP アドレス単位のレート制限、およびデータベースの 3 ロール権限分離（`houjin_admin` / `houjin_ingest` / `houjin_reader`）を備えています。
 
-**重要**: 同じ ID で **適格請求書発行事業者公表システム Web-API** も利用可能です (v0.3.0 でサポート予定)。
+### 2. ローカル実行 / セルフホストモード（HTTP）
 
-### 2. Claude Desktop に追加
+- 利用者自身の環境でローカル HTTP サーバー（既定ポート `3001`）を起動し、利用者自身が取得した国税庁 Web-API アプリケーション ID（`NTA_APPLICATION_ID`）または手元の PostgreSQL（`DATABASE_URL`）を使って利用できます。
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+```bash
+# 国税庁 Web-API モードで起動（既定ポート: 3001）
+NTA_APPLICATION_ID="あなたのアプリケーションID" npx @sugukuru/mcp-houjin-bangou
+```
 
+#### MCP クライアントでの設定例
+
+##### ホスト版（リモート Streamable HTTP）
 ```json
 {
   "mcpServers": {
     "houjin-bangou": {
-      "command": "npx",
-      "args": ["-y", "@sugukuru/mcp-houjin-bangou"],
-      "env": {
-        "NTA_APPLICATION_ID": "あなたのID"
-      }
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }
 }
 ```
 
-### 3. Claude Desktop を再起動して試す
-
-本番 ID が届いたら、まずローカルで live smoke を実行してください。
-
-```bash
-NTA_APPLICATION_ID=あなたのID pnpm smoke:live
+##### ローカル HTTP モード（セルフホスト）
+手元で上記起動コマンドを実行後、以下のように接続します。
+```json
+{
+  "mcpServers": {
+    "houjin-bangou-local": {
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
 ```
 
-ID はログに出力されません。`/4/num` と `/4/name` の両方を確認します。
-live smoke では、仕様書サンプル番号ではなく、本番 API で実在する法人番号 `7000012050002` を使います。
+Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照してください。
 
-> 株式会社スグクルの法人番号 5111101000006 の本店所在地と登記日を教えて
+---
 
-> 「（株）高橋商事」の表記揺れを正規化して、国税庁で全候補を検索して
+## ツール一覧（全5ツール）
 
-## Tools 一覧
-
-| Tool | 用途 | API | メモ |
+| ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`※) | 備考 |
 |---|---|---|---|
-| `lookup_corporate_by_number` | 法人番号で検索 | NTA `/4/num` | 最大10件カンマ区切り (仕様準拠) |
-| `search_corporate_by_name` | 法人名で検索 | NTA `/4/name` | ページング・都道府県・法人種別フィルタ |
-| `validate_corporate_number` | チェックデジット検証 | — | ローカル計算、API 呼出なし |
-| `normalize_company_name` | 表記揺れ正規化 | — | 国税庁 `target=1` が拾えない 7 パターン補完 |
-| `get_attribution` | 出典文取得 | — | 利用規約 別添1 第6条 + 公共データ利用規約 第1.0版 |
+| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `false`（ホスト版） | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `false`（ホスト版） | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
+| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `false`（ホスト版） | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
+| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
 
-## 設計姿勢
+※ **`openWorld` アノテーションに関する注記**:
+`openWorldHint` はサーバーがツールごとに宣言する注釈（メタデータ）であり、クライアントから送信されるものではありません。
+- **ホスト版**（自社データベース参照）: 外部ネットワークへの問い合わせを行わないため、`false` となります。
+- **ローカル版**（国税庁 Web-API 照会モード）: 国税庁 Web-API に問い合わせるため `true` となります（※外部通信を行わない純粋関数の 2 ツール `validate_corporate_number`, `normalize_company_name` は常に `false` です。仕様書 v1.7 準拠）。
 
-### MCP 公式 7 機能すべてを活性化
+---
 
-本プロジェクトは MCP 公式 7 機能を使います:
+## プロンプト（3種）と MCP Apps UI リソース（2種）
 
-- **Tools** × 5
-- **Prompts** × 3 (`business-card-to-database` / `sales-list-enrichment` / `customer-master-dedup`) — 名刺OCRから CRM 登録、営業リスト一括 enrichment、顧客マスタ重複検知の実務ワークフローをテンプレート化
-- **Resources** (`attribution://houjin-bangou`)
-- **UI Resources** (`ui://corporate-card/mcp-app.html`, `ui://search-results/mcp-app.html`) — v0.2.0 の表示層準備
-- **Resource Templates** (`corp://{corporate_number}` — 法人番号を URI として法人情報取得)
-- **Completion** — `株式会社スグク…` まで打った瞬間に T7 normalizer が候補を返す IDE 補完UX、Prompt 引数の enum 補完も対応
-- **Logging** — RFC 5424 severity の構造化ログを `notifications/message` で配信
-- **Pagination** — 2000件超過時の opaque cursor (国税庁 `divide`/`divideSize` と変換)
-- **Server Card** — `/.well-known/mcp.json` で発見可能性 (SEP-2127 Draft + Transport WG Dec 2025)
+- **Prompts**:
+  - `company-master-record`: 会社名や住所メモから表記揺れを正規化し、法人番号・正式商号・本店所在地を照会して取引先マスタ登録用レコードを作成します（個人名や連絡先等の個人情報は扱いません）。
+  - `sales-list-enrichment`: 複数社のリストに対して法人番号・正式名称・所在地を一括付与します。
+  - `customer-master-dedup`: 顧客マスタ内の表記揺れ・移転・合併による重複候補を検出します。
+- **MCP Apps UI リソース（`@modelcontextprotocol/ext-apps` v1.7）**:
+  - `ui://corporate-card/mcp-app.html`: 法人情報およびインボイス登録状態のカード表示。
+  - `ui://search-results/mcp-app.html`: 法人名検索結果の一覧表表示（詳細照会へのドリルダウン対応）。
+  - UI を表示しないクライアントでも、`structuredContent` とテキスト出力だけで全ての情報を過不足なく利用できます。
 
-### 国税庁 `target=1` あいまい検索を尊重
+---
 
-以下の揺れは、**国税庁 API が既に内蔵**している (第二編 §4.6.2):
+## プライバシー・セキュリティ・データ更新頻度
 
-- ひらがな → カタカナ
-- 英小文字 → 英大文字
-- 中点 (・) と全角スペースの削除
+- **入力値の非記録**: 利用者が入力した法人番号、インボイス登録番号、検索語はアプリケーションのアクセスログに記録しません。
+- **個人事業者情報の保護**: 適格請求書発行事業者のうち個人事業者のデータについては、氏名・屋号・所在地をデータベースに取り込まず、出力もしません（登録番号 `T`+13桁、人格区分、登録・取消・失効等の日付のみを保持し、完全一致照会のみを提供します）。
+- **月1回のデータ更新**: ホスト版の公表データは月1回（前月末時点の全件データ）で更新されます。月途中の変更・取消・失効や、法人番号の処理区分「99（削除）」・インボイス公表申出の取り下げ等は次回の月次更新まで反映されません。各応答にはデータの基準日（`data_as_of`）が含まれます。
+- **事実照会への限定**: `valid_on_reference_date` を含む本サーバーの出力は公表データ上の日付との事実照合結果であり、個別の税務相談・税務判断を提供するものではありません。
 
-これらは重複実装しません。代わりに T7 は国税庁が**拾えない** 7 パターンに特化:
-
-1. **(株)/㈱/株式会社/（株）の位置揺れ** — 前株 ↔ 後株 ↔ 省略 の 3 パターン展開
-2. **法人種別の正規化・分離** — 株式・有限・合同・合名・合資・一般社団・特定非営利活動 等
-3. **英語法人名 → 日本語候補** — K.K. / Kabushiki Kaisha / Co.,Ltd. / Inc. / LLC 検出
-4. **半角/全角英数字の正規化** (Unicode NFKC)
-5. **旧字体 → 新字体** (髙→高・齋→斎・﨑→崎 等)
-6. **異体字セレクタ (IVS) 除去**
-7. **空白類の揃え** (タブ・連続スペース・全角/半角)
-
-### セキュリティ First
-
-- **Read-only のみ** — `destructiveHint: false` 全ツール明示
-- **アプリケーション ID は環境変数のみ** — ツール引数経由で受け取らない (プロンプトインジェクション防御)
-- **ログ redaction** — `id=***`, bearer, PII を自動マスク
-- **Rate limit 1 RPS + 指数バックオフ** — 別添1 第9条第1項三号 (短時間大量アクセス禁止) 遵守
-- **プロンプトインジェクション防御 6 層** — 詳細は [`docs/security/prompt-injection-defense.md`](docs/security/prompt-injection-defense.md)
-- **Supply chain**: `pnpm-lock.yaml` コミット / Dependabot weekly / CodeQL / `pnpm publish --provenance`
-
-### 仕様書に準拠、引用可能
-
-- すべての設計決定に国税庁仕様書 (第一編・第二編・第六編) の節番号で根拠を明示
-- MCP 公式仕様 (2025-11-25) + SEP を引用
-- `docs/adr/0001-0010.md` が Michael Nygard 形式で主要決定を記録
-
-## ロードマップ
-
-| バージョン | 予定 | 目玉 |
-|---|---|---|
-| **v0.2.0** | 2026-05 | 5 Tool + MCP 7 機能 + Server Card |
-| v0.2.0 | 2026-06 | MCP **Prompts** (名刺→DB / 営業リストenrichment / 顧客マスタ重複) + UI Resources |
-| v0.3.0 | 2026-07 | **適格請求書発行事業者 API 統合** (T番号対応、`/num` `/diff` `/valid` 3エンドポイント、CSV/XML/**JSON** 対応) — 同じ ID で利用可、v0.2.0 で T番号 Branded type + 正規化は準備済 (ADR-0012) |
-| v0.5.0 | 2026-09 | Hosted 版 + **Enterprise-Managed Authorization** (SEP-990) + **OAuth Client Credentials** + **Tasks** primitive (SEP-1699) |
-| v1.0.0 | 2026-10 | 6-host verification + Anthropic Directory submission + Skills 移行検討 |
-
-## ユースケース: 名刺OCR → CRM 自動登録 (v0.2.0 目玉)
-
-```
-ステップ 1: ユーザーが名刺 OCR テキストを Claude に貼り付け
-ステップ 2: Prompt `business-card-to-database` が以下を実行:
-   normalize_company_name(raw_text)
-   → search_corporate_by_name(candidates[0])
-   → 正確な法人番号・本店住所・法人種別を取得
-ステップ 3: LLM が出典付きで CRM レコードを生成
-ステップ 4: ユーザーがレビュー & DB 投入 (Human-in-the-Loop)
-```
-
-エンタープライズ向けの Document AI 連携・セキュア DB 書込フロー構築は OSS のスコープ外で、スグクル株式会社のプロフェッショナルサービスで対応します。詳細: https://sugukuru.co.jp
+---
 
 ## ドキュメント
 
-- [ADR (設計決定記録)](docs/adr/)
-- [プロンプトインジェクション防御](docs/security/prompt-injection-defense.md)
+- [API リファレンス](docs/api-reference.md)
+- [はじめに (Getting Started)](docs/getting-started.md)
+- [活用クックブック (Usage Cookbook)](docs/usage-cookbook.md)
 - [プライバシーポリシー](docs/policy/privacy-policy.md)
 - [利用規約](docs/policy/terms-of-service.md)
-- [セキュリティ](SECURITY.md)
-- [コントリビュートガイド](CONTRIBUTING.md)
-- [行動規範](CODE_OF_CONDUCT.md)
+- [DB ロール設計と権限分離](docs/deployment/db-roles.md)
+- [セルフホストガイド](docs/deployment/self-hosting.md)
+- [プロンプトインジェクション防御](docs/security/prompt-injection-defense.md)
+- [設計決定記録 (ADR)](docs/adr/)
+- [SECURITY](SECURITY.md) / [CONTRIBUTING](CONTRIBUTING.md) / [CODE OF CONDUCT](CODE_OF_CONDUCT.md)
 
-## 検証
+---
 
-本プロジェクトでは、テストとベンチマークも公開インターフェースの一部として扱います。
+## 出典表示
 
-```bash
-pnpm typecheck
-pnpm test
-pnpm bench
-pnpm publish --dry-run --no-git-checks --access public
-```
+- **法人番号公表データ**: 国税庁法人番号公表サイト（`https://www.houjin-bangou.nta.go.jp/`） — 公共データ利用規約 第1.0版
+- **適格請求書発行事業者公表データ**: 国税庁適格請求書発行事業者公表サイト（`https://www.invoice-kohyo.nta.go.jp/`）
+- **Web-API 免責表示**:
+  > このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。
 
-現在のローカル検証スナップショット:
+## ライセンス・運営事業者
 
-| Check | Result |
-|---|---:|
-| Unit + integration tests | 154 passing |
-| Property-based generated cases | 11,500+ |
-| `computeCheckDigit` | 約 18.8M ops/sec |
-| `isValidCheckDigit` | 約 10.1M ops/sec |
-| `normalizeCompanyName` | 約 344k ops/sec |
-| `parseNtaCsv` | 約 389k ops/sec |
-| npm dry-run tarball | 250.6 kB / 151 files |
-
-## 出典
-
-本プロジェクトは **国税庁法人番号システム Web-API 機能** を利用しています。
-
-> **このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。**
-
-出典: **国税庁法人番号公表サイト** (https://www.houjin-bangou.nta.go.jp/)
-ライセンス: **公共データ利用規約 第1.0版**
-API バージョン: **Ver.4.0**
-
-## ライセンス
-
-MIT © 2026 スグクル株式会社 (鹿児島)
-
-## About スグクル
-
-スグクル株式会社は鹿児島のインドネシア人材特定技能 1 号派遣会社です。人事労務・ビザ申請・農業コンプライアンスの AI 化を進めています。本プロジェクトは **Sugukuru OSS Lab** シリーズの 1 本目です。今後 `mcp-jp-subsidy-hub` (補助金統合 MCP)、`mcp-immigration-ja` (入管手続 MCP) 等をリリース予定。
+- **ライセンス**: MIT © 2026 スグクル株式会社（鹿児島県霧島市）
+- **Webサイト**: [https://sugu-kuru.co.jp](https://sugu-kuru.co.jp)
+- **連絡先**: `info@sugu-kuru.co.jp`

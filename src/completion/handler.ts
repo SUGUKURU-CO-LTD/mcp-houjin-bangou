@@ -1,10 +1,7 @@
 /**
  * MCP Completion handler (completion/complete)
  *
- * Resource Template `corp://{corporate_number}` の引数補完では、
- * normalizeCompanyName (T7) を裏で駆動して会社名ベースの候補を返す実装も可能だが、
- * corporate_number は数字13桁なので、国税庁 API を叩かず「ローカルでのチェックデジット
- * 検証済み候補」を補完対象とする。
+ * Prompt 引数（会社名等）に対して normalizeCompanyName による表記揺れ展開候補を補完返却する。
  *
  * 根拠 / Source: MCP 公式仕様 server/utilities/completion
  *   values: max 100 items
@@ -33,7 +30,7 @@ export function registerCompletionHandler(server: Server, deps: { logger: McpLog
         valueLength: argument.value.length,
       });
 
-      // Prompt 引数補完 (v0.2.0 で prompt 実装時に動く)
+      // Prompt 引数補完
       if (ref.type === 'ref/prompt') {
         return completePromptArgument(ref.name ?? '', argument.name, argument.value);
       }

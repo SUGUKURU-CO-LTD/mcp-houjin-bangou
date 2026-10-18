@@ -8,6 +8,9 @@ published: false
 
 # 国税庁あいまい検索 `target=1` を知り尽くして補完する MCP
 
+> [!NOTE]
+> 本文書は v0.1.0 リリース当時の記録・記事ドラフトです。現行の v1.0.0（Streamable HTTP トランスポート、リモートホスト版、最新のツール構成等）とは一部の記述や動作環境が異なります。現行仕様についてはルートの README を参照してください。
+
 会社名は、たいてい少し間違っている。名刺の隅では「（株）」になり、請求書では全角と半角が混ざり、営業リストでは誰かが旧字体を新字体に直してしまう。それでもデータベースは、正しい名前だけを待っている。
 
 この小さなずれを、人間は何度も手で直してきた。国税庁の検索窓を開き、思いつく表記をいくつか試し、候補の住所を見比べ、ようやく「これだ」と判断する。そこには派手な AI も、未来的な UI もない。ただ、事務の忍耐と、公的な事実にたどり着きたいという必要がある。
@@ -186,7 +189,7 @@ Claude Desktop を再起動して試す:
 
 鹿児島のインドネシア人特定技能派遣会社 (スグクル株式会社) がオープンソースで日本経済に貢献する、という挑戦の 1 本目です。次は `mcp-jp-subsidy-hub` (補助金統合 MCP)、`mcp-immigration-ja` (入管手続 MCP) を予定しています。
 
-GitHub: https://github.com/sugukurukabe/mcp-houjin-bangou
+GitHub: https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
 npm: https://www.npmjs.com/package/@sugukuru/mcp-houjin-bangou
 
 Issue や PR はもちろん開いています。ただ、このプロジェクトの中心は露出ではありません。次の仕様書を読み、次の schema を固め、次の release を出すことです。
@@ -197,9 +200,9 @@ Issue や PR はもちろん開いています。ただ、このプロジェク�
 
 ## Appendix: 本記事で触れられなかった MCP 仕様関連 Deep Dive
 
-- 2026 MCP Roadmap の Top 4 ("Transport Evolution / Agent Communication / Governance / Enterprise Readiness") と本プロジェクトの整合性 → [docs/architecture.md](https://github.com/sugukurukabe/mcp-houjin-bangou/blob/main/docs/architecture.md)
-- プロンプトインジェクション防御の 6 層詳細 → [docs/security/prompt-injection-defense.md](https://github.com/sugukurukabe/mcp-houjin-bangou/blob/main/docs/security/prompt-injection-defense.md)
-- ADR (Architecture Decision Records) 0001-0010 → [docs/adr/](https://github.com/sugukurukabe/mcp-houjin-bangou/tree/main/docs/adr)
+- 2026 MCP Roadmap の Top 4 ("Transport Evolution / Agent Communication / Governance / Enterprise Readiness") と本プロジェクトの整合性 → [docs/architecture.md](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/docs/architecture.md)
+- プロンプトインジェクション防御の 6 層詳細 → [docs/security/prompt-injection-defense.md](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/blob/main/docs/security/prompt-injection-defense.md)
+- ADR (Architecture Decision Records) 0001-0010 → [docs/adr/](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/tree/main/docs/adr)
 
 ---
 

@@ -196,6 +196,15 @@ GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専�
 - **ログ確認**:
   - Cloud Logging で `jsonPayload.logger="dataset_ingest"` のログを1行確認し、`status: "active"`、`count`（取り込み件数）、`duration_ms`、`data_as_of` が記録されていること、かつ公表件数と大きくずれていないことを確認します。
 
+### 3.5 取り込み成功後の GCS 一時フォルダの削除
+
+取り込みが正常に完了（終了コード 0、`status: "active"`）したことを確認した後、プライバシーポリシー（第8条）の規定に基づき、取り込み用 GCS バケットに一時配置した該当月の CSV フォルダを速やかに削除します。
+
+```bash
+gcloud storage rm --recursive "gs://<INGEST_BUCKET>/corporate/<YYYY-MM>/"
+gcloud storage rm --recursive "gs://<INGEST_BUCKET>/invoice/<YYYY-MM>/"
+```
+
 ---
 
 ## 4. `TRUST_PROXY` とレート制限の実測手順

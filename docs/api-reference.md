@@ -1,280 +1,253 @@
 # API Reference
 
-本 MCP サーバが提供する全 5 Tool + 2 Resources + Resource Template + Completion の完全リファレンス。
+本 MCP サーバー（v1.0.0 / 凍結仕様 v1.7）が提供する **5 Tools + 3 Prompts + 2 UI Resources + Completion** のリファレンスです。
 
-## Tools
+---
+
+## Tools（全5ツール）
+
+すべてのツールには以下の MCP Tool Annotations が設定されています：
+- `readOnlyHint: true`
+- `destructiveHint: false`
+- `idempotentHint: true`
+- `openWorldHint: false`
 
 ### 1. `lookup_corporate_by_number`
 
-**目的**: 13桁の法人番号で法人情報を検索 (最大10件)。
+**目的**: 13桁の法人番号（1件）から法人基本情報および適格請求書発行事業者（インボイス）登録ステータスを取得します。
 
-**呼出 API**: NTA `GET /4/num?id=...&number=...&type=02&history=0|1`
-
-**annotations**: `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true`
+**UI リソース連携**: `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`
 
 **Input**:
 
 ```typescript
 {
-  corporate_numbers: string[];   // 1-10 items, 13-digit each
-  include_history?: boolean;      // default false
-  language?: 'ja' | 'en';         // default 'ja'
+  corporate_number: string;         // 13桁の法人番号（全角・ハイフン・空白混在可、自動正規化）
+  include_invoice_status?: boolean; // 既定 true。インボイス登録状況（T+法人番号）も併せて照会
 }
 ```
 
-**Output**:
+**Output (`structuredContent`)**:
 
 ```typescript
 {
-  corporations: Corporation[];
-  not_found: string[];
-  invalid_inputs: Array<{ input: string; reason: string }>;
+  found: boolean;
+  corporate_number: string;         // 正規化後の半角13桁数字
+  data_as_of: string;               // YYYY-MM-DD（公表データ基準日）
+  record: {
+    corporate_number: string;
+    name: string;
+    furigana: string | null;
+    en_name: string | null;
+    kind_name: string;
+    address: {
+      prefecture_code: string;
+      city_code: string;
+      post_code: string | null;
+      prefecture_name: string;
+      city_name: string;
+      street_number: string;
+      full: string;
+    };
+    status: 'active' | 'closed' | 'absorbed';
+    assignment_date: string;
+    close_date: string | null;
+    close_cause: string | null;
+    successor_corporate_number: string | null;
+  } | null;
+  invoice_issuer: {
+    registration_number: string;    // "T" + 13桁
+    is_registered: boolean;
+    registration_date: string | null;
+    update_date: string | null;
+    revoke_date: string | null;
+    expire_date: string | null;
+  } | null;
   attribution: Attribution;
 }
 ```
 
 **エラー**:
-
-- 入力が 0 件または 11 件以上 → `isError: true`, `invalid_inputs`
-- チェックデジット不一致 → `invalid_inputs` に追加 (API は叩かない)
-- 国税庁 API 404 → `NtaApiError.http_404`
-
-**仕様根拠**: 第六編 §2.1, 第二編 §2.1.3
+- チェックデジット不一致・桁数不正 → `isError: true`（外部 API や DB にはアクセスしない）
 
 ---
 
 ### 2. `search_corporate_by_name`
 
-**目的**: 法人名で法人情報を検索 (ページング対応)。
+**目的**: 法人名（商号又は名称）で法人を検索します。入力された会社名は自動的に表記揺れ正規化（T7）され、都道府県・市区町村・閉鎖法人フィルタおよびカーソルページングに対応します。
 
-**呼出 API**: NTA `GET /4/name?id=...&name=...&type=02&mode=...&target=...`
-
-**annotations**: `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true`
+**UI リソース連携**: `_meta.ui.resourceUri = "ui://search-results/mcp-app.html"`
 
 **Input**:
 
 ```typescript
 {
-  name: string;                                // required, max 150 chars ja / 300 chars en
-  match_mode?: 'prefix' | 'partial';           // default 'prefix' (= mode=1)
-  search_target?: 'fuzzy' | 'exact' | 'english'; // default 'fuzzy' (= target=1)
-  prefecture?: string;                         // 2-digit or 5-digit JIS code
-  kind?: Array<'01' | '02' | '03' | '04'>;     // max 4
-  include_history?: boolean;                   // default false (= change=0)
-  include_closed?: boolean;                    // default true (= close=1)
-  cursor?: string;                             // opaque, from previous next_cursor
+  query: string;                    // 検索する会社名（1〜150文字）
+  prefecture_code?: string;         // JIS X 0401 都道府県コード ("01"〜"47")
+  city_name?: string;               // 市区町村名（例: "霧島市", "千代田区"）
+  include_closed?: boolean;         // 既定 false。登記閉鎖法人も含めるか
+  limit?: number;                   // 既定 10（1〜50）
+  cursor?: string;                  // 前回レスポンスの next_cursor
 }
 ```
 
-**Output**:
+**Output (`structuredContent`)**:
 
 ```typescript
 {
-  total: number;
-  page_number: number;
-  page_size: number;
-  corporations: Corporation[];
+  query: string;
+  normalized_queries_tried: string[];
+  total_count: number;
+  returned_count: number;
   next_cursor: string | null;
-  last_update_date: string;
+  data_as_of: string;               // YYYY-MM-DD
+  results: Array<{
+    corporate_number: string;
+    name: string;
+    furigana: string | null;
+    kind_name: string;
+    prefecture_name: string;
+    city_name: string;
+    full_address: string;
+    status: 'active' | 'closed' | 'absorbed';
+    close_date: string | null;
+    successor_corporate_number: string | null;
+  }>;
   attribution: Attribution;
 }
 ```
 
-**検索対象 (`search_target`) の挙動**:
-
-- `fuzzy` (target=1, デフォルト) → 国税庁側で ひらがな↔カタカナ, 英大小文字, 中点・全角スペース削除を自動処理
-- `exact` (target=2) → JIS 第一〜第四水準で完全一致
-- `english` (target=3) → 英語表記フィールドを検索
-
-**ページング**:
-
-- NTA 側 2000 件超過時に `divideSize > 1` になる
-- クライアントは `next_cursor` を次の `cursor` として渡せば次ページ取得
-- 最終ページは `next_cursor: null`
-
-**仕様根拠**: 第六編 §4.1, 第二編 §4.1.3, §4.6.1, §4.6.2, §4.5
+**カーソル整合性検証**:
+- `cursor` には `data_as_of`（データ基準日）がエンコードされており、月次データ更新を挟んで基準日が変わった古いカーソルを渡した場合は、先頭ページからの再検索を促すエラー（`isError: true`）を返します。
 
 ---
 
-### 3. `validate_corporate_number`
+### 3. `lookup_invoice_issuer`
 
-**目的**: チェックデジット検証 (ローカル計算、API 呼出なし)。
+**目的**: 適格請求書発行事業者の登録番号（`T` + 13桁数字、または13桁数字）を照会し、登録の有無・人格区分・全登録期間履歴（`registration_periods`）および取引基準日（`reference_date`）時点での登録有効期間照合結果（`valid_on_reference_date`）を返します。
 
-**annotations**: `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false`
+**UI リソース連携**: `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`
 
 **Input**:
 
 ```typescript
 {
-  corporate_number: string;  // ハイフン・全角数字・空白許容
+  registration_number: string;      // T+13桁（または13桁数字。全角・小文字t・ハイフン自動正規化）
+  reference_date?: string;          // 取引基準日 YYYY-MM-DD（実在する暦日のみ受付）
 }
 ```
 
-**Output**:
+**Output (`structuredContent`)**:
 
 ```typescript
 {
+  registration_number: string;      // "T" + 13桁
+  is_registered: boolean;
+  legal_entity_type: 'corporation' | 'sole_proprietor' | 'unincorporated_association' | null;
+  name: string | null;              // 法人の場合のみ（個人事業者は常に null）
+  address: string | null;           // 法人の場合のみ（個人事業者は常に null）
+  registration_date: string | null;
+  update_date: string | null;
+  revoke_date: string | null;
+  expire_date: string | null;
+  registration_periods: Array<{
+    registration_date: string;
+    revoke_date: string | null;
+    expire_date: string | null;
+  }>;
+  reference_date: string | null;
+  valid_on_reference_date: boolean | null;
+  data_as_of: string;
+  attribution: Attribution;
+}
+```
+
+**仕様上の重要ルール**:
+- `reference_date` 未指定時、または公表データに該当番号が存在しない場合、`valid_on_reference_date` は `null` になります。
+- 再登録等で同一登録番号に複数の登録期間がある場合、いずれかの期間で `registration_date <= reference_date` かつ `min(revoke_date, expire_date)`（存在する場合）`>= reference_date` を満たせば `valid_on_reference_date: true` となります。
+- 個人事業者（`sole_proprietor`）については、氏名・屋号・所在地をデータベースに保持せず、常に `name: null`, `address: null` を返します。
+
+---
+
+### 4. `validate_corporate_number`
+
+**目的**: 法人番号（13桁）のチェックデジット（モジュロ9、国税庁仕様書 第二編 §2.1.3）をローカルで検証します。外部通信や DB クエリは一切行いません。
+
+**Input**:
+
+```typescript
+{
+  corporate_number: string;         // ハイフン・全角数字・空白・先頭T混在可
+}
+```
+
+**Output (`structuredContent`)**:
+
+```typescript
+{
+  raw_input: string;
+  normalized_number: string | null; // 半角13桁数字（正規化不能時は null）
   is_valid: boolean;
-  normalized: string | null;  // 半角13桁に正規化
+  check_digit: number | null;       // 先頭1桁の検査用数字 (1〜9)
+  expected_check_digit: number | null;
   reason: 'ok' | 'not_13_digits' | 'check_digit_mismatch' | 'invalid_characters' | 'first_digit_zero';
-  guidance: string;
-  attribution: Attribution;
 }
 ```
-
-**チェックデジット計算式** (第二編 §2.1.3):
-
-```
-c = 9 - ( Σ_{n=1}^{12} (P_n × Q_n) mod 9 )
-  ただし c が 0 のとき c = 9
-P_n: 12桁基礎番号の左から n 桁目 (1-indexed)
-Q_n: n 奇数 → 2, n 偶数 → 1
-```
-
----
-
-### 4. `get_attribution`
-
-**目的**: NTA Web-API 機能利用規約 + 公共データ利用規約 第1.0版 の指定出典文を返却。
-
-**annotations**: `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false`
-
-**Input**:
-
-```typescript
-{
-  format?: 'full' | 'short' | 'citation';  // default 'full'
-  language?: 'ja' | 'en';                   // default 'ja'
-}
-```
-
-**Output**:
-
-```typescript
-{
-  attribution: Attribution;
-  formatted_text: string;   // format に応じた整形済み文字列
-  usage_guidance: string;   // 下流サービスでの使用ガイダンス
-}
-```
-
-**仕様根拠**: 第一編 別添1 第6条, 別添3 公共データ利用規約 第1.0版
 
 ---
 
 ### 5. `normalize_company_name`
 
-**目的**: 国税庁 `target=1` が吸収しない 7 パターンの表記揺れを補完、検索候補を生成。
-
-**annotations**: `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false`
+**目的**: 会社名の表記揺れ（7パターン）を正規化し、検索候補リストを生成します。外部通信や DB クエリは一切行いません。
 
 **Input**:
 
 ```typescript
 {
-  raw_input: string;  // 1-500 chars
+  raw_input: string;                // 1〜500文字
 }
 ```
 
-**Output**:
+**Output (`structuredContent`)**:
 
 ```typescript
 {
-  original: string;
+  raw_input: string;
   extracted_core_name: string;
-  normalized_candidates: Array<{
+  candidates: Array<{
     name: string;
-    kind_hint: KindHint;          // 16 kind types
+    kind_hint: string;
     prefix_or_suffix: 'mae_kabu' | 'ato_kabu' | 'none';
-    suggested_target: '1' | '2' | '3';
-    confidence: number;           // 0-1
+    confidence: number;             // 0.0〜1.0
     applied_rules: string[];
   }>;
-  fallback_note?: string;
-  recommendation: string;
-  attribution: Attribution;
 }
 ```
 
-**補完パターン** (ADR-0007):
+---
 
-1. `(株)/㈱/株式会社/（株）` 位置揺れ (前株/後株/省略)
-2. 法人種別の正規化・分離
-3. 英語法人名 → 日本語候補 (K.K./Kabushiki Kaisha/Co.,Ltd./Inc./LLC)
-4. NFKC 正規化
-5. 旧字体 → 新字体 (髙/齋/﨑 等)
-6. IVS 除去
-7. 空白類の揃え
+## Prompts（全3種）
+
+| Prompt 名 | 用途 | 引数 |
+|---|---|---|
+| `company-master-record` | 会社名（および任意の住所ヒント）から表記揺れ正規化→法人検索を行い、取引先マスタ登録用データを整形（個人連絡先は扱わない） | `company_name` (必須), `address_hint` (任意) |
+| `sales-list-enrichment` | 複数の会社名リストに対して法人番号・正式商号・本店所在地を付与 | `company_names` (必須), `output_format` (任意: `markdown_table` / `json` / `csv`) |
+| `customer-master-dedup` | 顧客マスタ内の表記揺れ・移転・合併による重複候補を検出 | `records_jsonl` (必須), `dedup_criteria` (任意) |
 
 ---
 
-## Resources
+## UI Resources（全2種）
 
-### `attribution://houjin-bangou`
-
-**mimeType**: `application/json`
-
-**Content**: 出典情報の JSON オブジェクト (`Attribution` schema と同じ)
-
----
-
-## Resource Templates
-
-### `corp://{corporate_number}`
-
-**Variable**: `{corporate_number}` は 13桁の法人番号
-
-**mimeType**: `application/json`
-
-**Content**:
-
-```typescript
-{
-  corporation: Corporation | null;
-  last_update_date: string;
-  attribution: Attribution;
-}
-```
-
-**エラーケース**:
-
-- チェックデジット不一致 → `{ error: { reason, message }, attribution }`
-- 国税庁 API エラー → `{ error: { code, message, httpStatus }, attribution }`
+| URI | 名称 | 対応ツール |
+|---|---|---|
+| `ui://corporate-card/mcp-app.html` | Corporate Card UI | `lookup_corporate_by_number`, `lookup_invoice_issuer` |
+| `ui://search-results/mcp-app.html` | Search Results UI | `search_corporate_by_name` |
 
 ---
 
 ## Completion
 
-### `completion/complete`
-
-**対応する参照タイプ**:
-
-| `ref.type` | 条件 | 動作 |
-|---|---|---|
-| `ref/resource` | `uri` が `corp://` で始まる | 入力が数字でないとき T7 normalizer で候補生成 |
-| `ref/prompt` | `argument.name` が `company_name` or `name` | T7 normalizer で候補生成 (v0.2.0+ の Prompts 想定) |
-| その他 | - | 空配列 |
-
-**最大 20 候補** (MCP 仕様は 100 だが、T7 の候補上限 10 を反映)
-
----
-
-## Logging
-
-### `notifications/message`
-
-RFC 5424 severity に従い、以下のイベントを emit:
-
-| Level | Logger | 発生条件 |
-|---|---|---|
-| `info` | `tool.lookup_corporate_by_number` | T1 呼出時 |
-| `info` | `tool.search_corporate_by_name` | T2 呼出時 |
-| `error` | `tool.*.api_error` | NTA API エラー (code/httpStatus/ntaErrorCode 付き) |
-| `warning` | `nta-client` | 403 受信時のバックオフ発動 (server.ts の pino log に加え) |
-| `debug` | `completion.request` | Completion 要求 |
-| `info` | `resource.corporate.read` | corp:// Resource 読込み時 |
-
-**Redaction**: Application ID / bearer token / password を自動マスク。
+- `completion/complete` は `ref/prompt` の会社名引数（`company_name`, `target_company_name`, `name`, `raw_input`）に対して `normalizeCompanyName` による表記揺れ展開候補（最大20件）を返します。
 
 ---
 
@@ -284,82 +257,11 @@ RFC 5424 severity に従い、以下のイベントを emit:
 
 ```typescript
 {
-  data_source: string;          // 出典 URL
-  service_disclaimer: string;    // 別添1 第6条 の指定文言
-  license: '公共データ利用規約 第1.0版';
-  api_version: 'Ver.4.0';
-  accessed_at: string;           // ISO 8601
+  source_name: string;
+  source_url: string;
+  disclaimer: string;
+  license: string;
+  api_version: string;
+  data_as_of: string;
 }
 ```
-
-### `Corporation`
-
-国税庁仕様書 第二編 別紙1 の 36 フィールドに準拠。主要フィールド:
-
-```typescript
-{
-  corporate_number: string;         // 13桁
-  sequence_number: number;          // 一連番号
-  process: string;                  // 処理区分 (01/11/12/13/21/22/71/72/81/99)
-  correct: '0' | '1';               // 訂正区分
-  update_date: string;              // YYYY-MM-DD
-  change_date: string;              // YYYY-MM-DD
-  name: string;                     // 商号又は名称
-  kind: string;                     // 法人種別 (101/201/301-305/399/401/499)
-  prefecture_name: string;
-  city_name: string;
-  street_number: string;
-  prefecture_code: string;          // JIS X 0401
-  city_code: string;                // JIS X 0402
-  post_code: string;
-  close_date: string;
-  close_cause: string;              // 01/11/21/31
-  successor_corporate_number: string;
-  assignment_date: string;          // 法人番号指定年月日
-  latest: '0' | '1';                // 最新情報フラグ
-  en_name: string;
-  furigana: string;                 // 全角カタカナ・長音のみ
-  hihyoji: '0' | '1';               // 検索対象除外 (Ver.4.0 追加)
-  // ... 他 13 フィールド
-}
-```
-
----
-
-## エラーコード
-
-### 本 MCP の tool 実行エラー (SEP-1303 準拠)
-
-`result.isError: true` + `structuredContent` に詳細:
-
-```typescript
-{
-  error: {
-    code: NtaErrorCode;        // http_400 / http_403 / http_404 / http_500 / timeout / parse_error / network_error
-    message: string;
-    httpStatus?: number;
-    guidance?: string;          // ユーザー向け修正ガイダンス
-  };
-  attribution: Attribution;
-}
-```
-
-### 国税庁 API エラーコード (第二編 別紙2)
-
-| HTTP | NTA コード | 発生条件 | 本 MCP 対応 |
-|---|---|---|---|
-| 400 | 040-043 | 法人番号指定エラー | Zod で事前検証 |
-| 400 | 070-073 | 応答形式エラー | `type=02` 固定で回避 |
-| 400 | 100-112 | 商号/検索方式エラー | Zod で事前検証 |
-| 400 | 180 | 結果件数過多 | ページング誘導 + guidance |
-| 403 | - | レート制限 | 30s→1m→5m→30m 指数バックオフ |
-| 404 | - | ID 無効/失効 | エラー返却 (3年無利用停止の可能性) |
-| 500 | - | NTA システム障害 | リトライ不可、Logging error |
-
----
-
-## 参考
-
-- [国税庁 法人番号 Web-API 機能 仕様書](https://www.houjin-bangou.nta.go.jp/webapi/)
-- [MCP 公式仕様 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
-- [ADR 0001-0010](adr/)
