@@ -658,3 +658,14 @@ resource "google_monitoring_alert_policy" "job_execution_failed_alert" {
 
   notification_channels = [google_monitoring_notification_channel.email.id]
 }
+
+# 15. Regional Cloud Logging Bucket (asia-northeast1, 30 days retention)
+resource "google_logging_project_bucket_config" "regional_logging_bucket" {
+  project        = var.project_id
+  location       = "asia-northeast1"
+  retention_days = 30
+  bucket_id      = var.logging_bucket_id
+  description    = "Regional log bucket in asia-northeast1 with 30-day retention"
+
+  depends_on = [google_project_service.apis]
+}

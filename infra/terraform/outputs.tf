@@ -48,3 +48,8 @@ output "ingest_invoice_job_name" {
   value       = google_cloud_run_v2_job.ingest_invoice.name
 }
 
+output "logging_bucket_id" {
+  description = "Regional Cloud Logging bucket ID in asia-northeast1"
+  value       = google_logging_project_bucket_config.regional_logging_bucket.bucket_id
+}
+
