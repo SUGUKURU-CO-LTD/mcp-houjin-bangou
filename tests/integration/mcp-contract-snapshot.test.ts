@@ -52,11 +52,24 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
         expect(tool.annotations?.destructiveHint).toBe(false);
         expect(tool.annotations?.idempotentHint).toBe(true);
       }
-      expect(response.tools.find((t) => t.name === 'lookup_corporate_by_number')?.annotations?.openWorldHint).toBe(true);
-      expect(response.tools.find((t) => t.name === 'search_corporate_by_name')?.annotations?.openWorldHint).toBe(true);
-      expect(response.tools.find((t) => t.name === 'lookup_invoice_issuer')?.annotations?.openWorldHint).toBe(true);
-      expect(response.tools.find((t) => t.name === 'validate_corporate_number')?.annotations?.openWorldHint).toBe(false);
-      expect(response.tools.find((t) => t.name === 'normalize_company_name')?.annotations?.openWorldHint).toBe(false);
+      expect(
+        response.tools.find((t) => t.name === 'lookup_corporate_by_number')?.annotations
+          ?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'search_corporate_by_name')?.annotations
+          ?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'lookup_invoice_issuer')?.annotations?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'validate_corporate_number')?.annotations
+          ?.openWorldHint,
+      ).toBe(false);
+      expect(
+        response.tools.find((t) => t.name === 'normalize_company_name')?.annotations?.openWorldHint,
+      ).toBe(false);
 
       // UIメタデータ (_meta.ui.resourceUri) の登録対象確認
       const numberTool = response.tools.find((t) => t.name === 'lookup_corporate_by_number');

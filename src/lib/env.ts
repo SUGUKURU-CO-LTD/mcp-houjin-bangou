@@ -52,9 +52,7 @@ const EnvSchema = z
     OPENAI_APPS_CHALLENGE_TOKEN: z
       .string()
       .default('')
-      .describe(
-        'ChatGPT Apps ドメイン確認用のチャレンジトークン。未設定（空文字）時は404を返す。',
-      ),
+      .describe('ChatGPT Apps ドメイン確認用のチャレンジトークン。未設定（空文字）時は404を返す。'),
   })
   .superRefine((val, ctx) => {
     if (
