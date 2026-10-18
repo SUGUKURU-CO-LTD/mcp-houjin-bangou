@@ -169,7 +169,7 @@ DB のユーザーとパスワードは Terraform state に残さないため、
 ### 3.3 Cloud Run Job（`houjin-bangou-ingest-corporate` / `houjin-bangou-ingest-invoice`）の実行
 
 GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専用でマウントされています。
-各ジョブには `INGEST_MIN_RECORD_COUNT`（`ingest_min_record_count_corporate` / `ingest_min_record_count_invoice`）および `--type`（`corporate` / `invoice`）があらかじめ設定されているため、実行時は `--dir` と `--data-as-of` を渡します。なお、取り込みジョブのタイムアウト（`ingest_timeout_sec`）は初回の実測で決めます。
+各ジョブは `command` に CLI スクリプトと `--type`（`corporate` / `invoice`）が固定定義されており、実行時の `--args` はコンテナの `args` を置き換える仕様のため、実行時は `--dir` と `--data-as-of` のみを安全に渡すことができます（`INGEST_MIN_RECORD_COUNT` もジョブ側の環境変数で設定済み。タイムアウト `ingest_timeout_sec` は初回の実測で決定）。
 
 1. **法人番号データの取り込み実行**
    ```bash

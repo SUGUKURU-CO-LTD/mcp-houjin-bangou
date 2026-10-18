@@ -336,8 +336,7 @@ resource "google_cloud_run_v2_job" "ingest_corporate" {
 
       containers {
         image   = var.image
-        command = ["node"]
-        args    = ["dist/ingest/cli.js", "--type", "corporate"]
+        command = ["node", "dist/ingest/cli.js", "--type", "corporate"]
 
         env {
           name  = "NODE_ENV"
@@ -408,8 +407,7 @@ resource "google_cloud_run_v2_job" "ingest_invoice" {
 
       containers {
         image   = var.image
-        command = ["node"]
-        args    = ["dist/ingest/cli.js", "--type", "invoice"]
+        command = ["node", "dist/ingest/cli.js", "--type", "invoice"]
 
         env {
           name  = "NODE_ENV"
