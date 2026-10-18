@@ -1,10 +1,10 @@
 /**
  * tool-annotations ユニットテスト
  *
- * 根拠 / Source: docs/plan/corp-check-interface-v1.md §1 (v1.4 凍結仕様)
+ * 根拠 / Source: docs/plan/corp-check-interface-v1.md §1 (仕様 v1.8)
  * - 全ツールの静的アノテーション生成
- * - Web-API版では外部通信ツールのみ openWorldHint: true
- * - DB版では全ツール openWorldHint: false
+ * - 照会ツール（3種）は Web-API版・DB版ともに openWorldHint: true
+ * - 純粋関数ツール（2種）は外部通信を行わないため openWorldHint: false
  */
 
 import { describe, it, expect } from 'vitest';
@@ -22,6 +22,7 @@ describe('getToolAnnotations', () => {
     expect(search.openWorldHint).toBe(true);
 
     const invoice = getToolAnnotations('lookup_invoice_issuer', 'web-api');
+    expect(invoice.title).toBe('Look up Registered Invoice Issuer by T-number');
     expect(invoice.openWorldHint).toBe(true);
 
     const validate = getToolAnnotations('validate_corporate_number', 'web-api');
@@ -31,18 +32,25 @@ describe('getToolAnnotations', () => {
     expect(normalize.openWorldHint).toBe(false);
   });
 
-  it('returns openWorldHint=false for all tools in db mode', () => {
+  it('returns openWorldHint=true for data lookup tools in db mode (specification v1.8)', () => {
     const lookup = getToolAnnotations('lookup_corporate_by_number', 'db');
-    expect(lookup.openWorldHint).toBe(false);
+    expect(lookup.openWorldHint).toBe(true);
 
     const search = getToolAnnotations('search_corporate_by_name', 'db');
-    expect(search.openWorldHint).toBe(false);
+    expect(search.openWorldHint).toBe(true);
 
     const invoice = getToolAnnotations('lookup_invoice_issuer', 'db');
-    expect(invoice.openWorldHint).toBe(false);
+    expect(invoice.title).toBe('Look up Registered Invoice Issuer by T-number');
+    expect(invoice.openWorldHint).toBe(true);
+
+    const validate = getToolAnnotations('validate_corporate_number', 'db');
+    expect(validate.openWorldHint).toBe(false);
+
+    const normalize = getToolAnnotations('normalize_company_name', 'db');
+    expect(normalize.openWorldHint).toBe(false);
   });
 
-  it('all tools have non-empty Japanese titles', () => {
+  it('all tools have non-empty English titles', () => {
     const tools = [
       'lookup_corporate_by_number',
       'search_corporate_by_name',

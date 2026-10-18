@@ -46,13 +46,30 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
         'validate_corporate_number',
       ]);
 
-      // ホストDB版では openWorldHint は全ツールで false であること（提出要件）
+      // ホストDB版のアノテーション契約（仕様 v1.8：照会ツール3種は openWorldHint: true、純粋関数2種は false）
       for (const tool of response.tools) {
-        expect(tool.annotations?.openWorldHint).toBe(false);
         expect(tool.annotations?.readOnlyHint).toBe(true);
         expect(tool.annotations?.destructiveHint).toBe(false);
         expect(tool.annotations?.idempotentHint).toBe(true);
       }
+      expect(
+        response.tools.find((t) => t.name === 'lookup_corporate_by_number')?.annotations
+          ?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'search_corporate_by_name')?.annotations
+          ?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'lookup_invoice_issuer')?.annotations?.openWorldHint,
+      ).toBe(true);
+      expect(
+        response.tools.find((t) => t.name === 'validate_corporate_number')?.annotations
+          ?.openWorldHint,
+      ).toBe(false);
+      expect(
+        response.tools.find((t) => t.name === 'normalize_company_name')?.annotations?.openWorldHint,
+      ).toBe(false);
 
       // UIメタデータ (_meta.ui.resourceUri) の登録対象確認
       const numberTool = response.tools.find((t) => t.name === 'lookup_corporate_by_number');

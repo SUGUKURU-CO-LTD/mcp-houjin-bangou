@@ -71,16 +71,16 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 
 | ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`※) | 備考 |
 |---|---|---|---|
-| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `false`（ホスト版） | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
-| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `false`（ホスト版） | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
-| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `false`（ホスト版） | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `true` | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `true` | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
+| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `true` | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
 | `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
 | `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
 
 ※ **`openWorld` アノテーションに関する注記**:
 `openWorldHint` はサーバーがツールごとに宣言する注釈（メタデータ）であり、クライアントから送信されるものではありません。
-- **ホスト版**（自社データベース参照）: 外部ネットワークへの問い合わせを行わないため、`false` となります。
-- **ローカル版**（国税庁 Web-API 照会モード）: 国税庁 Web-API に問い合わせるため `true` となります（※外部通信を行わない純粋関数の 2 ツール `validate_corporate_number`, `normalize_company_name` は常に `false` です。仕様書 v1.7 準拠）。
+- ChatGPT ディレクトリ等の掲載基準（公開実体エンティティを扱うツールは true、仕様書 v1.8）に基づき、照会ツール3種（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）はホスト版・ローカル版ともに `openWorldHint: true` となります。
+- 純粋関数ツール2種（`validate_corporate_number`, `normalize_company_name`）は外部通信を行わずローカル計算のみで完結するため、両モードで `openWorldHint: false` です。
 
 ---
 

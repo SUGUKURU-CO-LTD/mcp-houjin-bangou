@@ -1,9 +1,7 @@
 /**
  * 全ツールの MCP アノテーションを一元生成する関数
  *
- * 根拠 / Source: docs/plan/corp-check-interface-v1.md §1 表 (v1.4 凍結仕様)
- * - ホスト版 (自社DB保持データ) では openWorldHint は false (提出用)
- * - ローカル版 (Web-API直接呼出) では外部通信を行うツールのみ openWorldHint は true
+ * 根拠 / Source: docs/plan/corp-check-interface-v1.md §1 表 (仕様 v1.8：照会ツールはホスト版・ローカル版とも openWorldHint=true)
  */
 
 export const DATA_SOURCE_MODES = ['web-api', 'db'] as const;
@@ -26,7 +24,7 @@ export interface ToolAnnotations {
 
 export function getToolAnnotations(
   toolName: ToolName,
-  dataSource: DataSourceMode = 'web-api',
+  _dataSource: DataSourceMode = 'web-api',
 ): ToolAnnotations {
   switch (toolName) {
     case 'lookup_corporate_by_number':
@@ -35,7 +33,7 @@ export function getToolAnnotations(
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: dataSource === 'web-api',
+        openWorldHint: true,
       };
     case 'search_corporate_by_name':
       return {
@@ -43,15 +41,15 @@ export function getToolAnnotations(
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: dataSource === 'web-api',
+        openWorldHint: true,
       };
     case 'lookup_invoice_issuer':
       return {
-        title: 'Lookup Registered Invoice Issuer by T-number',
+        title: 'Look up Registered Invoice Issuer by T-number',
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: dataSource === 'web-api',
+        openWorldHint: true,
       };
     case 'validate_corporate_number':
       return {

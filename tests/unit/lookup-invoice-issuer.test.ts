@@ -417,7 +417,7 @@ describe('lookup_invoice_issuer tool unit tests', () => {
   });
 
   describe('ツールメタデータ・アノテーション', () => {
-    it('ホスト版 (dbモード) で openWorldHint: false, readOnlyHint: true, idempotentHint: true であること', async () => {
+    it('ホスト版 (dbモード) で openWorldHint: true, readOnlyHint: true, idempotentHint: true であること（仕様 v1.8）', async () => {
       const client = await createTestClient({ dataSource: 'db' });
       const toolsResult = await client.listTools();
       const invoiceTool = toolsResult.tools.find((t) => t.name === 'lookup_invoice_issuer');
@@ -426,7 +426,7 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       expect(invoiceTool?.annotations?.readOnlyHint).toBe(true);
       expect(invoiceTool?.annotations?.destructiveHint).toBe(false);
       expect(invoiceTool?.annotations?.idempotentHint).toBe(true);
-      expect(invoiceTool?.annotations?.openWorldHint).toBe(false);
+      expect(invoiceTool?.annotations?.openWorldHint).toBe(true);
     });
 
     it('Web-API / local モードで openWorldHint: true であること', async () => {

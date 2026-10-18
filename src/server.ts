@@ -51,6 +51,7 @@ export interface CreateAppOptions {
   trustProxy?: number;
   rateLimitWindowMs?: number;
   rateLimitMaxRequests?: number;
+  openaiAppsChallengeToken?: string;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
@@ -74,6 +75,10 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const trustProxyHops = options.trustProxy ?? 1;
   const rateLimitWindowMs = options.rateLimitWindowMs ?? 60_000;
   const rateLimitMaxRequests = options.rateLimitMaxRequests ?? 60;
+  const openaiAppsChallengeToken =
+    options.openaiAppsChallengeToken !== undefined
+      ? options.openaiAppsChallengeToken
+      : (process.env.OPENAI_APPS_CHALLENGE_TOKEN ?? '');
 
   const app = express();
   app.disable('x-powered-by');
@@ -82,6 +87,16 @@ export function createApp(options: CreateAppOptions = {}): Express {
   // true（全ホップ信頼）にするとクライアントが偽装した X-Forwarded-For の先頭要素を信じてしまうため、
   // 必ずホップ数（1）または 0（false: 直結時）を指定して偽装ヘッダーによるレート制限回避を防ぐ。
   app.set('trust proxy', trustProxyHops === 0 ? false : trustProxyHops);
+
+  // ChatGPT domain verification endpoint (Linear SLA2-329)
+  // /mcp の Origin 検証の対象外とするため、createOriginValidationMiddleware の前に配置する。
+  app.get('/.well-known/openai-apps-challenge', (_req, res) => {
+    if (!openaiAppsChallengeToken || openaiAppsChallengeToken.trim() === '') {
+      res.status(404).type('text/plain').send('Not Found');
+      return;
+    }
+    res.status(200).type('text/plain').send(openaiAppsChallengeToken);
+  });
 
   app.use(
     helmet({
@@ -260,6 +275,7 @@ export async function bootstrap(): Promise<void> {
     trustProxy: env.TRUST_PROXY,
     rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
     rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
+    openaiAppsChallengeToken: env.OPENAI_APPS_CHALLENGE_TOKEN,
   });
 
   app.listen(env.PORT, () => {
