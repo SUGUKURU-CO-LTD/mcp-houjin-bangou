@@ -27,6 +27,7 @@ import { isInvoiceKindCode } from '../domain/invoice-codes.js';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from './parser.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import type { ImportMetrics } from './types.js';
+import { formatErrorWithCause } from '../lib/errors.js';
 
 /**
  * 法人番号データの取り込み排他制御用アドバイザリーロックキー
@@ -468,8 +469,7 @@ export class DatasetImporter {
         }
       }
 
-      const rawMessage = err instanceof Error ? err.message : String(err);
-      const errMessage = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
+      const errMessage = formatErrorWithCause(err);
       this.logger.error(
         {
           sourceType: 'nta_corporate_download',
@@ -776,8 +776,7 @@ export class DatasetImporter {
         }
       }
 
-      const rawMessage = err instanceof Error ? err.message : String(err);
-      const errMessage = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
+      const errMessage = formatErrorWithCause(err);
       this.logger.error(
         {
           sourceType: 'nta_invoice_download',

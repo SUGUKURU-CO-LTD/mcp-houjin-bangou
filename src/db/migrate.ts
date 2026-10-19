@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createIngestDbClient } from './client.js';
+import { formatErrorWithCause } from '../lib/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,7 +72,7 @@ export async function runMigrateCli(
     return 0;
   } catch (err) {
     const errorType = err instanceof Error ? err.name : 'UnknownError';
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = formatErrorWithCause(err);
     output.write(
       JSON.stringify({
         level: 'error',
