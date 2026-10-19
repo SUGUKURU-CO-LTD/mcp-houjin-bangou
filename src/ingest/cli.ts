@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util';
 import { createIngestDbClient } from '../db/client.js';
 import { DatasetImporter } from './importer.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
+import { formatErrorWithCause } from '../lib/errors.js';
 
 export type IngestCliType = 'corporate' | 'invoice';
 
@@ -140,7 +141,7 @@ export async function runIngestCli(
         durationMs: Date.now() - startTime,
         errorType,
       },
-      err instanceof Error ? err.message : 'Invalid CLI arguments',
+      formatErrorWithCause(err, 'Invalid CLI arguments'),
     );
     return 1;
   }
@@ -161,7 +162,7 @@ export async function runIngestCli(
         durationMs: Date.now() - startTime,
         errorType,
       },
-      err instanceof Error ? err.message : 'Failed to resolve CSV files in directory',
+      formatErrorWithCause(err, 'Failed to resolve CSV files in directory'),
     );
     return 1;
   }
@@ -201,7 +202,7 @@ export async function runIngestCli(
           durationMs: Date.now() - startTime,
           errorType,
         },
-        'Failed to initialize database client for ingestion',
+        formatErrorWithCause(err, 'Failed to initialize database client for ingestion'),
       );
     }
     return 1;

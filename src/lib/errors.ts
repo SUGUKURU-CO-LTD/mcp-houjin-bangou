@@ -105,3 +105,18 @@ export class NotImplementedError extends Error {
     super(`${feature} is not implemented yet. Planned for ${targetVersion}.`);
   }
 }
+
+/**
+ * Drizzle や Node.js の Error から SQL バインドパラメータ (\nparams:) を除外したエラー文言を抽出する。
+ * err.cause が Error の場合は、その message も「 / cause: …」として続けて残す（cause の文言からも \nparams: 以降を除外）。
+ */
+export function formatErrorWithCause(err: unknown, fallbackMessage?: string): string {
+  const rawMessage = err instanceof Error ? err.message : (fallbackMessage ?? String(err));
+  let msg = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
+  if (err instanceof Error && err.cause instanceof Error) {
+    const rawCause = err.cause.message;
+    const cleanCause = rawCause.split('\nparams:')[0]?.trim() ?? rawCause;
+    msg += ` / cause: ${cleanCause}`;
+  }
+  return msg;
+}

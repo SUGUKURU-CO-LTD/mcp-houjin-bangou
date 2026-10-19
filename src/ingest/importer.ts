@@ -27,6 +27,7 @@ import { isInvoiceKindCode } from '../domain/invoice-codes.js';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from './parser.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import type { ImportMetrics } from './types.js';
+import { formatErrorWithCause } from '../lib/errors.js';
 
 /**
  * 法人番号データの取り込み排他制御用アドバイザリーロックキー
@@ -468,6 +469,7 @@ export class DatasetImporter {
         }
       }
 
+      const errMessage = formatErrorWithCause(err);
       this.logger.error(
         {
           sourceType: 'nta_corporate_download',
@@ -478,7 +480,7 @@ export class DatasetImporter {
           invalidRowCount,
           errorType,
         },
-        'Corporate dataset import failed; prior active dataset preserved',
+        `Corporate dataset import failed; prior active dataset preserved: ${errMessage}`,
       );
 
       throw err;
@@ -774,6 +776,7 @@ export class DatasetImporter {
         }
       }
 
+      const errMessage = formatErrorWithCause(err);
       this.logger.error(
         {
           sourceType: 'nta_invoice_download',
@@ -784,7 +787,7 @@ export class DatasetImporter {
           unknownKindCount,
           errorType,
         },
-        'Invoice dataset import failed; prior active dataset preserved',
+        `Invoice dataset import failed; prior active dataset preserved: ${errMessage}`,
       );
 
       throw err;

@@ -22,7 +22,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { runMigrateCli } from '../../src/db/migrate.js';
 import * as schema from '../../src/db/schema.js';
 import { closeDbClient, type DbClient } from '../../src/db/client.js';
-import { CORPORATE_INGEST_LOCK_KEY, INVOICE_INGEST_LOCK_KEY } from '../../src/ingest/importer.js';
+import {
+  CORPORATE_INGEST_LOCK_KEY,
+  INVOICE_INGEST_LOCK_KEY,
+  DatasetImporter,
+} from '../../src/ingest/importer.js';
+import { createIngestLogger } from '../../src/ingest/logger.js';
 import { parseIngestCliArgs, resolveCsvFilesInDir, runIngestCli } from '../../src/ingest/cli.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
 import { DbInvoiceDataProvider } from '../../src/repository/invoice-repository.js';
@@ -191,6 +196,7 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       expect(lines1).toHaveLength(1);
       expect(lines1[0]?.logger).toBe('dataset_ingest');
       expect(lines1[0]?.status).toBe('failed');
+      expect(String(lines1[0]?.msg ?? '')).toContain('Invalid or missing --type');
 
       const missingDirLogs = createLogCollector();
       const code2 = await runIngestCli(
@@ -211,6 +217,7 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       const lines2 = missingDirLogs.getLines();
       expect(lines2).toHaveLength(1);
       expect(lines2[0]?.status).toBe('failed');
+      expect(String(lines2[0]?.msg ?? '')).toContain('Target directory does not exist');
     });
 
     it('ingests split corporate and invoice CSV files in filename order (exit code 0) and serves queries via DB providers', async () => {
@@ -394,9 +401,10 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       const logLines = failLogs.getLines();
       expect(logLines).toHaveLength(1);
       expect(logLines[0]?.status).toBe('failed');
+      expect(String(logLines[0]?.msg ?? '')).toContain('failed 24-column validation');
     });
 
-    it('returns exit code 1 when migration fails due to non-existent migrations folder', async () => {
+    it('returns exit code 1 when migration fails due to non-existent migrations folder and logs error message', async () => {
       const failMigrateLogs = createLogCollector();
       const code = await runMigrateCli(
         {
@@ -410,6 +418,53 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       expect(logLines).toHaveLength(1);
       expect(logLines[0]?.logger).toBe('db_migrate');
       expect(logLines[0]?.status).toBe('failed');
+      expect(typeof logLines[0]?.msg).toBe('string');
+      expect(String(logLines[0]?.msg ?? '').length).toBeGreaterThan(0);
+    });
+
+    it('logs cause message and strips params when an error with cause and params occurs in importer', async () => {
+      const ingestLogs = createLogCollector();
+      const mockLogger = createIngestLogger(ingestLogs.stream);
+      const mockError = new Error(
+        'Failed query: insert into "corporate_numbers_new" values ($1)\nparams: ["1234567890123", "secret_company_name"]',
+      );
+      mockError.cause = new Error(
+        'permission denied for table corporate_numbers_new\nparams: ["1234567890123"]',
+      );
+
+      const fakeDb = {
+        transaction: async () => {
+          throw mockError;
+        },
+        select: () => {
+          throw mockError;
+        },
+        execute: () => {
+          throw mockError;
+        },
+      } as unknown as DbClient;
+
+      const importer = new DatasetImporter(fakeDb, { logger: mockLogger });
+      const testCsvDir = path.join(tempRootDir, 'test-cause-csv');
+      fs.mkdirSync(testCsvDir, { recursive: true });
+      const sampleCsv = path.join(testCsvDir, 'sample.csv');
+      fs.writeFileSync(
+        sampleCsv,
+        '1,1234567890123,01,1,2026-10-01,2026-10-01,"テスト",,,,,,,,,,,,,,,,,,,,0\n',
+        'utf-8',
+      );
+
+      await expect(importer.importCorporateFiles([sampleCsv], '2026-10-01')).rejects.toThrow();
+
+      const lines = ingestLogs.getLines();
+      expect(lines).toHaveLength(1);
+      const logMsg = String(lines[0]?.msg ?? '');
+      expect(logMsg).toContain('Corporate dataset import failed');
+      expect(logMsg).toContain('Failed query: insert into "corporate_numbers_new" values ($1)');
+      expect(logMsg).toContain('/ cause: permission denied for table corporate_numbers_new');
+      expect(logMsg).not.toContain('params:');
+      expect(logMsg).not.toContain('1234567890123');
+      expect(logMsg).not.toContain('secret_company_name');
     });
   });
 });
