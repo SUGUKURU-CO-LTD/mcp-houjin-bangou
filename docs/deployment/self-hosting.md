@@ -77,7 +77,7 @@ pino の JSON ログが journald 経由で Datadog/Loki 等に転送できます
 1. **Application ID は `.env` に保存、git commit 禁止** — `.gitignore` で除外済み
 2. **HTTPS 化** — nginx/Caddy/Cloudflare 経由で TLS を提供
 3. **Origin validation** — 本サーバーの `ALLOWED_ORIGINS` 環境変数、および nginx で制御
-4. **rate limiting** — 本サーバー内の HTTP レート制限（`RATE_LIMIT_BURST` / `RATE_LIMIT_PER_MIN`）および nginx 側で IP 毎に制限
+4. **rate limiting** — 本サーバー内の HTTP レート制限（`RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_REQUESTS`）および nginx 側で IP 毎に制限
 5. **DoS 対策** — `client_max_body_size 64k;` (本 MCP も 64kB に制限)
 
 ## nginx reverse proxy 例
@@ -136,11 +136,11 @@ breaking change がある場合は `CHANGELOG.md` を必ず確認。
 
 ## ローカル（Web-API）運用と DB（公開ダウンロードデータ）運用の比較
 
-| 項目 | Web-API モード (`DATA_BACKEND=nta_api`) | DB モード (`DATA_BACKEND=postgres`) |
+| 項目 | Web-API モード (`DATA_SOURCE=web-api`) | DB モード (`DATA_SOURCE=db`) |
 |---|---|---|
-| データ取得元 | 国税庁 Web-API (リアルタイム) | 国税庁 公開ダウンロードデータ CSV を PostgreSQL に月1回取り込み |
+| データ取得元 | 国税庁 Web-API (リアルタイム) | 国税庁 公開ダウンロードデータ CSV を PostgreSQL に取り込み |
 | Application ID | 利用者自身の `NTA_APPLICATION_ID` が必要 | 不要（Web-API ID を使用しない） |
-| DB ロール分離 | なし | `houjin_migrator` / `houjin_ingester` / `houjin_reader`（[db-roles.md](db-roles.md) 参照） |
+| DB ロール分離 | なし | `houjin_admin` / `houjin_ingest` / `houjin_reader`（[db-roles.md](db-roles.md) 参照） |
 | インボイス登録確認 (`lookup_invoice_issuer`) | ローカル DB 接続時、またはリモート接続時に対応 | 対応 |
 
 お問い合わせは `info@sugu-kuru.co.jp` まで。

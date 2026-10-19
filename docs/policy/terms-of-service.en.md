@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated**: 2026-10-19
+**Last updated**: 2026-10-20
 
 > **This English version is a reference translation.** The official version is the Japanese text published at https://sugu-kuru.co.jp/mcp/houjin/terms (the same text is in [terms-of-service.md](terms-of-service.md)). If there is any discrepancy between the Japanese and English versions, the Japanese version prevails.
 
@@ -78,7 +78,7 @@ To call the NTA Web-API directly from the self-hosted edition, you need to set a
 
 ## 5. Factual Lookups Only (No Tax or Legal Advice)
 
-- The information provided by the Service (including whether a business is registered as a qualified invoice issuer, and the result `valid_on_reference_date` of comparing the registration, cancellation and expiration dates with a specified reference date) only shows **the result of a factual check comparing the dates in the NTA's public data with the reference date**.
+- The information provided by the Service (including whether a business is registered as a qualified invoice issuer, and the result `was_registered_on_reference_date` of comparing the registration, cancellation and expiration dates with a specified reference date) only shows **the result of a factual check comparing the dates in the NTA's public data with the reference date**.
 - The Service does not provide tax consultation or tax judgments within the meaning of Article 2, paragraph (1) of the Certified Public Tax Accountant Act, such as whether input tax credits are available for a particular transaction, whether transitional measures apply, or how an election to become a taxable business or the simplified taxation system applies. For tax judgments on individual matters, please consult the competent tax office or a certified public tax accountant.
 
 ---

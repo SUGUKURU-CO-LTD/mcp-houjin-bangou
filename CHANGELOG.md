@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Qualified Invoice Issuer lookup tool (`lookup_invoice_issuer`)**:
-  - Looks up invoice registration numbers (`T` + 13 digits) with optional `reference_date` (`YYYY-MM-DD`) factual period check (`valid_on_reference_date: boolean | null`) and multi-period history (`registration_periods`).
-  - Handles re-registrations (multiple periods for the same `T` number) and protects sole proprietors by never storing or returning personal names, trade names, or addresses.
+  - Looks up invoice registration numbers (`T` + 13 digits) with optional `reference_date` (`YYYY-MM-DD`) factual period check (`was_registered_on_reference_date: boolean | null`).
+  - Protects sole proprietors by never storing or returning personal names, trade names, or addresses.
 - **ChatGPT Apps ドメイン確認エンドポイント (`GET /.well-known/openai-apps-challenge`)**:
   - 環境変数 `OPENAI_APPS_CHALLENGE_TOKEN` の値をそのまま `text/plain` で返却（未設定時は `404`）。
   - クローラーからの検証リクエストを確実に受けるため、`/mcp` の Origin 検証対象外として実装。
@@ -37,10 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tool set updated to frozen specification v1.8**:
   - Removed `get_attribution` tool (attribution is embedded in every data tool's `structuredContent.attribution` and text footer).
-  - `lookup_corporate_by_number` now accepts a single 13-digit `corporate_number` (instead of up to 10 comma-separated numbers) and an optional `include_invoice_status` boolean (default `true`). Removed internal metadata fields (`update_date`, `change_date`, `process`, `correct`, `kind`) from `record` output.
-  - `search_corporate_by_name` input/output schema updated (`query`, `prefecture_code`, `city_name`, `include_closed`, `limit`, `cursor`; outputs `total_count`, `returned_count`, `next_cursor`, `normalized_queries_tried`, `data_as_of`, `results`, `attribution`). 2-character queries use prefix match.
-  - `validate_corporate_number` output field renamed from `normalized` to `normalized_number` and `check_digit` typed as `number | null`.
-  - `normalize_company_name` output schema simplified to `{ raw_input, extracted_core_name, candidates: [{ name, kind_hint, prefix_or_suffix, confidence, applied_rules }] }`.
+  - `lookup_corporate_by_number` now accepts a single 13-digit `corporate_number` (instead of up to 10 comma-separated numbers). Outputs `corporation` (`corporate_number`, `name`, `name_kana`, `legal_type`, `location`, `post_code`, `update_date`, `status`, `close_date`, `close_cause`, `address_may_be_outdated`), `data_as_of`, and `attribution`.
+  - `search_corporate_by_name` input/output schema updated: accepts `name`, optional `prefecture` (01-47), `cursor`, and `limit` (1-20, default 10); outputs `results` (with `corporate_number`, `name`, `legal_type`, `location`, `update_date`, `status`, `address_may_be_outdated`), `total_count`, `next_cursor`, `data_as_of`, and `attribution`.
+  - `validate_corporate_number` accepts 13-digit `corporate_number` and outputs `is_valid_format`, `is_valid_check_digit`, and `error_reason`.
+  - `normalize_company_name` accepts `raw_name` and outputs `normalized_name`, `legal_type`, and `search_query_optimized`.
   - Tool annotations aligned with v1.8 (ChatGPT Directory criteria): `readOnlyHint: true` and `destructiveHint: false` across all tools; `openWorldHint` is `true` for all 3 query tools (`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`) in both Hosted and Local modes, and `false` for pure local calculation tools (`validate_corporate_number`, `normalize_company_name`).
   - `lookup_invoice_issuer` title aligned to `Look up Registered Invoice Issuer by T-number`.
 - **Prompts & Resources**:

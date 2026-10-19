@@ -73,7 +73,7 @@ pnpm start
 
 ### UC-1: 法人番号で検索 (`lookup_corporate_by_number`)
 
-> 株式会社スグクルの法人番号 5111101000006 について、本店所在地・法人種別・インボイス登録状況を教えてください。
+> スグクル株式会社の法人番号 9340001026142 について、商号・本店所在地・法人種別・公表基本情報を教えてください。
 
 ### UC-2: 法人名で検索 (`search_corporate_by_name`)
 
@@ -81,7 +81,7 @@ pnpm start
 
 ### UC-3: インボイス登録番号と取引日時点の有効確認 (`lookup_invoice_issuer`)
 
-> 登録番号 T1234567890123（※架空の番号例） が 2026-10-01 時点で適格請求書発行事業者として有効な登録期間内にあるか確認してください。
+> 登録番号 T1234567890123（※架空の番号例） が 2026-10-01 時点で適格請求書発行事業者として登録されていたか確認してください。
 
 ### UC-4: 会社名の表記揺れ正規化 (`normalize_company_name`)
 
@@ -89,7 +89,7 @@ pnpm start
 
 ### UC-5: チェックデジット検証 (`validate_corporate_number`)
 
-> 法人番号 5111101000006 のチェックデジットが正しいかローカルで検証してください。
+> 法人番号 9340001026142 のチェックデジットが正しいかローカルで検証してください。
 
 ---
 
@@ -97,7 +97,8 @@ pnpm start
 
 - [API リファレンス](api-reference.md)
 - [活用クックブック (Usage Cookbook)](usage-cookbook.md)
-- [トラブルシューティング](troubleshooting.md)
+- [トラブルシューティング](operations/troubleshooting.md)
+
 - [セルフホストガイド](deployment/self-hosting.md)
 - [DB ロール設計と権限分離](deployment/db-roles.md)
 - [プライバシーポリシー](policy/privacy-policy.md)

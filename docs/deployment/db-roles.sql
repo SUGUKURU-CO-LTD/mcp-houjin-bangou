@@ -36,6 +36,12 @@ GRANT houjin_ingest TO houjin_admin;
 -- -----------------------------------------------------------------------------
 -- Phase 2: 拡張の作成とスキーマ基本権限の制限（管理用ロールまたはスーパーユーザーで実行）
 -- -----------------------------------------------------------------------------
+DO $$
+BEGIN
+  EXECUTE format('GRANT CREATE ON DATABASE %I TO houjin_admin', current_database());
+END
+$$;
+
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- PUBLIC ロールからのデフォルト CREATE 権限を剥奪（PostgreSQL 15+ 既定だが明示）

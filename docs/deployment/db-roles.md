@@ -42,18 +42,33 @@ SQL 定義ファイルは [`docs/deployment/db-roles.sql`](./db-roles.sql) に�
 
 ### Step 1: ロールと `pg_trgm` 拡張の作成（Phase 1 & 2）
 
-データベース管理者（または Cloud SQL の `cloudsqlsuperuser`）で接続し、`db-roles.sql` の Phase 1・Phase 2 を実行します。本番環境でパスワード認証または Cloud SQL IAM 認証を使う場合は、ログイン用のユーザーを作成して各ロールを `GRANT` するか、各ロールに `LOGIN PASSWORD '...'` を付与します。
+データベース管理者（`postgres`）で接続し、`db-roles.sql` の Phase 1・Phase 2 を実行します。各ロール（`houjin_admin`, `houjin_ingest`, `houjin_reader`）に直接 `LOGIN PASSWORD` を付与し、ローカルの `cloud-sql-proxy` 経由でパスワードを画面に出力せずに設定・Secret Manager へ登録します。
 
-```sql
--- 例: 接続用ユーザーを作成して各ロールを付与する場合
-CREATE USER app_admin WITH PASSWORD '...' IN ROLE houjin_admin;
-CREATE USER app_ingest WITH PASSWORD '...' IN ROLE houjin_ingest;
-CREATE USER app_reader WITH PASSWORD '...' IN ROLE houjin_reader;
+psql コマンドのパス（`PSQL`）は、Apple Silicon の Mac では `/opt/homebrew/opt/libpq/bin/psql`、Intel の Mac では `/usr/local/opt/libpq/bin/psql` を指定してください。
 
--- セッション接続時にロール権限でオブジェクトを作成させるため、既定ロールを設定
-ALTER USER app_admin SET role = 'houjin_admin';
-ALTER USER app_ingest SET role = 'houjin_ingest';
-ALTER USER app_reader SET role = 'houjin_reader';
+```bash
+brew install cloud-sql-proxy libpq
+PSQL=/opt/homebrew/opt/libpq/bin/psql
+PG_PW="$(openssl rand -hex 24)"
+ADMIN_PW="$(openssl rand -hex 24)"
+INGEST_PW="$(openssl rand -hex 24)"
+READER_PW="$(openssl rand -hex 24)"
+gcloud sql users set-password postgres --instance=houjin-bangou-pg16 --password="$PG_PW"
+cloud-sql-proxy --port 5433 <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 &
+sleep 5
+awk '/Phase 3/{exit} {print}' docs/deployment/db-roles.sql > /tmp/db-roles-phase12.sql
+PGPASSWORD="$PG_PW" $PSQL "host=127.0.0.1 port=5433 user=postgres dbname=corp_check" -v ON_ERROR_STOP=1 -f /tmp/db-roles-phase12.sql
+PGPASSWORD="$PG_PW" $PSQL "host=127.0.0.1 port=5433 user=postgres dbname=corp_check" -v ON_ERROR_STOP=1 -v admin_pw="$ADMIN_PW" -v ingest_pw="$INGEST_PW" -v reader_pw="$READER_PW" <<'SQL'
+ALTER ROLE houjin_admin WITH LOGIN PASSWORD :'admin_pw';
+ALTER ROLE houjin_ingest WITH LOGIN PASSWORD :'ingest_pw';
+ALTER ROLE houjin_reader WITH LOGIN PASSWORD :'reader_pw';
+SQL
+SUFFIX="localhost/corp_check?host=/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16"
+printf '%s' "postgresql://houjin_admin:${ADMIN_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-admin --data-file=-
+printf '%s' "postgresql://houjin_ingest:${INGEST_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-ingest --data-file=-
+printf '%s' "postgresql://houjin_reader:${READER_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-reader --data-file=-
+kill %1
+unset PG_PW ADMIN_PW INGEST_PW READER_PW
 ```
 
 ### Step 2: マイグレーションの実行（`houjin_admin`）
@@ -66,10 +81,21 @@ DATABASE_URL="$ADMIN_DATABASE_URL" node dist/db/migrate.js
 
 ### Step 3: テーブル別権限とデフォルト権限の適用（Phase 3）
 
-マイグレーション完了後、`db-roles.sql` の Phase 3 を実行して以下を完了させます。
+マイグレーション完了後、`docs/deployment/db-roles.sql` の Phase 3 をテーブルの所有者 `houjin_admin` で流し、`corporate_numbers` / `invoice_issuers` の所有権を `houjin_ingest` に移譲し、`houjin_reader` に `SELECT` 権限および `ALTER DEFAULT PRIVILEGES` を設定します。
+
+psql コマンドのパス（`PSQL`）は、Apple Silicon の Mac では `/opt/homebrew/opt/libpq/bin/psql`、Intel の Mac では `/usr/local/opt/libpq/bin/psql` を指定してください。
 
 ```bash
-psql "$ADMIN_DATABASE_URL" -f docs/deployment/db-roles.sql
+PSQL=/opt/homebrew/opt/libpq/bin/psql
+ADMIN_PW="$(gcloud secrets versions access latest --secret=houjin-db-url-admin | sed -E 's|^postgresql://[^:]+:([^@]+)@.*|\1|')"
+READER_PW="$(gcloud secrets versions access latest --secret=houjin-db-url-reader | sed -E 's|^postgresql://[^:]+:([^@]+)@.*|\1|')"
+awk '/Phase 3/{f=1} f' docs/deployment/db-roles.sql > /tmp/db-roles-phase3.sql
+cloud-sql-proxy --port 5433 <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 &
+sleep 5
+PGPASSWORD="$ADMIN_PW" $PSQL "host=127.0.0.1 port=5433 user=houjin_admin dbname=corp_check" -v ON_ERROR_STOP=1 -f /tmp/db-roles-phase3.sql
+PGPASSWORD="$READER_PW" $PSQL "host=127.0.0.1 port=5433 user=houjin_reader dbname=corp_check" -c "SELECT count(*) FROM corporate_numbers;"
+kill %1
+unset ADMIN_PW READER_PW
 ```
 
 ---

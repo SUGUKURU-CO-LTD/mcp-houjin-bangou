@@ -11,26 +11,26 @@
 ## 2. 現在できること
 
 - 13桁の法人番号から法人基本情報および変更履歴を取得する（`lookup_corporate_by_number`）。
-- 会社名・都道府県コード・市区町村名・法人種別から候補を検索する（`search_corporate_by_name`）。
+- 会社名・都道府県コードから候補を検索する（`search_corporate_by_name`）。
 - ネットワーク通信なしで法人番号（またはT番号）のチェックデジットを検証する（`validate_corporate_number`）。
-- 国税庁 `target=1` が吸収しない 7 種類の表記揺れを、T7 `normalize_company_name` で補完する。
-- インボイス登録番号（`T`+13桁）または13桁の法人番号から、適格請求書発行事業者の登録状態と基準日時点の履歴を確認する（`lookup_invoice_issuer`）。
+- 表記揺れ（前株・後株、旧字体、全角半角等）を正規化し、最適化された検索語を生成する（`normalize_company_name`）。
+- インボイス登録番号（`T`+13桁）から、適格請求書発行事業者の登録状態と基準日時点の登録有効性を確認する（`lookup_invoice_issuer`）。
 - すべてのツール応答に国税庁所定または公開データ利用の出典表記（`attribution`）を必須同梱する。
-- 取引先マスタ作成（`company-master-record`）、営業リスト補完（`sales-lead-enrichment`）、顧客マスタ重複検知（`crm-duplicate-detection`）の 3 つの MCP Prompts を同梱する。
-- MCP Apps UI（`ui://corporate-card/mcp-app.html`、`ui://corporate-search-results/mcp-app.html`）に対応しつつ、UI 非対応クライアントでも `structuredContent` とテキスト要約だけで完結する設計を備える。
+- 取引先マスタ作成（`company-master-record`）、営業リスト補完（`sales-list-enrichment`）、顧客マスタ重複検知（`customer-master-dedup`）の 3 つの MCP Prompts を同梱する。
+- MCP Apps UI（`ui://corporate-card/mcp-app.html`、`ui://search-results/mcp-app.html`）に対応しつつ、UI 非対応クライアントでも `structuredContent` とテキスト要約だけで完結する設計を備える。
 
 ## 3. 実務ワークフロー
 
 ```mermaid
 flowchart LR
-  rawInput["不完全な会社情報・請求書"] --> normalize["T7表記揺れ正規化"]
+  rawInput["不完全な会社情報・請求書"] --> normalize["表記揺れ正規化"]
   normalize --> search["法人番号・所在地検索"]
   search --> invoice["インボイス登録状況確認"]
   invoice --> enrich["取引先マスタ用レコード"]
   enrich --> review["人間の最終確認"]
 ```
 
-取引先マスタ作成（`company-master-record`）では、名刺や請求書のテキストから会社名を拾い、表記揺れを正規化し、法人番号と本店所在地、さらに適格請求書発行事業者の登録状況を確認して、マスタ登録用のレコードを作る。営業リスト補完（`sales-lead-enrichment`）では、Excel や CSV 由来の不完全な企業名を順に照合する。顧客マスタ重複検知（`crm-duplicate-detection`）では、法人番号を強いキーとして使い、商号変更や本店移転の履歴も確認する。
+取引先マスタ作成（`company-master-record`）では、名刺や請求書のテキストから会社名を拾い、表記揺れを正規化し、法人番号と本店所在地、さらに適格請求書発行事業者の登録状況を確認して、マスタ登録用のレコードを作る。営業リスト補完（`sales-list-enrichment`）では、Excel や CSV 由来の不完全な企業名を順に照合する。顧客マスタ重複検知（`customer-master-dedup`）では、法人番号を強いキーとして使い、商号変更や本店移転の履歴も確認する。
 
 この一連の流れは、派手な AI デモというより、事務作業の中に残っている小さな誤差を取り除く仕事である。人間が国税庁の検索画面を開き、表記を変えながら何度も試していた作業を、AI エージェントが手順として再現できるようにする。
 

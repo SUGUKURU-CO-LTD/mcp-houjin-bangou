@@ -197,7 +197,7 @@ export function buildAttribution(): Attribution {
 it('lookup_corporate_by_number は attribution 必須', async () => {
   const result = await client.callTool({
     name: 'lookup_corporate_by_number',
-    arguments: { corporate_numbers: ['5111101000006'] },
+    arguments: { corporate_number: '5111101000006' },
   });
   const structured = result.structuredContent as { attribution: Attribution };
   expect(structured.attribution.service_disclaimer).toContain('対象機能利用して取得');

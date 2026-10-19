@@ -37,6 +37,16 @@ Cloud SQL for PostgreSQL 16 (houjin-bangou-pg16)
 
 ## 2. 初回構築手順
 
+### 2.0 前提条件と認証の注意点
+
+- **Google Cloud SDK 認証**:
+  - 本手順では `gcloud auth login` および `gcloud auth application-default login` による認証を使用します。
+  - **重要**: 環境変数 `GOOGLE_APPLICATION_CREDENTIALS` が設定されていると、`gcloud auth application-default login` でログインした認証情報よりも `GOOGLE_APPLICATION_CREDENTIALS` で指定されたサービスアカウント鍵が優先されます。意図しない認証情報での Terraform 実行を防ぐため、実行前に以下を確認・解除してください。
+    ```bash
+    echo "$GOOGLE_APPLICATION_CREDENTIALS"
+    unset GOOGLE_APPLICATION_CREDENTIALS
+    ```
+
 ### 2.1 事前準備（Terraform 実行前）
 
 1. **GCP プロジェクトの作成と課金設定**
@@ -87,9 +97,18 @@ terraform -chdir=infra/terraform apply \
      -target=google_artifact_registry_repository.repo
    ```
 2. コンテナイメージをビルドし、Artifact Registry へ push します（サービスと3つのジョブは同一イメージを使用し、起動コマンド・引数のみ切り替えます）。
+   Apple Silicon の Mac では、Cloud Run の実行環境（`linux/amd64`）に合わせるため `docker buildx build --platform linux/amd64 … --push` を使用します。
+
+   初回のみ Docker の認証設定を実行します。
    ```bash
-   docker build -t "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>" .
-   docker push "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>"
+   gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+   ```
+
+   イメージのビルドとプッシュを実行します（Apple Silicon Mac / Linux 共通）。
+   ```bash
+   docker buildx build --platform linux/amd64 \
+     -t "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/mcp-houjin-bangou:<TAG>" \
+     --push .
    ```
 
 ### 2.4 Cloud SQL・DB・Secret・サービスアカウント・権限の先行作成
@@ -118,28 +137,62 @@ terraform -chdir=infra/terraform apply \
 ### 2.5 DB のロールとユーザー作成・Secret Manager への値登録
 
 DB のユーザーとパスワードは Terraform state に残さないため、[`docs/deployment/db-roles.md`](./db-roles.md) および [`docs/deployment/db-roles.sql`](./db-roles.sql) に従って手動で設定します。
+各ロールに `LOGIN PASSWORD` を設定し、`cloud-sql-proxy` 経由でパスワードを画面に表示させずに安全に Secret Manager へ登録します。
 
-1. **Phase 1 & 2 の実行（ロールと拡張の作成）**
-   - Cloud SQL の管理者ユーザーで接続し、`docs/deployment/db-roles.sql` の Phase 1・Phase 2、および接続用ユーザー（`houjin_admin`, `houjin_ingest`, `houjin_reader` を継承するログインユーザー）を作成します。
-2. **Secret Manager への接続文字列登録**
-   - Terraform が作成した3つの Secret（`houjin-db-url-admin`, `houjin-db-url-ingest`, `houjin-db-url-reader`）に対し、Unix ソケット形式の接続文字列を登録します。
-   - 形式例:
-     `postgresql://<USER>:<PASSWORD>@localhost/corp_check?host=/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16`
+psql コマンドのパス（`PSQL`）は、Apple Silicon の Mac では `/opt/homebrew/opt/libpq/bin/psql`、Intel の Mac では `/usr/local/opt/libpq/bin/psql` を指定してください。
+
+```bash
+brew install cloud-sql-proxy libpq
+PSQL=/opt/homebrew/opt/libpq/bin/psql
+PG_PW="$(openssl rand -hex 24)"
+ADMIN_PW="$(openssl rand -hex 24)"
+INGEST_PW="$(openssl rand -hex 24)"
+READER_PW="$(openssl rand -hex 24)"
+gcloud sql users set-password postgres --instance=houjin-bangou-pg16 --password="$PG_PW"
+cloud-sql-proxy --port 5433 <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 &
+sleep 5
+awk '/Phase 3/{exit} {print}' docs/deployment/db-roles.sql > /tmp/db-roles-phase12.sql
+PGPASSWORD="$PG_PW" $PSQL "host=127.0.0.1 port=5433 user=postgres dbname=corp_check" -v ON_ERROR_STOP=1 -f /tmp/db-roles-phase12.sql
+PGPASSWORD="$PG_PW" $PSQL "host=127.0.0.1 port=5433 user=postgres dbname=corp_check" -v ON_ERROR_STOP=1 -v admin_pw="$ADMIN_PW" -v ingest_pw="$INGEST_PW" -v reader_pw="$READER_PW" <<'SQL'
+ALTER ROLE houjin_admin WITH LOGIN PASSWORD :'admin_pw';
+ALTER ROLE houjin_ingest WITH LOGIN PASSWORD :'ingest_pw';
+ALTER ROLE houjin_reader WITH LOGIN PASSWORD :'reader_pw';
+SQL
+SUFFIX="localhost/corp_check?host=/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16"
+printf '%s' "postgresql://houjin_admin:${ADMIN_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-admin --data-file=-
+printf '%s' "postgresql://houjin_ingest:${INGEST_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-ingest --data-file=-
+printf '%s' "postgresql://houjin_reader:${READER_PW}@${SUFFIX}" | gcloud secrets versions add houjin-db-url-reader --data-file=-
+kill %1
+unset PG_PW ADMIN_PW INGEST_PW READER_PW
+```
 
 ### 2.6 Terraform 全体適用・マイグレーション・Phase 3 の実行
 
 1. **Terraform 全体の適用**
-   - Cloud Run サービス、3つの Cloud Run Job、Cloud Armor、外部 Application Load Balancer、監視・アラートを含めて全体を適用します。
+   Cloud Run サービス、3つの Cloud Run Job、Cloud Armor、外部 Application Load Balancer、監視・アラートを含めて全体を適用します。
    ```bash
    terraform -chdir=infra/terraform apply
    ```
 2. **`migrate` ジョブの実行**
-   - Cloud Run Job `houjin-bangou-migrate`（内部コマンド: `node dist/db/migrate.js`）を実行し、テーブルと索引を作成します。
+   Cloud Run Job `houjin-bangou-migrate`（内部コマンド: `node dist/db/migrate.js`）を実行し、テーブルと索引を作成します。
    ```bash
    gcloud run jobs execute houjin-bangou-migrate --region=asia-northeast1 --wait
    ```
 3. **Phase 3 の実行（テーブル所有権とデフォルト権限の付与）**
-   - マイグレーション完了後、`docs/deployment/db-roles.sql` の Phase 3 を実行し、`corporate_numbers` / `invoice_issuers` の所有権を `houjin_ingest` に移譲し、`houjin_reader` に `SELECT` 権限および `ALTER DEFAULT PRIVILEGES` を設定します。
+   マイグレーション完了後、`docs/deployment/db-roles.sql` の Phase 3 をテーブルの所有者 `houjin_admin` で流し、`corporate_numbers` / `invoice_issuers` の所有権を `houjin_ingest` に移譲し、`houjin_reader` に `SELECT` 権限および `ALTER DEFAULT PRIVILEGES` を設定します。
+   psql コマンドのパス（`PSQL`）は、Apple Silicon の Mac では `/opt/homebrew/opt/libpq/bin/psql`、Intel の Mac では `/usr/local/opt/libpq/bin/psql` を指定してください。
+   ```bash
+   PSQL=/opt/homebrew/opt/libpq/bin/psql
+   ADMIN_PW="$(gcloud secrets versions access latest --secret=houjin-db-url-admin | sed -E 's|^postgresql://[^:]+:([^@]+)@.*|\1|')"
+   READER_PW="$(gcloud secrets versions access latest --secret=houjin-db-url-reader | sed -E 's|^postgresql://[^:]+:([^@]+)@.*|\1|')"
+   awk '/Phase 3/{f=1} f' docs/deployment/db-roles.sql > /tmp/db-roles-phase3.sql
+   cloud-sql-proxy --port 5433 <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 &
+   sleep 5
+   PGPASSWORD="$ADMIN_PW" $PSQL "host=127.0.0.1 port=5433 user=houjin_admin dbname=corp_check" -v ON_ERROR_STOP=1 -f /tmp/db-roles-phase3.sql
+   PGPASSWORD="$READER_PW" $PSQL "host=127.0.0.1 port=5433 user=houjin_reader dbname=corp_check" -c "SELECT count(*) FROM corporate_numbers;"
+   kill %1
+   unset ADMIN_PW READER_PW
+   ```
 
 ### 2.7 SSL 証明書の有効化と直接アクセス遮断の確認
 
