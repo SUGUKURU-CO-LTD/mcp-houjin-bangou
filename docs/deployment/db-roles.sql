@@ -36,7 +36,11 @@ GRANT houjin_ingest TO houjin_admin;
 -- -----------------------------------------------------------------------------
 -- Phase 2: 拡張の作成とスキーマ基本権限の制限（管理用ロールまたはスーパーユーザーで実行）
 -- -----------------------------------------------------------------------------
-GRANT CREATE ON DATABASE corp_check TO houjin_admin;
+DO $$
+BEGIN
+  EXECUTE format('GRANT CREATE ON DATABASE %I TO houjin_admin', current_database());
+END
+$$;
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
