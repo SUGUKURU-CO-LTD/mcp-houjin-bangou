@@ -10,10 +10,6 @@
 🌐 English README: [README.md](README.md)  
 🔗 公式製品案内・規約: [製品案内](https://sugu-kuru.co.jp/mcp/houjin) | [利用規約](https://sugu-kuru.co.jp/mcp/houjin/terms) | [プライバシーポリシー](https://sugu-kuru.co.jp/mcp/houjin/privacy)
 
-<p align="center">
-  <img src="docs/assets/screenshots/corporate-card-active.png" alt="法人詳細カード (MCP Apps UI)" width="720">
-</p>
-
 ## 概要
 
 Claude、ChatGPT、Cursor、VS Code Copilot などの MCP 対応クライアントから、以下の機能を利用できます。
