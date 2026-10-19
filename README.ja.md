@@ -7,7 +7,12 @@
 [![CI](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml/badge.svg)](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml)
 [![MCP Spec 2025-11-25](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io/specification/2025-11-25)
 
-🌐 English README: [README.md](README.md)
+🌐 English README: [README.md](README.md)  
+🔗 公式製品案内・規約: [製品案内](https://sugu-kuru.co.jp/mcp/houjin) | [利用規約](https://sugu-kuru.co.jp/mcp/houjin/terms) | [プライバシーポリシー](https://sugu-kuru.co.jp/mcp/houjin/privacy)
+
+<p align="center">
+  <img src="docs/assets/screenshots/corporate-card-active.png" alt="法人詳細カード (MCP Apps UI)" width="720">
+</p>
 
 ## 概要
 
