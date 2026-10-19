@@ -12,11 +12,13 @@
 
 ---
 
-## 2. 法人番号から本店所在地とインボイス登録状況を同時に引く
+## 2. 法人番号から本店所在地とインボイス登録状況を確認する
 
-> 法人番号 `5111101000006` の正式商号・本店所在地と、インボイス（適格請求書発行事業者）の登録状況を教えて。
+> 法人番号 `5111101000006` の正式商号・本店所在地と、適格請求書発行事業者（インボイス）の登録状況を教えて。
 
-**使用ツール**: `lookup_corporate_by_number` (`include_invoice_status: true`)
+**使用ツール**:
+1. `lookup_corporate_by_number` (`corporate_number: "5111101000006"`) — 法人の正式商号、本店所在地、法人種別を取得
+2. `lookup_invoice_issuer` (`registration_number: "T5111101000006"`) — T番号を指定して適格請求書発行事業者の登録状況を取得
 
 ---
 
@@ -25,6 +27,7 @@
 > 受け取った請求書に記載されている登録番号 `T1234567890123（※架空の番号例）` が、取引日 `2026-10-01` 時点で有効な登録期間内にあるか確認して。
 
 **使用ツール**: `lookup_invoice_issuer` (`registration_number: "T1234567890123"`, `reference_date: "2026-10-01"`)
+※ `was_registered_on_reference_date` フィールドで基準日時点の有効性が判定されます。
 
 ---
 
@@ -34,54 +37,51 @@
 
 **実行される呼出**: `normalize_company_name` → `search_corporate_by_name`
 
-旧字体（髙→高）や前株・後株の展開候補を自動生成して検索します。
+法人格略称（（株）→株式会社）や旧字体（髙→高）を正規化し、最適化された検索語（`search_query_optimized`）を生成して検索します。
 
 ---
 
 ## 5. 表記揺れ候補だけを生成する（検索しない）
 
-> 「SUGUKURU CO., LTD.」を国税庁の検索で使える日本語表記候補に変換して。
+> 「SUGUKURU CO., LTD.」を国税庁の検索で使える表記候補に変換して。
 
-**使用ツール**: `normalize_company_name`
+**使用ツール**: `normalize_company_name` (`raw_name: "SUGUKURU CO., LTD."`)
 
 ---
 
-## 6. 都道府県・市区町村を指定して法人を検索する
+## 6. 都道府県を指定して法人を検索する
 
-> 鹿児島県霧島市の「スグクル」を含む法人を検索して。登記閉鎖済みも含めて。
+> 鹿児島県の「スグクル」を含む法人を検索して。
 
-**使用ツール**: `search_corporate_by_name` (`query: "スグクル"`, `prefecture_code: "46"`, `city_name: "霧島市"`, `include_closed: true`)
+**使用ツール**: `search_corporate_by_name` (`name: "スグクル"`, `prefecture: "46"`)
 
 ---
 
 ## 7. 取引先マスタ登録用レコードを作成する（Prompt: `company-master-record`）
 
-> 会社名「（株）スグクル」、住所メモ「鹿児島県霧島市」から取引先マスタ登録用の法人情報を整形して。
+> 会社名「（株）スグクル」、所在地の手がかり「鹿児島県霧島市」から取引先マスタ登録用の法人情報を整形して。
 
-**使用プロンプト**: `company-master-record` (`company_name`, `address_hint`)
+**使用プロンプト**: `company-master-record` (`company_name: "（株）スグクル"`, `location_hint: "鹿児島県霧島市"`)
 ※ 自然人の氏名や連絡先などの個人情報は入力・処理しません。
 
 ---
 
 ## 8. 営業・取引先リストに法人番号と住所を一括付与する（Prompt: `sales-list-enrichment`）
 
-> 以下の会社名リストを調べて、法人番号・正式名称・本店所在地を Markdown テーブルでまとめて：
+> 以下の会社名リストを調べて、法人番号・正式名称・本店所在地を整理して：
 > - （株）高橋商事
 > - スグクル株式会社
 
-**使用プロンプト**: `sales-list-enrichment` (`company_names`, `output_format: "markdown_table"`)
+**使用プロンプト**: `sales-list-enrichment` (`company_list_text: "（株）高橋商事\nスグクル株式会社"`)
+※ 1行に1社、最大20社まで一度に指定できます。
 
 ---
 
 ## 9. 顧客マスタの重複レコードを名寄せする（Prompt: `customer-master-dedup`）
 
-> 以下の顧客レコード（JSONL）を法人番号で名寄せして、重複グループを提示して：
-> ```jsonl
-> {"id":"C001","name":"(株)高橋商事","address":"鹿児島市..."}
-> {"id":"C002","name":"株式会社高橋商事","address":"鹿児島市..."}
-> ```
+> 「株式会社スグクル」（住所: 鹿児島県霧島市国分中央）の既存レコードを国税庁データと突合して、正式名称と法人番号で名寄せして。
 
-**使用プロンプト**: `customer-master-dedup` (`records_jsonl`, `dedup_criteria: "strict_corporate_number"`)
+**使用プロンプト**: `customer-master-dedup` (`target_company_name: "株式会社スグクル"`, `current_address: "鹿児島県霧島市国分中央"`)
 
 ---
 

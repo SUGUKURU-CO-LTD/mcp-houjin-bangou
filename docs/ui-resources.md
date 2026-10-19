@@ -1,10 +1,10 @@
 # UI Resources
 
-v0.2.0 では MCP Apps / UI Resources を、既存の 5 Tools に重ねる表示層として導入する。
+MCP Apps / UI Resources は、既存の 5 Tools に重ねる表示層として実装されている。
 
 ## 目的
 
-UI は新しい業務ロジックを持たない。Tool の structured output を、人間が確認しやすい形に変換するだけである。
+UI は新しい業務ロジックを持たない。Tool の structured output を、人間が確認しやすい形に変換する純粋なプレゼンテーション層である。
 
 ```mermaid
 flowchart LR
@@ -50,10 +50,18 @@ flowchart LR
 UI から server tool を呼ぶ動線:
 
 - `corporate-card`
-  - 「類似商号を検索」 → `search_corporate_by_name`
-  - 「法人番号をコピー」 → browser clipboard
+  - 法人情報（`legal_type`, `location`, `name_kana`, `status`, `close_date`, `close_cause`, `address_may_be_outdated`）、`data_as_of`、および `attribution` を表示
+  - 「類似商号を検索」 → `search_corporate_by_name`（引数: `{ name }`）
+  - 「法人番号をコピー」 → クリップボードにコピー
 - `search-results`
-  - 行クリック → `lookup_corporate_by_number`
+  - 検索結果一覧（`results`, `total_count`, `next_cursor`）を表形式で表示
+  - 行クリック → `lookup_corporate_by_number`（引数: `{ corporate_number }`）で詳細再照会
+
+## セキュリティ・DOM 操作
+
+- `innerHTML` や `insertAdjacentHTML` を一切使用せず、`document.createElement` と `textContent` のみで DOM を構築（XSS / Prompt Injection 防御）。
+- `scripts/compute-csp-hashes.ts` がビルド後の HTML から inline script/style の SHA-256 ハッシュを計算し、`<meta http-equiv="Content-Security-Policy">` を注入する。
+- UI は直接外部 API fetch を行わず、MCP Host の postMessage 経由で動作する。
 
 ## Build
 
@@ -71,34 +79,12 @@ dist/ui/search-results/mcp-app.html
 
 Vite + `vite-plugin-singlefile` により、HTML / JS / CSS は 1 ファイルへ inline される。
 
-## CSP
-
-`scripts/compute-csp-hashes.ts` が build 後の HTML から inline script/style の SHA-256 hash を計算し、`<meta http-equiv="Content-Security-Policy">` を注入する。
-
-方針:
-
-- `default-src 'none'`
-- `connect-src 'none'`
-- `frame-src 'none'`
-- `object-src 'none'`
-- `require-trusted-types-for 'script'`
-- `trusted-types houjin-mcp-ui`
-
-UI は直接 API fetch しない。すべて `app.callServerTool()` 経由で MCP Host に委譲する。
-
 ## Preview fixtures
 
-実機ホストなしで表示設計を確認するため、以下を用意:
+実機ホストなしで表示設計を確認するため、合成データを用いた fixture を用意:
 
 - `docs/assets/ui-fixtures/corporate-card.json`
 - `docs/assets/ui-fixtures/search-results.json`
 - `docs/assets/ui-preview.html`
 
-`ui-preview.html` は MCP Host の `postMessage` handshake に依存しない静的プレビューで、README 用スクリーンショット作成に使う。
-
-## Remaining v0.2.0 work
-
-- Claude Desktop / MCP Inspector で iframe 表示確認
-- screenshots / GIF
-- UI visual polish
-- host compatibility notes
+`ui-preview.html` は MCP Host の `postMessage` handshake に依存しない静的プレビューとして利用可能。

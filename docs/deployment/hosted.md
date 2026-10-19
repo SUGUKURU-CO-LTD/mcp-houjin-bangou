@@ -37,6 +37,16 @@ Cloud SQL for PostgreSQL 16 (houjin-bangou-pg16)
 
 ## 2. 初回構築手順
 
+### 2.0 前提条件と認証の注意点
+
+- **Google Cloud SDK 認証**:
+  - 本手順では `gcloud auth login` および `gcloud auth application-default login` による認証を使用します。
+  - **重要**: 環境変数 `GOOGLE_APPLICATION_CREDENTIALS` が設定されていると、`gcloud auth application-default login` でログインした認証情報よりも `GOOGLE_APPLICATION_CREDENTIALS` で指定されたサービスアカウント鍵が優先されます。意図しない認証情報での Terraform 実行を防ぐため、実行前に以下を確認・解除してください。
+    ```bash
+    echo "$GOOGLE_APPLICATION_CREDENTIALS"
+    unset GOOGLE_APPLICATION_CREDENTIALS
+    ```
+
 ### 2.1 事前準備（Terraform 実行前）
 
 1. **GCP プロジェクトの作成と課金設定**
@@ -87,9 +97,15 @@ terraform -chdir=infra/terraform apply \
      -target=google_artifact_registry_repository.repo
    ```
 2. コンテナイメージをビルドし、Artifact Registry へ push します（サービスと3つのジョブは同一イメージを使用し、起動コマンド・引数のみ切り替えます）。
+   Apple Silicon の Mac では、Cloud Run の実行環境（`linux/amd64`）に合わせるため `docker buildx build --platform linux/amd64 … --push` を使用します。
    ```bash
-   docker build -t "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>" .
-   docker push "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/server:<TAG>"
+   # Docker の認証設定（初回のみ）
+   gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+
+   # イメージのビルドとプッシュ（Apple Silicon Mac / Linux 共通）
+   docker buildx build --platform linux/amd64 \
+     -t "asia-northeast1-docker.pkg.dev/<PROJECT_ID>/houjin-bangou-mcp/mcp-houjin-bangou:<TAG>" \
+     --push .
    ```
 
 ### 2.4 Cloud SQL・DB・Secret・サービスアカウント・権限の先行作成
@@ -118,13 +134,49 @@ terraform -chdir=infra/terraform apply \
 ### 2.5 DB のロールとユーザー作成・Secret Manager への値登録
 
 DB のユーザーとパスワードは Terraform state に残さないため、[`docs/deployment/db-roles.md`](./db-roles.md) および [`docs/deployment/db-roles.sql`](./db-roles.sql) に従って手動で設定します。
+各ロールに `LOGIN PASSWORD` を設定し、`cloud-sql-proxy` 経由でパスワードを画面に表示させずに安全に Secret Manager へ登録します。
 
-1. **Phase 1 & 2 の実行（ロールと拡張の作成）**
-   - Cloud SQL の管理者ユーザーで接続し、`docs/deployment/db-roles.sql` の Phase 1・Phase 2、および接続用ユーザー（`houjin_admin`, `houjin_ingest`, `houjin_reader` を継承するログインユーザー）を作成します。
-2. **Secret Manager への接続文字列登録**
-   - Terraform が作成した3つの Secret（`houjin-db-url-admin`, `houjin-db-url-ingest`, `houjin-db-url-reader`）に対し、Unix ソケット形式の接続文字列を登録します。
-   - 形式例:
-     `postgresql://<USER>:<PASSWORD>@localhost/corp_check?host=/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16`
+1. **`cloud-sql-proxy` の起動**
+   ローカルターミナルで Cloud SQL Auth Proxy を一時起動します。
+   ```bash
+   cloud-sql-proxy <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 --port=5432
+   ```
+
+2. **Phase 1 & 2 の実行と各ロールへの LOGIN PASSWORD 設定**
+   別ターミナルで `psql` を開き、ロール作成・権限付与を実行した上で、各ロールにランダムパスワードを設定します（パスワードを画面に出力せずパイプで登録）。
+   ```bash
+   # 管理者ユーザーで Phase 1 & 2 を実行
+   psql "host=127.0.0.1 port=5432 dbname=corp_check user=postgres" -f docs/deployment/db-roles.sql
+
+   # パスワードをランダム生成して各ロールに設定
+   ADMIN_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+   INGEST_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+   READER_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+
+   psql "host=127.0.0.1 port=5432 dbname=corp_check user=postgres" <<EOF
+   ALTER ROLE houjin_admin WITH LOGIN PASSWORD '$ADMIN_PW';
+   ALTER ROLE houjin_ingest WITH LOGIN PASSWORD '$INGEST_PW';
+   ALTER ROLE houjin_reader WITH LOGIN PASSWORD '$READER_PW';
+   EOF
+   ```
+
+3. **Secret Manager への接続文字列登録（画面非表示）**
+   Cloud Run 側からは Cloud SQL Auth Proxy 経由（Unix ソケット形式 `/cloudsql/<PROJECT_ID>:asia-northeast1:houjin-bangou-pg16`）で接続するため、生成したパスワードを画面に出さずに Secret Manager へ登録します。
+   ```bash
+   PROJECT_ID="<PROJECT_ID>"
+
+   printf "postgresql://houjin_admin:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$ADMIN_PW" "$PROJECT_ID" | \
+     gcloud secrets versions add houjin-db-url-admin --data-file=-
+
+   printf "postgresql://houjin_ingest:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$INGEST_PW" "$PROJECT_ID" | \
+     gcloud secrets versions add houjin-db-url-ingest --data-file=-
+
+   printf "postgresql://houjin_reader:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$READER_PW" "$PROJECT_ID" | \
+     gcloud secrets versions add houjin-db-url-reader --data-file=-
+
+   unset ADMIN_PW INGEST_PW READER_PW
+   ```
+   設定完了後、起動していた `cloud-sql-proxy` を停止します。
 
 ### 2.6 Terraform 全体適用・マイグレーション・Phase 3 の実行
 

@@ -1,196 +1,150 @@
 # API Reference
 
-本 MCP サーバー（v1.0.0 / 凍結仕様 v1.7）が提供する **5 Tools + 3 Prompts + 2 UI Resources + Completion** のリファレンスです。
+本 MCP サーバー（v1.0.0 / 仕様 v1.8）が提供する **5 Tools + 3 Prompts + 2 UI Resources + Completion + Environment Variables** のリファレンスです。
+すべての定義値・型・引数・戻り値は `src/` の実装コードから直接転記されています。
 
 ---
 
 ## Tools（全5ツール）
 
-すべてのツールには以下の MCP Tool Annotations が設定されています：
-- `readOnlyHint: true`
-- `destructiveHint: false`
-- `idempotentHint: true`
-- `openWorldHint: false`
+### MCP Tool Annotations
+
+| ツール名 | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
+|---|---|---|---|---|
+| `lookup_corporate_by_number` | `true` | `false` | `true` | `true` |
+| `search_corporate_by_name` | `true` | `false` | `true` | `true` |
+| `lookup_invoice_issuer` | `true` | `false` | `true` | `true` |
+| `validate_corporate_number` | `true` | `false` | `true` | `false` |
+| `normalize_company_name` | `true` | `false` | `true` | `false` |
+
+※ 公開実体エンティティを照会するツール3種は仕様 v1.8 によりホスト版・ローカル版共通で `openWorldHint: true` です。外部通信を行わないローカル計算ツール2種は `openWorldHint: false` です。
+
+---
 
 ### 1. `lookup_corporate_by_number`
 
-**目的**: 13桁の法人番号（1件）から法人基本情報および適格請求書発行事業者（インボイス）登録ステータスを取得します。
+- **ソースコード定義**: [`src/tools/lookup-by-number.ts`](file:///Users/kabe/houjin-wt-secret/src/tools/lookup-by-number.ts#L27-L66)
+- **目的**: 13桁の法人番号を指定して、国税庁が公表している法人の基本情報（名称・所在地・法人番号・法人種別・更新年月日・閉鎖の有無等）を取得します。
+- **UI リソース連携**: `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`
 
-**UI リソース連携**: `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`
-
-**Input**:
-
+#### Input Schema
 ```typescript
 {
-  corporate_number: string;         // 13桁の法人番号（全角・ハイフン・空白混在可、自動正規化）
-  include_invoice_status?: boolean; // 既定 true。インボイス登録状況（T+法人番号）も併せて照会
+  corporate_number: string; // 13-digit Japanese national corporate number (digits only, e.g., '9340001026142', regex: /^[0-9]{13}$/)
 }
 ```
 
-**Output (`structuredContent`)**:
-
+#### Output Schema (`structuredContent`)
 ```typescript
 {
-  found: boolean;
-  corporate_number: string;         // 正規化後の半角13桁数字
-  data_as_of: string;               // YYYY-MM-DD（公表データ基準日）
-  record: {
+  corporation: {
     corporate_number: string;
     name: string;
-    furigana: string | null;
-    en_name: string | null;
-    kind_name: string;
-    address: {
-      prefecture_code: string;
-      city_code: string;
-      post_code: string | null;
-      prefecture_name: string;
-      city_name: string;
-      street_number: string;
-      full: string;
-    };
-    status: 'active' | 'closed' | 'absorbed';
-    assignment_date: string;
-    close_date: string | null;
-    close_cause: string | null;
-    successor_corporate_number: string | null;
-  } | null;
-  invoice_issuer: {
-    registration_number: string;    // "T" + 13桁
-    is_registered: boolean;
-    registration_date: string | null;
-    update_date: string | null;
-    revoke_date: string | null;
-    expire_date: string | null;
-  } | null;
-  attribution: Attribution;
+    name_kana: string | null;
+    legal_type: string;
+    location: string;
+    post_code: string | null;
+    update_date: string;
+    status: 'active' | 'closed';
+    close_date: string | null;            // Date of closure (YYYY-MM-DD); null if active
+    close_cause: string | null;           // Reason for closure (e.g., liquidation, merger); null if active
+    address_may_be_outdated?: boolean;   // True if registered address may differ from current address
+  };
+  data_as_of: string;                     // Date of the public dataset (YYYY-MM-DD)
+  attribution: string;                    // Attribution text required by NTA terms of service
 }
 ```
-
-**エラー**:
-- チェックデジット不一致・桁数不正 → `isError: true`（外部 API や DB にはアクセスしない）
 
 ---
 
 ### 2. `search_corporate_by_name`
 
-**目的**: 法人名（商号又は名称）で法人を検索します。入力された会社名は自動的に表記揺れ正規化（T7）され、都道府県・市区町村・閉鎖法人フィルタおよびカーソルページングに対応します。
+- **ソースコード定義**: [`src/tools/search-by-name.ts`](file:///Users/kabe/houjin-wt-secret/src/tools/search-by-name.ts#L30-L88)
+- **目的**: 法人名を指定して、前方一致・部分一致で法人一覧を検索します。都道府県コードによる絞り込みやカーソルページネーションに対応します。
+- **UI リソース連携**: `_meta.ui.resourceUri = "ui://search-results/mcp-app.html"`
 
-**UI リソース連携**: `_meta.ui.resourceUri = "ui://search-results/mcp-app.html"`
-
-**Input**:
-
+#### Input Schema
 ```typescript
 {
-  query: string;                    // 検索する会社名（1〜150文字）
-  prefecture_code?: string;         // JIS X 0401 都道府県コード ("01"〜"47")
-  city_name?: string;               // 市区町村名（例: "霧島市", "千代田区"）
-  include_closed?: boolean;         // 既定 false。登記閉鎖法人も含めるか
-  limit?: number;                   // 既定 10（1〜50）
-  cursor?: string;                  // 前回レスポンスの next_cursor
+  name: string;         // Corporate name to search (kanji, kana, or romaji, 1-100 characters)
+  prefecture?: string;  // Optional 2-digit prefecture code (01-47, regex: /^(0[1-9]|[1-3][0-9]|4[0-7])$/)
+  cursor?: string;      // Opaque cursor for pagination returned from previous search
+  limit?: number;       // Number of results to return (default: 10, min: 1, max: 20)
 }
 ```
 
-**Output (`structuredContent`)**:
-
+#### Output Schema (`structuredContent`)
 ```typescript
 {
-  query: string;
-  normalized_queries_tried: string[];
-  total_count: number;
-  returned_count: number;
-  next_cursor: string | null;
-  data_as_of: string;               // YYYY-MM-DD
   results: Array<{
     corporate_number: string;
     name: string;
-    furigana: string | null;
-    kind_name: string;
-    prefecture_name: string;
-    city_name: string;
-    full_address: string;
-    status: 'active' | 'closed' | 'absorbed';
-    close_date: string | null;
-    successor_corporate_number: string | null;
+    legal_type: string;
+    location: string;
+    update_date: string;
+    status: 'active' | 'closed';
+    address_may_be_outdated?: boolean;
   }>;
-  attribution: Attribution;
+  total_count: number | null; // Total number of matched corporations if known
+  next_cursor: string | null; // Cursor token for fetching next page; null if no more items
+  data_as_of: string;         // Date of the public dataset (YYYY-MM-DD)
+  attribution: string;        // Attribution text required by NTA terms of service
 }
 ```
-
-**カーソル整合性検証**:
-- `cursor` には `data_as_of`（データ基準日）がエンコードされており、月次データ更新を挟んで基準日が変わった古いカーソルを渡した場合は、先頭ページからの再検索を促すエラー（`isError: true`）を返します。
 
 ---
 
 ### 3. `lookup_invoice_issuer`
 
-**目的**: 適格請求書発行事業者の登録番号（`T` + 13桁数字、または13桁数字）を照会し、登録の有無・人格区分・全登録期間履歴（`registration_periods`）および取引基準日（`reference_date`）時点での登録有効期間照合結果（`valid_on_reference_date`）を返します。
+- **ソースコード定義**: [`src/tools/lookup-invoice-issuer.ts`](file:///Users/kabe/houjin-wt-secret/src/tools/lookup-invoice-issuer.ts#L26-L71)
+- **目的**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地）を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
 
-**UI リソース連携**: `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`
-
-**Input**:
-
+#### Input Schema
 ```typescript
 {
-  registration_number: string;      // T+13桁（または13桁数字。全角・小文字t・ハイフン自動正規化）
-  reference_date?: string;          // 取引基準日 YYYY-MM-DD（実在する暦日のみ受付）
+  registration_number: string; // Registered invoice issuer number (starts with 'T' followed by 13 digits, regex: /^T[0-9]{13}$/)
+  reference_date?: string;     // Optional reference date in 'YYYY-MM-DD' format (regex: /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/)
 }
 ```
 
-**Output (`structuredContent`)**:
-
+#### Output Schema (`structuredContent`)
 ```typescript
 {
-  registration_number: string;      // "T" + 13桁
-  is_registered: boolean;
-  legal_entity_type: 'corporation' | 'sole_proprietor' | 'unincorporated_association' | null;
-  name: string | null;              // 法人の場合のみ（個人事業者は常に null）
-  address: string | null;           // 法人の場合のみ（個人事業者は常に null）
+  registration_number: string;
+  status: 'registered' | 'cancelled' | 'expired' | 'not_found';
+  business_type: 'corporation' | 'individual' | 'other' | 'unknown';
   registration_date: string | null;
-  update_date: string | null;
-  revoke_date: string | null;
-  expire_date: string | null;
-  registration_periods: Array<{
-    registration_date: string;
-    revoke_date: string | null;
-    expire_date: string | null;
-  }>;
-  reference_date: string | null;
-  valid_on_reference_date: boolean | null;
+  cancellation_date: string | null;
+  expiration_date: string | null;
+  corporate_name: string | null;
+  location: string | null;
+  was_registered_on_reference_date: boolean | null;
   data_as_of: string;
-  attribution: Attribution;
+  attribution: string;
+  tax_disclaimer: string;
 }
 ```
-
-**仕様上の重要ルール**:
-- `reference_date` 未指定時、または公表データに該当番号が存在しない場合、`valid_on_reference_date` は `null` になります。
-- 再登録等で同一登録番号に複数の登録期間がある場合、いずれかの期間で `registration_date <= reference_date` かつ `min(revoke_date, expire_date)`（存在する場合）`>= reference_date` を満たせば `valid_on_reference_date: true` となります。
-- 個人事業者（`sole_proprietor`）については、氏名・屋号・所在地をデータベースに保持せず、常に `name: null`, `address: null` を返します。
 
 ---
 
 ### 4. `validate_corporate_number`
 
-**目的**: 法人番号（13桁）のチェックデジット（モジュロ9、国税庁仕様書 第二編 §2.1.3）をローカルで検証します。外部通信や DB クエリは一切行いません。
+- **ソースコード定義**: [`src/tools/validate-check-digit.ts`](file:///Users/kabe/houjin-wt-secret/src/tools/validate-check-digit.ts#L16-L31)
+- **目的**: 13桁の法人番号の形式およびモジュラス9（ウェイト1-2方式）によるチェックデジットをローカルで検証します（外部通信なし）。チェックデジットが正しくても、その法人が実在することは確認しません。
 
-**Input**:
-
+#### Input Schema
 ```typescript
 {
-  corporate_number: string;         // ハイフン・全角数字・空白・先頭T混在可
+  corporate_number: string; // 13-digit corporate number string to validate (regex: /^[0-9]{13}$/)
 }
 ```
 
-**Output (`structuredContent`)**:
-
+#### Output Schema (`structuredContent`)
 ```typescript
 {
-  raw_input: string;
-  normalized_number: string | null; // 半角13桁数字（正規化不能時は null）
-  is_valid: boolean;
-  check_digit: number | null;       // 先頭1桁の検査用数字 (1〜9)
-  expected_check_digit: number | null;
-  reason: 'ok' | 'not_13_digits' | 'check_digit_mismatch' | 'invalid_characters' | 'first_digit_zero';
+  is_valid_format: boolean;
+  is_valid_check_digit: boolean;
+  error_reason: string | null;
 }
 ```
 
@@ -198,29 +152,22 @@
 
 ### 5. `normalize_company_name`
 
-**目的**: 会社名の表記揺れ（7パターン）を正規化し、検索候補リストを生成します。外部通信や DB クエリは一切行いません。
+- **ソースコード定義**: [`src/tools/normalize-company-name.ts`](file:///Users/kabe/houjin-wt-secret/src/tools/normalize-company-name.ts#L16-L32)
+- **目的**: 企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。
 
-**Input**:
-
+#### Input Schema
 ```typescript
 {
-  raw_input: string;                // 1〜500文字
+  raw_name: string; // Raw company name string to normalize (1-200 characters)
 }
 ```
 
-**Output (`structuredContent`)**:
-
+#### Output Schema (`structuredContent`)
 ```typescript
 {
-  raw_input: string;
-  extracted_core_name: string;
-  candidates: Array<{
-    name: string;
-    kind_hint: string;
-    prefix_or_suffix: 'mae_kabu' | 'ato_kabu' | 'none';
-    confidence: number;             // 0.0〜1.0
-    applied_rules: string[];
-  }>;
+  normalized_name: string;        // 正規化された企業名
+  legal_type: string | null;      // 検出された法人種別（未検出の場合は null）
+  search_query_optimized: string; // 検索用に最適化されたコア企業名
 }
 ```
 
@@ -228,40 +175,67 @@
 
 ## Prompts（全3種）
 
-| Prompt 名 | 用途 | 引数 |
-|---|---|---|
-| `company-master-record` | 会社名（および任意の住所ヒント）から表記揺れ正規化→法人検索を行い、取引先マスタ登録用データを整形（個人連絡先は扱わない） | `company_name` (必須), `address_hint` (任意) |
-| `sales-list-enrichment` | 複数の会社名リストに対して法人番号・正式商号・本店所在地を付与 | `company_names` (必須), `output_format` (任意: `markdown_table` / `json` / `csv`) |
-| `customer-master-dedup` | 顧客マスタ内の表記揺れ・移転・合併による重複候補を検出 | `records_jsonl` (必須), `dedup_criteria` (任意) |
+### 1. `company-master-record`
+- **ソースコード定義**: [`src/prompts/company-master-record.ts`](file:///Users/kabe/houjin-wt-secret/src/prompts/company-master-record.ts#L16-L35)
+- **説明**: 会社名から法人番号や公表情報を検索・照合し、社内データベース用の取引先企業マスタレコードを生成します。※個人の連絡先情報は入力しないでください。
+- **引数**:
+  - `company_name`: string (1-500文字, 必須) — 対象の会社名・商号
+  - `location_hint`?: string (最大200文字, 任意) — 名寄せの絞り込みに用いる都道府県や市区町村
+
+### 2. `sales-list-enrichment`
+- **ソースコード定義**: [`src/prompts/sales-list-enrichment.ts`](file:///Users/kabe/houjin-wt-secret/src/prompts/sales-list-enrichment.ts#L24-L32)
+- **説明**: 企業名のリストから法人番号・所在地・法人種別を一括検索し、企業リストを補完します（1回あたり最大20社）。※個人の連絡先情報は入力しないでください。
+- **引数**:
+  - `company_list_text`: string (必須, 1行に1社、最大20社) — 企業名一覧
+
+### 3. `customer-master-dedup`
+- **ソースコード定義**: [`src/prompts/customer-master-dedup.ts`](file:///Users/kabe/houjin-wt-secret/src/prompts/customer-master-dedup.ts#L16-L37)
+- **説明**: 既存の顧客・取引先マスタの社名・住所から、国税庁の公表法人情報と突合して正式名称・法人番号を特定し、名寄せ・表記ゆれの統一を支援します。※個人の連絡先情報は入力しないでください。
+- **引数**:
+  - `target_company_name`: string (1-500文字, 必須) — 名寄せ対象の会社名
+  - `current_address`?: string (最大300文字, 任意) — 照合用の住所
 
 ---
 
 ## UI Resources（全2種）
 
-| URI | 名称 | 対応ツール |
+- **ソースコード定義**: [`src/resources/ui-resources.ts`](file:///Users/kabe/houjin-wt-secret/src/resources/ui-resources.ts#L13-L26)
+
+| URI | 名称 | 概要 |
 |---|---|---|
-| `ui://corporate-card/mcp-app.html` | Corporate Card UI | `lookup_corporate_by_number`, `lookup_invoice_issuer` |
-| `ui://search-results/mcp-app.html` | Search Results UI | `search_corporate_by_name` |
+| `ui://corporate-card/mcp-app.html` | Corporate Card UI | 法人番号検索結果を単一カードとして表示する UI Resource |
+| `ui://search-results/mcp-app.html` | Search Results UI | 法人名検索結果を一覧表として表示する UI Resource |
 
 ---
 
 ## Completion
 
-- `completion/complete` は `ref/prompt` の会社名引数（`company_name`, `target_company_name`, `name`, `raw_input`）に対して `normalizeCompanyName` による表記揺れ展開候補（最大20件）を返します。
+- **ソースコード定義**: [`src/completion/handler.ts`](file:///Users/kabe/houjin-wt-secret/src/completion/handler.ts#L54-L87)
+- `ref/prompt` において、以下の引数名に対して `normalizeCompanyName` による表記揺れ展開候補（最大20件）を補完します：
+  - `company_name`
+  - `target_company_name`
+  - `name`
+  - `raw_input`
 
 ---
 
-## Shared Types
+## Environment Variables（環境変数）
 
-### `Attribution`
+- **ソースコード定義**: [`src/lib/env.ts`](file:///Users/kabe/houjin-wt-secret/src/lib/env.ts#L10-L75)
 
-```typescript
-{
-  source_name: string;
-  source_url: string;
-  disclaimer: string;
-  license: string;
-  api_version: string;
-  data_as_of: string;
-}
-```
+| 環境変数名 | 型 / 許容値 | 既定値 | 説明 |
+|---|---|---|---|
+| `DATA_SOURCE` | `'web-api' \| 'db'` | `'web-api'` | 動作データソースモード |
+| `DATABASE_URL` | string | なし | PostgreSQL 接続文字列（`DATA_SOURCE=db` 時に必須） |
+| `NTA_APPLICATION_ID` | string | なし | 国税庁 Web-API アプリケーション ID（`DATA_SOURCE=web-api` 時に必須） |
+| `NTA_BASE_URL` | string (URL) | `'https://api.houjin-bangou.nta.go.jp/4'` | 国税庁 Web-API ベース URL |
+| `PORT` | number (正の整数) | `3001` | HTTP サーバー待受ポート番号 |
+| `LOG_LEVEL` | `'fatal' \| 'error' \| 'warn' \| 'info' \| 'debug' \| 'trace'` | `'info'` | ログ出力レベル |
+| `NODE_ENV` | `'development' \| 'test' \| 'production'` | `'development'` | 実行環境モード |
+| `NTA_RATE_LIMIT_RPS` | number (正数) | `1` | 国税庁 Web-API への最大リクエスト数/秒 |
+| `NTA_TIMEOUT_MS` | number (正の整数) | `8000` | 国税庁 Web-API へのリクエストタイムアウト（ミリ秒） |
+| `ALLOWED_ORIGINS` | string | `''` | カンマ区切りの許可 Origin 一覧。Origin ヘッダーがある場合のみ照合し、不一致時は HTTP 403 |
+| `TRUST_PROXY` | number (0以上の整数) | `1` | Express の trust proxy ホップ数（Cloud Run 前段 GFE 1段用） |
+| `RATE_LIMIT_WINDOW_MS` | number (正の整数) | `60000` | IP 単位レート制限集計ウィンドウ（ミリ秒） |
+| `RATE_LIMIT_MAX_REQUESTS` | number (正の整数) | `60` | 集計ウィンドウあたりの 1 IP 最大リクエスト数 |
+| `OPENAI_APPS_CHALLENGE_TOKEN` | string | `''` | ChatGPT Apps ドメイン確認用チャレンジトークン。未設定時は 404 |

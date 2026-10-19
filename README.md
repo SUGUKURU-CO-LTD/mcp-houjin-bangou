@@ -14,11 +14,11 @@
 
 An MCP server that enables Claude, ChatGPT, Cursor, VS Code Copilot, and any MCP-compatible client to:
 
-1. **Look up a Japanese corporation** by its 13-digit National Corporate Number (`lookup_corporate_by_number`), with optional side-by-side Qualified Invoice Issuer (`T` + 13 digits) registration status.
-2. **Search corporations by name** (`search_corporate_by_name`) with prefecture/city/status filters, cursor-based pagination, and automatic company-name normalization.
-3. **Verify a Qualified Invoice Issuer** by registration number (`lookup_invoice_issuer`, `T` + 13 digits), including historical registration periods (`registration_periods`) and factual period verification against a transaction reference date (`reference_date` → `valid_on_reference_date`).
+1. **Look up a Japanese corporation** by its 13-digit National Corporate Number (`lookup_corporate_by_number`).
+2. **Search corporations by name** (`search_corporate_by_name`) with optional 2-digit prefecture filter, cursor-based pagination, and automatic company-name normalization.
+3. **Verify a Qualified Invoice Issuer** by registration number (`lookup_invoice_issuer`, `T` + 13 digits), with optional factual registration check as of a specified reference date (`reference_date` → `was_registered_on_reference_date`).
 4. **Validate check digits locally** (`validate_corporate_number`) with zero external network calls.
-5. **Normalize fuzzy company names** (`normalize_company_name`) across 7 Japanese corporate-name patterns (position swaps of `(株)` / `株式会社`, corporate kind extraction, English-to-Japanese suffixes, NFKC, old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
+5. **Normalize fuzzy company names** (`normalize_company_name`) across Japanese corporate-name patterns (position swaps of `(株)` / `株式会社`, corporate kind extraction, English-to-Japanese suffixes, NFKC, old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
 
 ---
 
@@ -72,11 +72,11 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 
 | Tool | Purpose | Annotations (`readOnly` / `destructive` / `idempotent` / `openWorld`*) | Notes |
 |---|---|---|---|
-| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `true` | Optional `include_invoice_status` (default `true`). Linked to `ui://corporate-card/mcp-app.html`. |
-| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `true` | Supports `prefecture_code`, `city_name`, `include_closed`, `limit` (1–50), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
-| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `true` | Optional `reference_date` (`YYYY-MM-DD`). Linked to `ui://corporate-card/mcp-app.html`. |
+| `lookup_corporate_by_number` | Look up 1 corporation by 13-digit corporate number | `true` / `false` / `true` / `true` | Linked to `ui://corporate-card/mcp-app.html`. |
+| `search_corporate_by_name` | Search corporations by name & filters | `true` / `false` / `true` / `true` | Supports optional `prefecture` (01–47), `limit` (1–20), and `cursor`. Linked to `ui://search-results/mcp-app.html`. |
+| `lookup_invoice_issuer` | Look up Qualified Invoice Issuer by `T` + 13 digits | `true` / `false` / `true` / `true` | Optional `reference_date` (`YYYY-MM-DD`) returns `was_registered_on_reference_date`. |
 | `validate_corporate_number` | Local Modulo-9 check-digit validation | `true` / `false` / `true` / `false` | Pure function; no DB or network access (both modes). |
-| `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; expands fuzzy corporate names into search candidates (both modes). |
+| `normalize_company_name` | Deterministic Japanese company-name normalization | `true` / `false` / `true` / `false` | Pure function; extracts normalized name, legal type, and search query (both modes). |
 
 * **Note on `openWorld` annotation**:
 `openWorldHint` is declared by the server for each tool as metadata and is not sent by clients.
@@ -103,7 +103,7 @@ See [`examples/`](examples/) for Cursor and VS Code configurations.
 - **No input logging**: Corporate numbers, invoice registration numbers, and search queries are never written to application logs.
 - **Sole proprietor protection**: For individual (sole proprietor) invoice issuers, personal names, trade names, and addresses are never imported into the database or returned by any tool—only the registration number (`T` + 13 digits), entity classification, and registration/revocation/expiration dates are stored.
 - **Monthly data refresh**: The hosted database is updated once per month (snapshot as of the end of the preceding month). Mid-month changes, revocations, or deletion requests (process code `99`) are reflected in the next monthly update. Every response includes `data_as_of`.
-- **Factual lookup only**: Date comparisons (`valid_on_reference_date`) represent a mechanical comparison against published registration periods and do not constitute tax or legal advice.
+- **Factual lookup only**: Date comparisons (`was_registered_on_reference_date`) represent a mechanical comparison against published registration periods and do not constitute tax or legal advice.
 
 ---
 

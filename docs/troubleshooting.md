@@ -62,21 +62,19 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 > `エラーコード 180: 検索結果件数が多いため結果をお返しできません。`
 
-**原因**: `search_corporate_by_name` で絞り込みが弱く、ヒット件数が内部上限を超えた。
+**原因**: `search_corporate_by_name` で絞り込みが弱く、ヒット件数が国税庁側の内部上限を超えた。
 
 **対処**:
 
-- `prefecture_code` パラメータで都道府県コード（JIS X 0401 2桁）を指定
-- `city_name` パラメータで市区町村名を絞る
-- `kind` パラメータで法人種別を絞る
-- 会社名をより具体的に入力
-- `match_mode: 'prefix'` に変更
+- `prefecture` パラメータで都道府県コード（JIS X 0401 2桁 '01'〜'47'）を指定
+- 会社名をより具体的・正式な名称で入力
+- `normalize_company_name` ツールを実行し、得られた `search_query_optimized` を使って検索
 
 ### タイムアウト
 
 > `NtaApiError: NTA API request timed out`
 
-**原因**: 国税庁サーバの応答が 8 秒を超過。
+**原因**: 国税庁サーバの応答がタイムアウト設定値を超過。
 
 **対処**:
 
@@ -103,21 +101,21 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 ## 表記揺れ正規化の期待値ズレ
 
-### T7 が期待通りの候補を返さない
+### 正規化が期待通りの結果を返さない
 
-1. 入力を `tools/call normalize_company_name` で直接試し、`applied_rules` を確認
-2. 該当パターンが `src/domain/normalizer.ts` の `OLD_TO_NEW` / `KIND_KEYWORDS_JA` / `EN_SUFFIX_PATTERNS` に含まれているか確認
-3. 含まれていなければ [Feature request](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues/new?template=feature_request.yml) を立てる
+1. 入力を `tools/call normalize_company_name`（引数: `raw_name`）で直接試し、`normalized_name` と `search_query_optimized` を確認
+2. 該当パターンが法人格略称（（株）、(株)、㈱ 等）や全角半角の範囲に含まれているか確認
+3. 想定外の挙動であれば [GitHub Issues](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues) で報告してください
 
-### 「この揺れは国税庁 `target=1` が吸収すべき」と判定された
+### 「この揺れは国税庁側が吸収すべき」と判定された
 
-国税庁 API の `target=1` は下記を自動で吸収します (第二編 §4.6.2):
+国税庁 Web-API の商号検索（あいまい検索）は下記を自動で吸収します (第二編 §4.6.2):
 
 - ひらがな → カタカナ
 - 英小文字 → 英大文字
 - 中点 (・)・全角スペース削除
 
-これらは T7 では重複実装しません。`search_corporate_by_name` に `search_target: 'fuzzy'` を指定すると自動で処理されます。
+これらはクライアント側での過度な加工を行わず、国税庁側の検索機能または `search_query_optimized` を活用します。
 
 ## Node.js バージョン関連
 

@@ -42,18 +42,49 @@ SQL 定義ファイルは [`docs/deployment/db-roles.sql`](./db-roles.sql) に�
 
 ### Step 1: ロールと `pg_trgm` 拡張の作成（Phase 1 & 2）
 
-データベース管理者（または Cloud SQL の `cloudsqlsuperuser`）で接続し、`db-roles.sql` の Phase 1・Phase 2 を実行します。本番環境でパスワード認証または Cloud SQL IAM 認証を使う場合は、ログイン用のユーザーを作成して各ロールを `GRANT` するか、各ロールに `LOGIN PASSWORD '...'` を付与します。
+データベース管理者（または Cloud SQL の `cloudsqlsuperuser`）で接続し、`db-roles.sql` の Phase 1・Phase 2 を実行します。各ロール（`houjin_admin`, `houjin_ingest`, `houjin_reader`）に直接 `LOGIN PASSWORD` を付与し、ローカルの `cloud-sql-proxy` 経由でパスワードを画面に出力せずに設定・Secret Manager へ登録します。
+
+#### 1. 各ロールへの LOGIN PASSWORD の付与方式
 
 ```sql
--- 例: 接続用ユーザーを作成して各ロールを付与する場合
-CREATE USER app_admin WITH PASSWORD '...' IN ROLE houjin_admin;
-CREATE USER app_ingest WITH PASSWORD '...' IN ROLE houjin_ingest;
-CREATE USER app_reader WITH PASSWORD '...' IN ROLE houjin_reader;
+-- 各ロールに直接 LOGIN PASSWORD を設定する方式
+ALTER ROLE houjin_admin WITH LOGIN PASSWORD '...';
+ALTER ROLE houjin_ingest WITH LOGIN PASSWORD '...';
+ALTER ROLE houjin_reader WITH LOGIN PASSWORD '...';
+```
 
--- セッション接続時にロール権限でオブジェクトを作成させるため、既定ロールを設定
-ALTER USER app_admin SET role = 'houjin_admin';
-ALTER USER app_ingest SET role = 'houjin_ingest';
-ALTER USER app_reader SET role = 'houjin_reader';
+#### 2. cloud-sql-proxy を使った画面非表示でのパスワード設定と Secret 登録
+
+ローカルで `cloud-sql-proxy <PROJECT_ID>:asia-northeast1:houjin-bangou-pg16 --port=5432` を起動した状態で、別ターミナルから以下を実行します。パスワードは画面に出力されず、Secret Manager に直接登録されます。
+
+```bash
+# Phase 1 & 2 の適用
+psql "host=127.0.0.1 port=5432 dbname=corp_check user=postgres" -f docs/deployment/db-roles.sql
+
+# パスワードをランダム生成して各ロールに設定（画面非表示）
+ADMIN_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+INGEST_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+READER_PW=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+
+psql "host=127.0.0.1 port=5432 dbname=corp_check user=postgres" <<EOF
+ALTER ROLE houjin_admin WITH LOGIN PASSWORD '$ADMIN_PW';
+ALTER ROLE houjin_ingest WITH LOGIN PASSWORD '$INGEST_PW';
+ALTER ROLE houjin_reader WITH LOGIN PASSWORD '$READER_PW';
+EOF
+
+# Secret Manager に接続文字列バージョンを追加（画面非表示）
+PROJECT_ID="<PROJECT_ID>"
+
+printf "postgresql://houjin_admin:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$ADMIN_PW" "$PROJECT_ID" | \
+  gcloud secrets versions add houjin-db-url-admin --data-file=-
+
+printf "postgresql://houjin_ingest:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$INGEST_PW" "$PROJECT_ID" | \
+  gcloud secrets versions add houjin-db-url-ingest --data-file=-
+
+printf "postgresql://houjin_reader:%s@localhost/corp_check?host=/cloudsql/%s:asia-northeast1:houjin-bangou-pg16" "$READER_PW" "$PROJECT_ID" | \
+  gcloud secrets versions add houjin-db-url-reader --data-file=-
+
+unset ADMIN_PW INGEST_PW READER_PW
 ```
 
 ### Step 2: マイグレーションの実行（`houjin_admin`）

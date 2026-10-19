@@ -14,11 +14,11 @@
 
 Claude、ChatGPT、Cursor、VS Code Copilot などの MCP 対応クライアントから、以下の機能を利用できます。
 
-1. **法人番号（13桁）による法人照会** (`lookup_corporate_by_number`) — 1件の法人番号から商号・本店所在地・法人種別・登記閉鎖や吸収合併の承継先情報を取得し、あわせて適格請求書発行事業者（インボイス）の登録状態も確認できます。
-2. **法人名による検索** (`search_corporate_by_name`) — 表記揺れの自動正規化・都道府県や市区町村での絞り込み・カーソルページングに対応しています。
-3. **適格請求書発行事業者（T+13桁）の照会** (`lookup_invoice_issuer`) — 登録番号（`T` + 13桁）の登録有無、過去の登録期間履歴（`registration_periods`）、および指定した取引基準日（`reference_date`）が有効な登録期間内にあるかの事実確認（`valid_on_reference_date`）を行います。
+1. **法人番号（13桁）による法人照会** (`lookup_corporate_by_number`) — 1件の法人番号から商号・本店所在地・法人種別・登記閉鎖の有無などの公表基本情報を取得できます。
+2. **法人名による検索** (`search_corporate_by_name`) — 表記揺れの自動正規化・都道府県での絞り込み・カーソルページングに対応しています。
+3. **適格請求書発行事業者（T+13桁）の照会** (`lookup_invoice_issuer`) — 登録番号（`T` + 13桁）の登録状態、登録年月日、取消・失効年月日、および指定した取引基準日（`reference_date`）時点での登録有効性の事実確認（`was_registered_on_reference_date`）を行います。
 4. **チェックデジットのローカル検証** (`validate_corporate_number`) — 外部通信を一切行わずに13桁の法人番号の検査用数字（モジュロ9）を検証します。
-5. **会社名の表記揺れ正規化** (`normalize_company_name`) — `(株)` / `株式会社` の前後位置展開、法人種別分離、英語表記（K.K. / Inc. 等）の変換、旧字体→新字体変換（髙→高、﨑→崎 等）、異体字セレクタ除去など 7 パターンの正規化候補を生成します。
+5. **会社名の表記揺れ正規化** (`normalize_company_name`) — `(株)` / `株式会社` の前後位置展開、法人種別分離、英語表記（K.K. / Inc. 等）の変換、旧字体→新字体変換（髙→高、﨑→崎 等）、異体字セレクタ除去など、正規化された商号や検索最適化クエリを生成します。
 
 ---
 
@@ -72,11 +72,11 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 
 | ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`※) | 備考 |
 |---|---|---|---|
-| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `true` | `include_invoice_status`（既定 `true`）でインボイス状態も併記。UI `ui://corporate-card/mcp-app.html` 対応 |
-| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `true` | 都道府県コード・市区町村名・閉鎖法人含有・`limit`（1〜50）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
-| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `true` | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効期間照合に対応。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `true` | UI `ui://corporate-card/mcp-app.html` 対応 |
+| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `true` | 都道府県コード（01〜47）・`limit`（1〜20）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
+| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `true` | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効性照合（`was_registered_on_reference_date`）に対応。 |
 | `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
-| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
+| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（正規化後商号・法人種別・検索最適化クエリを出力、外部通信なし、共通） |
 
 ※ **`openWorld` アノテーションに関する注記**:
 `openWorldHint` はサーバーがツールごとに宣言する注釈（メタデータ）であり、クライアントから送信されるものではありません。
@@ -103,7 +103,7 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 - **入力値の非記録**: 利用者が入力した法人番号、インボイス登録番号、検索語はアプリケーションのアクセスログに記録しません。
 - **個人事業者情報の保護**: 適格請求書発行事業者のうち個人事業者のデータについては、氏名・屋号・所在地をデータベースに取り込まず、出力もしません（登録番号 `T`+13桁、人格区分、登録・取消・失効等の日付のみを保持し、完全一致照会のみを提供します）。
 - **月1回のデータ更新**: ホスト版の公表データは月1回（前月末時点の全件データ）で更新されます。月途中の変更・取消・失効や、法人番号の処理区分「99（削除）」・インボイス公表申出の取り下げ等は次回の月次更新まで反映されません。各応答にはデータの基準日（`data_as_of`）が含まれます。
-- **事実照会への限定**: `valid_on_reference_date` を含む本サーバーの出力は公表データ上の日付との事実照合結果であり、個別の税務相談・税務判断を提供するものではありません。
+- **事実照会への限定**: `was_registered_on_reference_date` を含む本サーバーの出力は公表データ上の日付との事実照合結果であり、個別の税務相談・税務判断を提供するものではありません。
 
 ---
 
