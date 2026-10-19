@@ -95,6 +95,7 @@ terraform -chdir=infra/terraform apply \
 ### 2.4 Cloud SQL・DB・Secret・サービスアカウント・権限の先行作成
 
 Cloud Run サービスおよびジョブは起動・作成時に Secret Manager の `latest` バージョンを参照するため、全体 `apply` の前に Cloud SQL・DB・Secret・サービスアカウント・権限だけを `-target` で作成します。
+組織ポリシーで保管場所が制限されているため、Secret は東京リージョン（`var.region`）に保管します。
 
 ```bash
 terraform -chdir=infra/terraform apply \
