@@ -83,7 +83,11 @@ resource "google_project_iam_member" "migrate_cloudsql_client" {
 resource "google_secret_manager_secret" "db_url_reader" {
   secret_id = "houjin-db-url-reader"
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
 
   depends_on = [google_project_service.apis]
@@ -92,7 +96,11 @@ resource "google_secret_manager_secret" "db_url_reader" {
 resource "google_secret_manager_secret" "db_url_ingest" {
   secret_id = "houjin-db-url-ingest"
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
 
   depends_on = [google_project_service.apis]
@@ -101,7 +109,11 @@ resource "google_secret_manager_secret" "db_url_ingest" {
 resource "google_secret_manager_secret" "db_url_admin" {
   secret_id = "houjin-db-url-admin"
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
 
   depends_on = [google_project_service.apis]
