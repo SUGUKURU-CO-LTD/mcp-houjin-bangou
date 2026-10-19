@@ -10,10 +10,6 @@
 🇯🇵 日本語版 README: [README.ja.md](README.ja.md)  
 🔗 Official Product Pages: [Product Overview](https://sugu-kuru.co.jp/en/mcp/houjin) | [Terms of Service](https://sugu-kuru.co.jp/en/mcp/houjin/terms) | [Privacy Policy](https://sugu-kuru.co.jp/en/mcp/houjin/privacy)
 
-<p align="center">
-  <img src="docs/assets/screenshots/corporate-card-active.png" alt="Corporate Card (MCP Apps UI)" width="720">
-</p>
-
 ## Overview
 
 An MCP server that enables Claude, ChatGPT, Cursor, VS Code Copilot, and any MCP-compatible client to:
