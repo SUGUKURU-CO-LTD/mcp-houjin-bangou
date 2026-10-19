@@ -1,47 +1,26 @@
 {
-  "total": 2,
-  "page_number": 1,
-  "page_size": 1,
-  "next_cursor": null,
-  "corporations": [
+  "results": [
     {
       "corporate_number": "5111101000006",
       "name": "株式会社検索対象除外",
-      "kind": "301",
-      "prefecture_name": "東京都",
-      "city_name": "千代田区",
-      "street_number": "神田小川町一丁目10番地",
-      "post_code": "1000000",
-      "assignment_date": "2015-10-05",
+      "legal_type": "株式会社",
+      "status": "active",
+      "location": "東京都千代田区神田小川町",
       "update_date": "2019-04-03",
-      "latest": "1",
-      "hihyoji": "0",
-      "en_name": "Sample Corporation",
-      "furigana": "サンプル",
-      "close_date": ""
+      "address_may_be_outdated": true
     },
     {
       "corporate_number": "8040001999013",
       "name": "株式会社商号変更後",
-      "kind": "301",
-      "prefecture_name": "千葉県",
-      "city_name": "千葉市中央区",
-      "street_number": "蘇我五丁目9番1号",
-      "post_code": "2600822",
-      "assignment_date": "2015-10-05",
+      "legal_type": "株式会社",
+      "status": "active",
+      "location": "千葉県千葉市中央区蘇我五丁目9番1号",
       "update_date": "2017-05-09",
-      "latest": "1",
-      "hihyoji": "0",
-      "en_name": "",
-      "furigana": "",
-      "close_date": ""
+      "address_may_be_outdated": false
     }
   ],
-  "attribution": {
-    "data_source": "国税庁法人番号公表サイト（国税庁）https://www.houjin-bangou.nta.go.jp/",
-    "service_disclaimer": "このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。",
-    "license": "公共データ利用規約 第1.0版",
-    "api_version": "Ver.4.0",
-    "accessed_at": "2026-04-29T00:00:00.000Z"
-  }
+  "total_count": 2,
+  "next_cursor": null,
+  "data_as_of": "2026-10-12",
+  "attribution": "出典：国税庁法人番号公表サイト（全件データ） / このサービスは、国税庁法人番号システムのWeb-API機能またはダウンロードデータを利用して取得した情報をもとに作成していますが、サービスの内容は国税庁によって保証されたものではありません。"
 }

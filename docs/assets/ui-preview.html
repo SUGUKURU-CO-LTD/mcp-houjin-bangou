@@ -58,6 +58,14 @@
         font-size: 11px;
         padding: 3px 8px;
       }
+      .warning {
+        border: 1px solid color-mix(in srgb, #b85d00 45%, transparent);
+        border-radius: 8px;
+        color: #b85d00;
+        font-size: 12px;
+        margin: 0 0 12px;
+        padding: 8px 10px;
+      }
       .attribution {
         color: color-mix(in srgb, CanvasText 65%, transparent);
         font-size: 12px;
@@ -68,27 +76,44 @@
     <h1>mcp-houjin-bangou UI Preview</h1>
     <section>
       <h2>Corporate Card</h2>
+      <p class="warning">本店所在地は登記上の古い情報の可能性があります（検索対象除外フラグあり）</p>
       <dl>
         <dt>法人番号</dt>
         <dd><code>5111101000006</code></dd>
         <dt>名称</dt>
         <dd>株式会社検索対象除外</dd>
+        <dt>フリガナ</dt>
+        <dd>カブシキガイシャケンサクタイショウジョガイ</dd>
         <dt>法人種別</dt>
-        <dd>株式会社 (301)</dd>
+        <dd>株式会社</dd>
         <dt>本店所在地</dt>
-        <dd>東京都千代田区神田小川町一丁目10番地</dd>
+        <dd>東京都千代田区神田小川町</dd>
+        <dt>郵便番号</dt>
+        <dd>1000000</dd>
+        <dt>最終更新日</dt>
+        <dd>2019-04-03</dd>
+        <dt>データ基準日</dt>
+        <dd>2019-04-05</dd>
+        <dt>閉鎖日</dt>
+        <dd>なし</dd>
+        <dt>閉鎖事由</dt>
+        <dd>なし</dd>
         <dt>状態</dt>
-        <dd><span class="status">Active</span></dd>
+        <dd><span class="status">登記中 (active)</span></dd>
       </dl>
-      <p class="attribution">出典: 国税庁法人番号公表サイト</p>
+      <p class="attribution">
+        出典：国税庁法人番号公表サイト（全件データ） / このサービスは、国税庁法人番号システムのWeb-API機能またはダウンロードデータを利用して取得した情報をもとに作成していますが、サービスの内容は国税庁によって保証されたものではありません。
+      </p>
     </section>
     <section>
       <h2>Search Results</h2>
+      <p>全 2 件中 2 件を表示 / 次ページ: なし / 基準日: 2026-10-12</p>
       <table>
         <thead>
           <tr>
             <th>法人番号</th>
             <th>名称</th>
+            <th>法人種別</th>
             <th>所在地</th>
             <th>状態</th>
           </tr>
@@ -97,18 +122,22 @@
           <tr>
             <td><code>5111101000006</code></td>
             <td>株式会社検索対象除外</td>
-            <td>東京都千代田区神田小川町一丁目10番地</td>
-            <td><span class="status">Active</span></td>
+            <td>株式会社</td>
+            <td>東京都千代田区神田小川町 ※所在地注意</td>
+            <td><span class="status">登記中 (active)</span></td>
           </tr>
           <tr>
             <td><code>8040001999013</code></td>
             <td>株式会社商号変更後</td>
+            <td>株式会社</td>
             <td>千葉県千葉市中央区蘇我五丁目9番1号</td>
-            <td><span class="status">Active</span></td>
+            <td><span class="status">登記中 (active)</span></td>
           </tr>
         </tbody>
       </table>
-      <p class="attribution">出典: 国税庁法人番号公表サイト</p>
+      <p class="attribution">
+        出典：国税庁法人番号公表サイト（全件データ） / このサービスは、国税庁法人番号システムのWeb-API機能またはダウンロードデータを利用して取得した情報をもとに作成していますが、サービスの内容は国税庁によって保証されたものではありません。
+      </p>
     </section>
   </body>
 </html>

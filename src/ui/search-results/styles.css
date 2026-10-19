@@ -101,6 +101,12 @@ tbody tr:hover {
   margin: 10px 0;
 }
 
+.address-warning {
+  color: #9a6a00;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
 footer {
   margin-top: 12px;
   border-top: 1px solid color-mix(in srgb, CanvasText 14%, transparent);

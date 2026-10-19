@@ -71,6 +71,7 @@ export async function runMigrateCli(
     return 0;
   } catch (err) {
     const errorType = err instanceof Error ? err.name : 'UnknownError';
+    const msg = err instanceof Error ? err.message : String(err);
     output.write(
       JSON.stringify({
         level: 'error',
@@ -79,6 +80,7 @@ export async function runMigrateCli(
         duration_ms: Date.now() - startTime,
         status: 'failed',
         error_type: errorType,
+        msg,
       }) + '\n',
     );
     return 1;

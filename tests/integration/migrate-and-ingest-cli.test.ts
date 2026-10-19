@@ -191,6 +191,7 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       expect(lines1).toHaveLength(1);
       expect(lines1[0]?.logger).toBe('dataset_ingest');
       expect(lines1[0]?.status).toBe('failed');
+      expect(String(lines1[0]?.msg ?? '')).toContain('Invalid or missing --type');
 
       const missingDirLogs = createLogCollector();
       const code2 = await runIngestCli(
@@ -211,6 +212,7 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       const lines2 = missingDirLogs.getLines();
       expect(lines2).toHaveLength(1);
       expect(lines2[0]?.status).toBe('failed');
+      expect(String(lines2[0]?.msg ?? '')).toContain('Target directory does not exist');
     });
 
     it('ingests split corporate and invoice CSV files in filename order (exit code 0) and serves queries via DB providers', async () => {
@@ -394,9 +396,10 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       const logLines = failLogs.getLines();
       expect(logLines).toHaveLength(1);
       expect(logLines[0]?.status).toBe('failed');
+      expect(String(logLines[0]?.msg ?? '')).toContain('failed 24-column validation');
     });
 
-    it('returns exit code 1 when migration fails due to non-existent migrations folder', async () => {
+    it('returns exit code 1 when migration fails due to non-existent migrations folder and logs error message', async () => {
       const failMigrateLogs = createLogCollector();
       const code = await runMigrateCli(
         {
@@ -410,6 +413,8 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       expect(logLines).toHaveLength(1);
       expect(logLines[0]?.logger).toBe('db_migrate');
       expect(logLines[0]?.status).toBe('failed');
+      expect(typeof logLines[0]?.msg).toBe('string');
+      expect(String(logLines[0]?.msg ?? '').length).toBeGreaterThan(0);
     });
   });
 });

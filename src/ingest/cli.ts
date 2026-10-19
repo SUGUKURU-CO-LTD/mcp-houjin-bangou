@@ -201,7 +201,7 @@ export async function runIngestCli(
           durationMs: Date.now() - startTime,
           errorType,
         },
-        'Failed to initialize database client for ingestion',
+        err instanceof Error ? err.message : 'Failed to initialize database client for ingestion',
       );
     }
     return 1;

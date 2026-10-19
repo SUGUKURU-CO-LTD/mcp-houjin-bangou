@@ -6,6 +6,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
@@ -13,13 +14,13 @@ const UI_RESOURCES = [
   {
     name: 'Corporate Card UI',
     uri: 'ui://corporate-card/mcp-app.html',
-    distPath: 'dist/ui/corporate-card/mcp-app.html',
+    distPath: fileURLToPath(new URL('../../dist/ui/corporate-card/mcp-app.html', import.meta.url)),
     description: '法人番号検索結果を単一カードとして表示する UI Resource',
   },
   {
     name: 'Search Results UI',
     uri: 'ui://search-results/mcp-app.html',
-    distPath: 'dist/ui/search-results/mcp-app.html',
+    distPath: fileURLToPath(new URL('../../dist/ui/search-results/mcp-app.html', import.meta.url)),
     description: '法人名検索結果を一覧表として表示する UI Resource',
   },
 ] as const;

@@ -468,6 +468,8 @@ export class DatasetImporter {
         }
       }
 
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const errMessage = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
       this.logger.error(
         {
           sourceType: 'nta_corporate_download',
@@ -478,7 +480,7 @@ export class DatasetImporter {
           invalidRowCount,
           errorType,
         },
-        'Corporate dataset import failed; prior active dataset preserved',
+        `Corporate dataset import failed; prior active dataset preserved: ${errMessage}`,
       );
 
       throw err;
@@ -774,6 +776,8 @@ export class DatasetImporter {
         }
       }
 
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const errMessage = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
       this.logger.error(
         {
           sourceType: 'nta_invoice_download',
@@ -784,7 +788,7 @@ export class DatasetImporter {
           unknownKindCount,
           errorType,
         },
-        'Invoice dataset import failed; prior active dataset preserved',
+        `Invoice dataset import failed; prior active dataset preserved: ${errMessage}`,
       );
 
       throw err;

@@ -38,13 +38,19 @@ h1 {
   margin: 0 0 4px;
 }
 
-.en,
+.kana,
 .empty,
 .attribution,
 .disclaimer {
   color: color-mix(in srgb, CanvasText 70%, transparent);
   font-size: 12px;
   margin: 4px 0;
+}
+
+.address-warning {
+  color: #9a6a00;
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .status {

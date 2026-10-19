@@ -1,74 +1,142 @@
 import { App, applyDocumentTheme } from '@modelcontextprotocol/ext-apps';
+import { VERSION } from '../../version';
 import {
-  escapeText,
-  formatAddress,
-  kindLabel,
-  renderAttribution,
-  statusLabel,
-  type Attribution,
-  type Corporation,
+  buildCorporateCardViewModel,
+  buildSearchSimilarArgs,
+  type LookupCorporateOutput,
 } from '../shared';
 import './styles.css';
 
-interface LookupOutput {
-  corporations?: Corporation[];
-  corporation?: Corporation | null;
-  attribution?: Attribution;
-}
-
-const app = new App({ name: 'houjin-bangou-corporate-card', version: '0.1.0' }, {});
+const app = new App({ name: 'houjin-bangou-corporate-card', version: VERSION }, {});
 const root = document.getElementById('app');
+
+function appendFact(dl: HTMLDListElement, label: string, value: string | Node): void {
+  const dt = document.createElement('dt');
+  dt.textContent = label;
+  const dd = document.createElement('dd');
+  if (typeof value === 'string') {
+    dd.textContent = value;
+  } else {
+    dd.appendChild(value);
+  }
+  dl.append(dt, dd);
+}
 
 function renderEmpty(message: string): void {
   if (root === null) return;
-  root.innerHTML = `
-    <section class="empty-state">
-      <p>${escapeText(message)}</p>
-      <small>lookup_corporate_by_number の結果を受け取ると、ここに法人カードが表示されます。</small>
-    </section>
-  `;
+  const section = document.createElement('section');
+  section.className = 'empty-state';
+
+  const p = document.createElement('p');
+  p.textContent = message;
+
+  const small = document.createElement('small');
+  small.textContent =
+    'lookup_corporate_by_number の結果を受け取ると、ここに法人カードが表示されます。';
+
+  section.append(p, small);
+  root.replaceChildren(section);
 }
 
-function renderCard(output: LookupOutput): void {
+function renderCard(output: LookupCorporateOutput): void {
   if (root === null) return;
-  const corporation = output.corporation ?? output.corporations?.[0] ?? null;
-  if (corporation === null || corporation === undefined) {
+  const vm = buildCorporateCardViewModel(output);
+  if (vm === null) {
     renderEmpty('該当する法人情報がありません。');
     return;
   }
 
-  const address = formatAddress(corporation);
-  const status = statusLabel(corporation);
-  root.innerHTML = `
-    <section class="header">
-      <div>
-        <h1>${escapeText(corporation.name)}</h1>
-        ${corporation.en_name ? `<p class="en">${escapeText(corporation.en_name)}</p>` : ''}
-      </div>
-      <span class="status ${escapeText(status.className)}">${escapeText(status.label)}</span>
-    </section>
-    <dl class="facts">
-      <dt>法人番号</dt><dd><code>${escapeText(corporation.corporate_number)}</code></dd>
-      <dt>法人種別</dt><dd>${escapeText(kindLabel(corporation.kind))} <span class="muted">(${escapeText(corporation.kind)})</span></dd>
-      <dt>本店所在地</dt><dd>${escapeText(address)}</dd>
-      <dt>郵便番号</dt><dd>${escapeText(corporation.post_code)}</dd>
-      <dt>法人番号指定年月日</dt><dd>${escapeText(corporation.assignment_date)}</dd>
-      <dt>最終更新日</dt><dd>${escapeText(corporation.update_date)}</dd>
-      <dt>フリガナ</dt><dd>${escapeText(corporation.furigana || '未登録')}</dd>
-    </dl>
-    <section class="actions">
-      <button type="button" id="search-similar">類似商号を検索</button>
-      <button type="button" id="copy-number">法人番号をコピー</button>
-    </section>
-    <footer>${renderAttribution(output.attribution)}</footer>
-  `;
+  const header = document.createElement('section');
+  header.className = 'header';
 
-  document.getElementById('search-similar')?.addEventListener('click', () => {
-    void searchSimilar(corporation.name);
+  const titleWrap = document.createElement('div');
+  const h1 = document.createElement('h1');
+  h1.textContent = vm.name;
+  titleWrap.appendChild(h1);
+
+  if (vm.name_kana !== null) {
+    const kanaP = document.createElement('p');
+    kanaP.className = 'kana';
+    kanaP.textContent = vm.name_kana;
+    titleWrap.appendChild(kanaP);
+  }
+
+  const statusSpan = document.createElement('span');
+  statusSpan.className = `status ${vm.status_badge.className}`;
+  statusSpan.textContent = vm.status_badge.label;
+
+  header.append(titleWrap, statusSpan);
+
+  const facts = document.createElement('dl');
+  facts.className = 'facts';
+
+  const codeEl = document.createElement('code');
+  codeEl.textContent = vm.corporate_number;
+  appendFact(facts, '法人番号', codeEl);
+  appendFact(facts, 'フリガナ', vm.name_kana_display);
+  appendFact(facts, '法人種別', vm.legal_type);
+
+  if (vm.address_warning !== null) {
+    const locWrap = document.createElement('div');
+    const locText = document.createElement('span');
+    locText.textContent = vm.location;
+    const warnP = document.createElement('p');
+    warnP.className = 'address-warning';
+    warnP.textContent = vm.address_warning;
+    locWrap.append(locText, warnP);
+    appendFact(facts, '本店所在地', locWrap);
+  } else {
+    appendFact(facts, '本店所在地', vm.location);
+  }
+
+  appendFact(facts, '郵便番号', vm.post_code_display);
+  appendFact(facts, '状態', vm.status_badge.label);
+
+  if (vm.status === 'closed' || vm.close_date !== null) {
+    appendFact(facts, '閉鎖年月日', vm.close_date ?? '未登録');
+  }
+  if (vm.status === 'closed' || vm.close_cause !== null) {
+    appendFact(facts, '閉鎖事由', vm.close_cause ?? '未登録');
+  }
+
+  appendFact(facts, '最終更新日', vm.update_date);
+  if (vm.data_as_of !== null) {
+    appendFact(facts, 'データ時点', vm.data_as_of);
+  }
+
+  const actions = document.createElement('section');
+  actions.className = 'actions';
+
+  const searchBtn = document.createElement('button');
+  searchBtn.type = 'button';
+  searchBtn.id = 'search-similar';
+  searchBtn.textContent = '類似商号を検索';
+  searchBtn.addEventListener('click', () => {
+    void searchSimilar(vm.name);
   });
-  document.getElementById('copy-number')?.addEventListener('click', () => {
-    void navigator.clipboard?.writeText(corporation.corporate_number);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.id = 'copy-number';
+  copyBtn.textContent = '法人番号をコピー';
+  copyBtn.addEventListener('click', () => {
+    void navigator.clipboard?.writeText(vm.corporate_number);
   });
+
+  actions.append(searchBtn, copyBtn);
+
+  const children: Node[] = [header, facts, actions];
+
+  if (vm.attribution !== null) {
+    const footer = document.createElement('footer');
+    const attrP = document.createElement('p');
+    attrP.className = 'attribution';
+    attrP.textContent = vm.attribution;
+    footer.appendChild(attrP);
+    children.push(footer);
+  }
+
+  root.replaceChildren(...children);
 }
 
 async function searchSimilar(name: string): Promise<void> {
@@ -76,17 +144,13 @@ async function searchSimilar(name: string): Promise<void> {
   try {
     const result = await app.callServerTool({
       name: 'search_corporate_by_name',
-      arguments: {
-        name,
-        match_mode: 'partial',
-        search_target: 'fuzzy',
-      },
+      arguments: buildSearchSimilarArgs(name),
     });
     if (result.isError) {
       renderEmpty('検索に失敗しました。tool result を確認してください。');
       return;
     }
-    renderCard((result.structuredContent ?? {}) as LookupOutput);
+    renderCard((result.structuredContent ?? {}) as LookupCorporateOutput);
   } catch (error) {
     renderEmpty(error instanceof Error ? error.message : '検索に失敗しました。');
   }
@@ -97,7 +161,7 @@ app.onhostcontextchanged = (ctx) => {
 };
 
 app.ontoolresult = (params) => {
-  renderCard((params.structuredContent ?? {}) as LookupOutput);
+  renderCard((params.structuredContent ?? {}) as LookupCorporateOutput);
 };
 
 await app.connect();
