@@ -42,4 +42,28 @@ describe('formatErrorWithCause', () => {
     expect(formatErrorWithCause('custom failure string')).toBe('custom failure string');
     expect(formatErrorWithCause(null, 'fallback default')).toBe('fallback default');
   });
+
+  it('truncates Failed query: SQL portion to 200 characters and preserves cause', () => {
+    const longSql =
+      'insert into corporate_numbers (' +
+      'col_name, '.repeat(50) +
+      'col_end) values (' +
+      '1, '.repeat(50) +
+      '2)';
+    const err = new Error(`Failed query: ${longSql}\nparams: ["sensitive_value"]`);
+    err.cause = new Error(
+      'value too long for type character varying(50)\nparams: ["sensitive_value"]',
+    );
+
+    const result = formatErrorWithCause(err);
+    const expectedSqlPrefix = longSql.slice(0, 200);
+
+    expect(result).toBe(
+      `Failed query: ${expectedSqlPrefix}…(省略) / cause: value too long for type character varying(50)`,
+    );
+    expect(result).not.toContain('params');
+    expect(result).not.toContain('sensitive_value');
+    expect(result).toContain('…(省略)');
+    expect(result).toContain('cause: value too long for type character varying(50)');
+  });
 });

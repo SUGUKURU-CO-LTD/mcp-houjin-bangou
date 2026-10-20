@@ -1,0 +1,1022 @@
+{
+  "id": "31471605-8523-47d9-9b62-818ebf572361",
+  "prevId": "209d095a-d29e-4c23-9aaf-0c2ac61841c5",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.corporate_numbers": {
+      "name": "corporate_numbers",
+      "schema": "",
+      "columns": {
+        "corporate_number": {
+          "name": "corporate_number",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "correct": {
+          "name": "correct",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "update_date": {
+          "name": "update_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_date": {
+          "name": "change_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name_image_id": {
+          "name": "name_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prefecture_name": {
+          "name": "prefecture_name",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city_name": {
+          "name": "city_name",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street_number": {
+          "name": "street_number",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_image_id": {
+          "name": "address_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prefecture_code": {
+          "name": "prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city_code": {
+          "name": "city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "post_code": {
+          "name": "post_code",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_outside": {
+          "name": "address_outside",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_outside_image_id": {
+          "name": "address_outside_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "close_date": {
+          "name": "close_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "close_cause": {
+          "name": "close_cause",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "successor_corporate_number": {
+          "name": "successor_corporate_number",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "change_cause": {
+          "name": "change_cause",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignment_date": {
+          "name": "assignment_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latest": {
+          "name": "latest",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "en_name": {
+          "name": "en_name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_prefecture_name": {
+          "name": "en_prefecture_name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_city_name": {
+          "name": "en_city_name",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_address_outside": {
+          "name": "en_address_outside",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "furigana": {
+          "name": "furigana",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hihyoji": {
+          "name": "hihyoji",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "dataset_version_id": {
+          "name": "dataset_version_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_corporate_numbers_number": {
+          "name": "idx_corporate_numbers_number",
+          "columns": [
+            {
+              "expression": "corporate_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_corporate_numbers_name": {
+          "name": "idx_corporate_numbers_name",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_corporate_numbers_name_pattern": {
+          "name": "idx_corporate_numbers_name_pattern",
+          "columns": [
+            {
+              "expression": "\"name\" text_pattern_ops",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_corporate_numbers_name_trgm": {
+          "name": "idx_corporate_numbers_name_trgm",
+          "columns": [
+            {
+              "expression": "\"name\" gin_trgm_ops",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "idx_corporate_numbers_prefecture": {
+          "name": "idx_corporate_numbers_prefecture",
+          "columns": [
+            {
+              "expression": "prefecture_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_corporate_numbers_version": {
+          "name": "idx_corporate_numbers_version",
+          "columns": [
+            {
+              "expression": "dataset_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "corporate_numbers_dataset_version_id_dataset_versions_id_fk": {
+          "name": "corporate_numbers_dataset_version_id_dataset_versions_id_fk",
+          "tableFrom": "corporate_numbers",
+          "tableTo": "dataset_versions",
+          "columnsFrom": [
+            "dataset_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "corporate_numbers_corporate_number_dataset_version_id_pk": {
+          "name": "corporate_numbers_corporate_number_dataset_version_id_pk",
+          "columns": [
+            "corporate_number",
+            "dataset_version_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.corporate_numbers_staging": {
+      "name": "corporate_numbers_staging",
+      "schema": "",
+      "columns": {
+        "corporate_number": {
+          "name": "corporate_number",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "correct": {
+          "name": "correct",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "update_date": {
+          "name": "update_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_date": {
+          "name": "change_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name_image_id": {
+          "name": "name_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prefecture_name": {
+          "name": "prefecture_name",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city_name": {
+          "name": "city_name",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street_number": {
+          "name": "street_number",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_image_id": {
+          "name": "address_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prefecture_code": {
+          "name": "prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city_code": {
+          "name": "city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "post_code": {
+          "name": "post_code",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_outside": {
+          "name": "address_outside",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_outside_image_id": {
+          "name": "address_outside_image_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "close_date": {
+          "name": "close_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "close_cause": {
+          "name": "close_cause",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "successor_corporate_number": {
+          "name": "successor_corporate_number",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "change_cause": {
+          "name": "change_cause",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignment_date": {
+          "name": "assignment_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latest": {
+          "name": "latest",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "en_name": {
+          "name": "en_name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_prefecture_name": {
+          "name": "en_prefecture_name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_city_name": {
+          "name": "en_city_name",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "en_address_outside": {
+          "name": "en_address_outside",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "furigana": {
+          "name": "furigana",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hihyoji": {
+          "name": "hihyoji",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "dataset_version_id": {
+          "name": "dataset_version_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "corporate_numbers_staging_dataset_version_id_dataset_versions_id_fk": {
+          "name": "corporate_numbers_staging_dataset_version_id_dataset_versions_id_fk",
+          "tableFrom": "corporate_numbers_staging",
+          "tableTo": "dataset_versions",
+          "columnsFrom": [
+            "dataset_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "corporate_numbers_staging_corporate_number_dataset_version_id_pk": {
+          "name": "corporate_numbers_staging_corporate_number_dataset_version_id_pk",
+          "columns": [
+            "corporate_number",
+            "dataset_version_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.dataset_versions": {
+      "name": "dataset_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data_as_of": {
+          "name": "data_as_of",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "imported_at": {
+          "name": "imported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'staging'"
+        },
+        "record_count": {
+          "name": "record_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "idx_dataset_versions_source_status": {
+          "name": "idx_dataset_versions_source_status",
+          "columns": [
+            {
+              "expression": "source_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.invoice_issuers": {
+      "name": "invoice_issuers",
+      "schema": "",
+      "columns": {
+        "sequence_number": {
+          "name": "sequence_number",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registration_number": {
+          "name": "registration_number",
+          "type": "varchar(14)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correct": {
+          "name": "correct",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "country": {
+          "name": "country",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latest": {
+          "name": "latest",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "registration_date": {
+          "name": "registration_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "update_date": {
+          "name": "update_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancel_date": {
+          "name": "cancel_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expire_date": {
+          "name": "expire_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_address": {
+          "name": "head_office_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_prefecture_code": {
+          "name": "head_office_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_city_code": {
+          "name": "head_office_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_address": {
+          "name": "declared_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_prefecture_code": {
+          "name": "declared_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_city_code": {
+          "name": "declared_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kana": {
+          "name": "kana",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_address": {
+          "name": "domestic_office_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_prefecture_code": {
+          "name": "domestic_office_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_city_code": {
+          "name": "domestic_office_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataset_version_id": {
+          "name": "dataset_version_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_invoice_issuers_reg_number": {
+          "name": "idx_invoice_issuers_reg_number",
+          "columns": [
+            {
+              "expression": "registration_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_invoice_issuers_reg_latest": {
+          "name": "idx_invoice_issuers_reg_latest",
+          "columns": [
+            {
+              "expression": "registration_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "latest",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_invoice_issuers_version": {
+          "name": "idx_invoice_issuers_version",
+          "columns": [
+            {
+              "expression": "dataset_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "invoice_issuers_dataset_version_id_dataset_versions_id_fk": {
+          "name": "invoice_issuers_dataset_version_id_dataset_versions_id_fk",
+          "tableFrom": "invoice_issuers",
+          "tableTo": "dataset_versions",
+          "columnsFrom": [
+            "dataset_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "invoice_issuers_reg_num_seq_num_version_id_pk": {
+          "name": "invoice_issuers_reg_num_seq_num_version_id_pk",
+          "columns": [
+            "registration_number",
+            "sequence_number",
+            "dataset_version_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.invoice_issuers_staging": {
+      "name": "invoice_issuers_staging",
+      "schema": "",
+      "columns": {
+        "sequence_number": {
+          "name": "sequence_number",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registration_number": {
+          "name": "registration_number",
+          "type": "varchar(14)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correct": {
+          "name": "correct",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "country": {
+          "name": "country",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latest": {
+          "name": "latest",
+          "type": "varchar(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "registration_date": {
+          "name": "registration_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "update_date": {
+          "name": "update_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancel_date": {
+          "name": "cancel_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expire_date": {
+          "name": "expire_date",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_address": {
+          "name": "head_office_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_prefecture_code": {
+          "name": "head_office_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_office_city_code": {
+          "name": "head_office_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_address": {
+          "name": "declared_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_prefecture_code": {
+          "name": "declared_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_city_code": {
+          "name": "declared_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kana": {
+          "name": "kana",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_address": {
+          "name": "domestic_office_address",
+          "type": "varchar(600)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_prefecture_code": {
+          "name": "domestic_office_prefecture_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_office_city_code": {
+          "name": "domestic_office_city_code",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataset_version_id": {
+          "name": "dataset_version_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "invoice_issuers_staging_dataset_version_id_dataset_versions_id_fk": {
+          "name": "invoice_issuers_staging_dataset_version_id_dataset_versions_id_fk",
+          "tableFrom": "invoice_issuers_staging",
+          "tableTo": "dataset_versions",
+          "columnsFrom": [
+            "dataset_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "invoice_issuers_staging_reg_num_seq_num_version_id_pk": {
+          "name": "invoice_issuers_staging_reg_num_seq_num_version_id_pk",
+          "columns": [
+            "registration_number",
+            "sequence_number",
+            "dataset_version_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -108,11 +108,21 @@ export class NotImplementedError extends Error {
 
 /**
  * Drizzle や Node.js の Error から SQL バインドパラメータ (\nparams:) を除外したエラー文言を抽出する。
+ * 「Failed query:」から始まる SQL 文の部分を先頭200文字に切り、その後ろに「…(省略)」と cause を必ず残す。
  * err.cause が Error の場合は、その message も「 / cause: …」として続けて残す（cause の文言からも \nparams: 以降を除外）。
  */
 export function formatErrorWithCause(err: unknown, fallbackMessage?: string): string {
   const rawMessage = err instanceof Error ? err.message : (fallbackMessage ?? String(err));
   let msg = rawMessage.split('\nparams:')[0]?.trim() ?? rawMessage;
+
+  const failedQueryPrefix = 'Failed query:';
+  if (msg.startsWith(failedQueryPrefix)) {
+    const queryPart = msg.slice(failedQueryPrefix.length).trim();
+    if (queryPart.length > 200) {
+      msg = `${failedQueryPrefix} ${queryPart.slice(0, 200)}…(省略)`;
+    }
+  }
+
   if (err instanceof Error && err.cause instanceof Error) {
     const rawCause = err.cause.message;
     const cleanCause = rawCause.split('\nparams:')[0]?.trim() ?? rawCause;
