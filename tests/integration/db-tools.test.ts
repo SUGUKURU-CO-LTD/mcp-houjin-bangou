@@ -119,6 +119,30 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       domesticOfficeAddress: null,
     },
     {
+      registrationNumber: 'T6000000000005',
+      sequenceNumber: 1,
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '',
+      country: '1',
+      latest: '1',
+      registrationDate: '2023-10-01',
+      updateDate: '2023-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: null,
+      legalName: null,
+      tradeName: null,
+      kana: null,
+      addressPrefecture: null,
+      addressCity: null,
+      addressDetail: null,
+      headOfficeAddress: null,
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+    {
       registrationNumber: 'T2000000000002',
       sequenceNumber: 1,
       datasetVersionId: 1,
@@ -139,6 +163,30 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       addressCity: '千代田区',
       addressDetail: '丸の内１丁目',
       headOfficeAddress: '東京都千代田区丸の内１丁目',
+      declaredAddress: null,
+      domesticOfficeAddress: null,
+    },
+    {
+      registrationNumber: 'T6000000000005',
+      sequenceNumber: 1,
+      datasetVersionId: 1,
+      process: '01',
+      correct: '0',
+      kind: '',
+      country: '1',
+      latest: '1',
+      registrationDate: '2023-10-01',
+      updateDate: '2023-10-01',
+      disposeDate: null,
+      expireDate: null,
+      cancelDate: null,
+      legalName: null,
+      tradeName: null,
+      kana: null,
+      addressPrefecture: null,
+      addressCity: null,
+      addressDetail: null,
+      headOfficeAddress: null,
       declaredAddress: null,
       domesticOfficeAddress: null,
     },
@@ -443,6 +491,27 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(textContent).toContain('事業者区分: 個人事業者');
     expect(textContent).not.toContain('山田');
     expect(textContent).not.toContain('世田谷区');
+    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
+  });
+
+  it('lookup_invoice_issuer: 人格区分が空の場合は business_type: unknown、corporate_name: null、location: null で返ること', async () => {
+    const { client } = await setupHostClient();
+
+    const result = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T6000000000005' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    expect(sc).toBeDefined();
+    expect(sc.status).toBe('registered');
+    expect(sc.business_type).toBe('unknown');
+    expect(sc.corporate_name).toBeNull();
+    expect(sc.location).toBeNull();
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('事業者区分: 不明');
     expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 

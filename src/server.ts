@@ -19,12 +19,13 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import pino, { type Logger } from 'pino';
+import type { Logger } from 'pino';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getEnv } from './lib/env.js';
+import { createPinoLogger } from './lib/logger.js';
 import { createNtaClient, type NtaClient } from './api/nta-client.js';
 import { createServer } from './mcp.js';
 import { VERSION } from './version.js';
@@ -57,15 +58,9 @@ export interface CreateAppOptions {
 export function createApp(options: CreateAppOptions = {}): Express {
   const logger =
     options.logger ??
-    pino(
-      {
-        level: 'info',
-        formatters: {
-          level: (label) => ({ level: label }),
-        },
-      },
-      process.stderr,
-    );
+    createPinoLogger({
+      level: 'info',
+    });
 
   const allowedOriginsSet =
     options.allowedOrigins instanceof Set
@@ -224,24 +219,18 @@ export async function bootstrap(): Promise<void> {
   const env = getEnv();
 
   // アプリのログはすべて標準エラー出力 (process.stderr) へ
-  const logger = pino(
-    {
-      level: env.LOG_LEVEL,
-      redact: {
-        paths: [
-          'req.headers.authorization',
-          'req.headers["x-api-key"]',
-          'req.query.id',
-          'NTA_APPLICATION_ID',
-        ],
-        censor: '***REDACTED***',
-      },
-      formatters: {
-        level: (label) => ({ level: label }),
-      },
+  const logger = createPinoLogger({
+    level: env.LOG_LEVEL,
+    redact: {
+      paths: [
+        'req.headers.authorization',
+        'req.headers["x-api-key"]',
+        'req.query.id',
+        'NTA_APPLICATION_ID',
+      ],
+      censor: '***REDACTED***',
     },
-    process.stderr,
-  );
+  });
 
   let dbProvider: DbCorporateDataProvider | undefined;
   let invoiceDbProvider: DbInvoiceDataProvider | undefined;

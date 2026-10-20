@@ -16,6 +16,7 @@ import * as os from 'node:os';
 import { describe, it, expect } from 'vitest';
 import { parseCorporateCsvLine, parseInvoiceCsvLine } from '../../src/ingest/parser.js';
 import { createIngestLogger } from '../../src/ingest/logger.js';
+import { createPinoLogger } from '../../src/lib/logger.js';
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import type { DbClient } from '../../src/db/client.js';
 
@@ -28,16 +29,16 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
       '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社","","301","北海道","札幌市中央区","北一条西一丁目","","01","101","0600001","","","","","","","","1","","","","",""';
 
     const parsed = parseCorporateCsvLine(line);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.corporateNumber).toBe('1000000000001');
-    expect(parsed?.name).toBe('テスト株式会社');
-    expect(parsed?.kind).toBe('301');
-    expect(parsed?.prefectureName).toBe('北海道');
-    expect(parsed?.cityName).toBe('札幌市中央区');
-    expect(parsed?.streetNumber).toBe('北一条西一丁目');
-    expect(parsed?.prefectureCode).toBe('01');
-    expect(parsed?.cityCode).toBe('101');
-    expect(parsed?.postCode).toBe('0600001');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.corporateNumber).toBe('1000000000001');
+    expect(parsed.row?.name).toBe('テスト株式会社');
+    expect(parsed.row?.kind).toBe('301');
+    expect(parsed.row?.prefectureName).toBe('北海道');
+    expect(parsed.row?.cityName).toBe('札幌市中央区');
+    expect(parsed.row?.streetNumber).toBe('北一条西一丁目');
+    expect(parsed.row?.prefectureCode).toBe('01');
+    expect(parsed.row?.cityCode).toBe('101');
+    expect(parsed.row?.postCode).toBe('0600001');
   });
 
   it('インボイス公表CSV（公式24列・法人 kind=2）を正常にパースできる', () => {
@@ -77,21 +78,21 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     ].join(',');
 
     const parsed = parseInvoiceCsvLine(line);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.sequenceNumber).toBe('1');
-    expect(parsed?.registrationNumber).toBe('T1000000000001');
-    expect(parsed?.process).toBe('01');
-    expect(parsed?.correct).toBe('0');
-    expect(parsed?.kind).toBe('2');
-    expect(parsed?.country).toBe('1');
-    expect(parsed?.latest).toBe('1');
-    expect(parsed?.registrationDate).toBe('2023-10-01');
-    expect(parsed?.updateDate).toBe('2026-04-01');
-    expect(parsed?.headOfficeAddress).toBe('東京都千代田区霞が関一丁目１番１号');
-    expect(parsed?.headOfficePrefectureCode).toBe('13');
-    expect(parsed?.headOfficeCityCode).toBe('101');
-    expect(parsed?.kana).toBe('テストカブシキガイシャ');
-    expect(parsed?.legalName).toBe('テスト株式会社');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.sequenceNumber).toBe('1');
+    expect(parsed.row?.registrationNumber).toBe('T1000000000001');
+    expect(parsed.row?.process).toBe('01');
+    expect(parsed.row?.correct).toBe('0');
+    expect(parsed.row?.kind).toBe('2');
+    expect(parsed.row?.country).toBe('1');
+    expect(parsed.row?.latest).toBe('1');
+    expect(parsed.row?.registrationDate).toBe('2023-10-01');
+    expect(parsed.row?.updateDate).toBe('2026-04-01');
+    expect(parsed.row?.headOfficeAddress).toBe('東京都千代田区霞が関一丁目１番１号');
+    expect(parsed.row?.headOfficePrefectureCode).toBe('13');
+    expect(parsed.row?.headOfficeCityCode).toBe('101');
+    expect(parsed.row?.kana).toBe('テストカブシキガイシャ');
+    expect(parsed.row?.legalName).toBe('テスト株式会社');
   });
 
   it('インボイス公表CSV（公式24列・人格のない社団等 kind=2・公表申出所在地あり）を正常にパースできる', () => {
@@ -125,16 +126,16 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     ].join(',');
 
     const parsed = parseInvoiceCsvLine(line);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.sequenceNumber).toBe('2');
-    expect(parsed?.registrationNumber).toBe('T7000000000002');
-    expect(parsed?.kind).toBe('2');
-    expect(parsed?.headOfficeAddress).toBeUndefined();
-    expect(parsed?.declaredAddress).toBe('大阪府大阪市北区中之島一丁目３番２０号');
-    expect(parsed?.declaredPrefectureCode).toBe('27');
-    expect(parsed?.declaredCityCode).toBe('127');
-    expect(parsed?.kana).toBe('テストキョウドウクミアイ');
-    expect(parsed?.legalName).toBe('テスト協同組合');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.sequenceNumber).toBe('2');
+    expect(parsed.row?.registrationNumber).toBe('T7000000000002');
+    expect(parsed.row?.kind).toBe('2');
+    expect(parsed.row?.headOfficeAddress).toBeUndefined();
+    expect(parsed.row?.declaredAddress).toBe('大阪府大阪市北区中之島一丁目３番２０号');
+    expect(parsed.row?.declaredPrefectureCode).toBe('27');
+    expect(parsed.row?.declaredCityCode).toBe('127');
+    expect(parsed.row?.kana).toBe('テストキョウドウクミアイ');
+    expect(parsed.row?.legalName).toBe('テスト協同組合');
   });
 
   it('【制約遵守】個人（kind=1）のインボイス行から名称・所在地・カナ・屋号・通称が除外される', () => {
@@ -169,27 +170,27 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     ].join(',');
 
     const parsed = parseInvoiceCsvLine(line);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.sequenceNumber).toBe('3');
-    expect(parsed?.registrationNumber).toBe('T9999999999999');
-    expect(parsed?.kind).toBe('1');
-    expect(parsed?.registrationDate).toBe('2023-10-01');
-    expect(parsed?.updateDate).toBe('2026-04-01');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.sequenceNumber).toBe('3');
+    expect(parsed.row?.registrationNumber).toBe('T9999999999999');
+    expect(parsed.row?.kind).toBe('1');
+    expect(parsed.row?.registrationDate).toBe('2023-10-01');
+    expect(parsed.row?.updateDate).toBe('2026-04-01');
     // 名称・所在地・カナは保持しない
-    expect(parsed?.legalName).toBeUndefined();
-    expect(parsed?.kana).toBeUndefined();
-    expect(parsed?.headOfficeAddress).toBeUndefined();
-    expect(parsed?.headOfficePrefectureCode).toBeUndefined();
-    expect(parsed?.headOfficeCityCode).toBeUndefined();
-    expect(parsed?.declaredAddress).toBeUndefined();
-    expect(parsed?.declaredPrefectureCode).toBeUndefined();
-    expect(parsed?.declaredCityCode).toBeUndefined();
-    expect(parsed?.domesticOfficeAddress).toBeUndefined();
-    expect(parsed?.domesticOfficePrefectureCode).toBeUndefined();
-    expect(parsed?.domesticOfficeCityCode).toBeUndefined();
+    expect(parsed.row?.legalName).toBeUndefined();
+    expect(parsed.row?.kana).toBeUndefined();
+    expect(parsed.row?.headOfficeAddress).toBeUndefined();
+    expect(parsed.row?.headOfficePrefectureCode).toBeUndefined();
+    expect(parsed.row?.headOfficeCityCode).toBeUndefined();
+    expect(parsed.row?.declaredAddress).toBeUndefined();
+    expect(parsed.row?.declaredPrefectureCode).toBeUndefined();
+    expect(parsed.row?.declaredCityCode).toBeUndefined();
+    expect(parsed.row?.domesticOfficeAddress).toBeUndefined();
+    expect(parsed.row?.domesticOfficePrefectureCode).toBeUndefined();
+    expect(parsed.row?.domesticOfficeCityCode).toBeUndefined();
     // 屋号・通称のプロパティ自体が存在しないこと
-    expect('tradeName' in (parsed ?? {})).toBe(false);
-    expect('commonName' in (parsed ?? {})).toBe(false);
+    expect('tradeName' in (parsed.row ?? {})).toBe(false);
+    expect('commonName' in (parsed.row ?? {})).toBe(false);
   });
 
   it('【制約遵守】人格区分が不明な行（kind が 1 でも 2 でもない行）でも名称・所在地・カナ・屋号・通称が除外される', () => {
@@ -221,14 +222,54 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     ].join(',');
 
     const parsed = parseInvoiceCsvLine(line);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.registrationNumber).toBe('T8888888888888');
-    expect(parsed?.kind).toBe('9');
-    expect(parsed?.legalName).toBeUndefined();
-    expect(parsed?.kana).toBeUndefined();
-    expect(parsed?.headOfficeAddress).toBeUndefined();
-    expect(parsed?.declaredAddress).toBeUndefined();
-    expect(parsed?.domesticOfficeAddress).toBeUndefined();
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.registrationNumber).toBe('T8888888888888');
+    expect(parsed.row?.kind).toBe('9');
+    expect(parsed.row?.legalName).toBeUndefined();
+    expect(parsed.row?.kana).toBeUndefined();
+    expect(parsed.row?.headOfficeAddress).toBeUndefined();
+    expect(parsed.row?.declaredAddress).toBeUndefined();
+    expect(parsed.row?.domesticOfficeAddress).toBeUndefined();
+  });
+
+  it('国税庁実データ仕様: 人格区分（kind）が空文字の行を正常にパースし、kindは空文字、名称・所在地・カナは保持しない', () => {
+    // 国税庁の全件データ（2026-09-30時点）に存在する、人格区分（5列目）が空の行
+    const emptyKindLine = [
+      '5',
+      '"T6000000000005"',
+      '"01"',
+      '"0"',
+      '""', // 人格区分が空
+      '"1"',
+      '"1"',
+      '"2023-10-01"',
+      '"2026-04-01"',
+      '""',
+      '""',
+      '"東京都千代田区麹町一丁目"',
+      '"13"',
+      '"101"',
+      '"東京都千代田区麹町一丁目"',
+      '"13"',
+      '"101"',
+      '"テストカナ"',
+      '"テスト商号"',
+      '""',
+      '""',
+      '""',
+      '""',
+      '""',
+    ].join(',');
+
+    const parsed = parseInvoiceCsvLine(emptyKindLine);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.registrationNumber).toBe('T6000000000005');
+    expect(parsed.row?.kind).toBe('');
+    // kind が '2' ではないため名称・所在地・カナは除外されること
+    expect(parsed.row?.legalName).toBeUndefined();
+    expect(parsed.row?.kana).toBeUndefined();
+    expect(parsed.row?.headOfficeAddress).toBeUndefined();
+    expect(parsed.row?.declaredAddress).toBeUndefined();
   });
 
   it('インボイス公表CSVで同じ登録番号の履歴複数行（latest=0 と latest=1）をそれぞれパースし、登録・取消・失効年月日を保持できる', () => {
@@ -289,26 +330,28 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     const parsedHistory = parseInvoiceCsvLine(historyLine);
     const parsedLatest = parseInvoiceCsvLine(latestLine);
 
-    expect(parsedHistory).not.toBeNull();
-    expect(parsedLatest).not.toBeNull();
-    expect(parsedHistory?.sequenceNumber).toBe('10');
-    expect(parsedHistory?.latest).toBe('0');
-    expect(parsedHistory?.registrationDate).toBe('2023-10-01');
-    expect(parsedHistory?.cancelDate).toBeUndefined();
+    expect(parsedHistory.ok).toBe(true);
+    expect(parsedLatest.ok).toBe(true);
+    expect(parsedHistory.row?.sequenceNumber).toBe('10');
+    expect(parsedHistory.row?.latest).toBe('0');
+    expect(parsedHistory.row?.registrationDate).toBe('2023-10-01');
+    expect(parsedHistory.row?.cancelDate).toBeUndefined();
 
-    expect(parsedLatest?.sequenceNumber).toBe('11');
-    expect(parsedLatest?.latest).toBe('1');
-    expect(parsedLatest?.registrationDate).toBe('2023-10-01');
-    expect(parsedLatest?.updateDate).toBe('2025-04-01');
-    expect(parsedLatest?.cancelDate).toBe('2025-03-31');
-    expect(parsedLatest?.expireDate).toBe('2025-04-01');
+    expect(parsedLatest.row?.sequenceNumber).toBe('11');
+    expect(parsedLatest.row?.latest).toBe('1');
+    expect(parsedLatest.row?.registrationDate).toBe('2023-10-01');
+    expect(parsedLatest.row?.updateDate).toBe('2025-04-01');
+    expect(parsedLatest.row?.cancelDate).toBe('2025-03-31');
+    expect(parsedLatest.row?.expireDate).toBe('2025-04-01');
   });
 
-  it('列数や列の並びが公式24列仕様と違うインボイスCSV行を与えたら失敗（null）する', () => {
+  it('列数や列の並びが公式24列仕様と違うインボイスCSV行を与えたら失敗し、外れた列名を返す', () => {
     // 1. 旧14列仕様の行（列数不足）
     const old14ColLine =
       '1,"T1000000000001","01","0","2023-10-01","01","テスト株式会社","東京都","千代田区","霞が関一丁目","1000000000001","2023-10-01","",""';
-    expect(parseInvoiceCsvLine(old14ColLine)).toBeNull();
+    const oldRes = parseInvoiceCsvLine(old14ColLine);
+    expect(oldRes.ok).toBe(false);
+    expect(oldRes.errorColumn).toBe('column_count');
 
     // 2. 24列あるが、列の並びが公式仕様と違う行（5列目の人格区分に更新年月日、6列目に旧事業者区分が入っているケース）
     const misaligned24ColLine = [
@@ -316,7 +359,7 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
       '"T1000000000001"',
       '"01"',
       '"0"',
-      '"2023-10-01"', // 本来は kind (1 or 2) の列に日付が入っている
+      '"2023-10-01"', // 本来は kind (1 or 2) の列に日付が入っている (>2文字)
       '"01"', // 本来は country (1,2,3) の列に旧仕様の 01 が入っている
       '"テスト株式会社"', // 本来は latest (0,1) の列に商号が入っている
       '"東京都"',
@@ -337,7 +380,9 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
       '""',
       '""',
     ].join(',');
-    expect(parseInvoiceCsvLine(misaligned24ColLine)).toBeNull();
+    const misRes = parseInvoiceCsvLine(misaligned24ColLine);
+    expect(misRes.ok).toBe(false);
+    expect(misRes.errorColumn).toBe('kind');
   });
 
   it('30項目目の検索対象除外フラグ（hihyoji）を正常にパースできる', () => {
@@ -345,32 +390,35 @@ describe('Ingest Parser (合成テストデータ使用)', () => {
     const lineWithHihyoji1 =
       '1,"1000000000001","01","1","2026-04-01","2026-04-01","テスト株式会社","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","1"';
     const parsed1 = parseCorporateCsvLine(lineWithHihyoji1);
-    expect(parsed1?.hihyoji).toBe('1');
+    expect(parsed1.ok).toBe(true);
+    expect(parsed1.row?.hihyoji).toBe('1');
 
     // 30列目が "0"（検索対象）の合成テストデータ
     const lineWithHihyoji0 =
       '2,"1000000000002","01","1","2026-04-01","2026-04-01","テスト株式会社2","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"';
     const parsed0 = parseCorporateCsvLine(lineWithHihyoji0);
-    expect(parsed0?.hihyoji).toBe('0');
+    expect(parsed0.ok).toBe(true);
+    expect(parsed0.row?.hihyoji).toBe('0');
 
     // 29項目（30列目なし）の場合はデフォルト "0" になること
     const line29Cols =
       '3,"1000000000003","01","1","2026-04-01","2026-04-01","テスト株式会社3","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","",""';
     const parsedDefault = parseCorporateCsvLine(line29Cols);
-    expect(parsedDefault?.hihyoji).toBe('0');
+    expect(parsedDefault.ok).toBe(true);
+    expect(parsedDefault.row?.hihyoji).toBe('0');
   });
 
   it('処理区分99（削除）などカラム数が少ない行でも正常にパースできる', () => {
     // 処理区分99（削除）で最低限の項目（一連番号、法人番号、処理区分、訂正区分、更新年月日）のみが存在する合成テストデータ
     const deleteLine = '10,"9000000000009","99","0","2026-04-01"';
     const parsed = parseCorporateCsvLine(deleteLine);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.corporateNumber).toBe('9000000000009');
-    expect(parsed?.process).toBe('99');
-    expect(parsed?.correct).toBe('0');
-    expect(parsed?.updateDate).toBe('2026-04-01');
-    expect(parsed?.name).toBe('');
-    expect(parsed?.hihyoji).toBe('0');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.row?.corporateNumber).toBe('9000000000009');
+    expect(parsed.row?.process).toBe('99');
+    expect(parsed.row?.correct).toBe('0');
+    expect(parsed.row?.updateDate).toBe('2026-04-01');
+    expect(parsed.row?.name).toBe('');
+    expect(parsed.row?.hihyoji).toBe('0');
   });
 });
 
@@ -419,6 +467,68 @@ describe('Ingest Logger (機密性検証)', () => {
     const fullLogText = outputLogs[0] ?? '';
     expect(fullLogText).not.toMatch(/[0-9]{13}/);
     expect(fullLogText).not.toMatch(/T[0-9]{13}/);
+  });
+
+  it('ログ出力に Cloud Logging の severity が出力される（ingest logger および pino logger）', () => {
+    const ingestLogs: string[] = [];
+    const mockIngestStream = {
+      write: (chunk: string) => {
+        ingestLogs.push(chunk);
+        return true;
+      },
+    };
+    const ingestLogger = createIngestLogger(mockIngestStream as unknown as NodeJS.WritableStream);
+    ingestLogger.info(
+      {
+        sourceType: 'nta_invoice_download',
+        dataAsOf: '2026-10-01',
+        datasetVersionId: 1,
+        count: 10,
+        durationMs: 50,
+        status: 'active',
+      },
+      'info test',
+    );
+    ingestLogger.error(
+      {
+        sourceType: 'nta_invoice_download',
+        dataAsOf: '2026-10-01',
+        errorType: 'TEST_ERROR',
+      },
+      'error test',
+    );
+
+    expect(ingestLogs).toHaveLength(2);
+    const infoLog = JSON.parse(ingestLogs[0] ?? '{}') as Record<string, unknown>;
+    const errorLog = JSON.parse(ingestLogs[1] ?? '{}') as Record<string, unknown>;
+    expect(infoLog.severity).toBe('INFO');
+    expect(infoLog.level).toBe('info');
+    expect(errorLog.severity).toBe('ERROR');
+    expect(errorLog.level).toBe('error');
+
+    // pino logger の severity 出力検証
+    const pinoLogs: string[] = [];
+    const mockPinoStream = {
+      write: (chunk: string) => {
+        pinoLogs.push(chunk);
+        return true;
+      },
+    };
+    const pinoLogger = createPinoLogger(
+      { level: 'debug' },
+      mockPinoStream as unknown as NodeJS.WritableStream,
+    );
+    pinoLogger.info({ msg: 'pino info message' });
+    pinoLogger.error({ msg: 'pino error message' });
+    pinoLogger.warn({ msg: 'pino warn message' });
+
+    expect(pinoLogs).toHaveLength(3);
+    const pinoInfo = JSON.parse(pinoLogs[0] ?? '{}') as Record<string, unknown>;
+    const pinoError = JSON.parse(pinoLogs[1] ?? '{}') as Record<string, unknown>;
+    const pinoWarn = JSON.parse(pinoLogs[2] ?? '{}') as Record<string, unknown>;
+    expect(pinoInfo.severity).toBe('INFO');
+    expect(pinoError.severity).toBe('ERROR');
+    expect(pinoWarn.severity).toBe('WARNING');
   });
 });
 
@@ -747,5 +857,137 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
       importer.importInvoiceDataset(misalignedLines, '2026-10-01', 10),
     ).rejects.toThrow();
     expect(failedStatus).toBe('failed');
+  });
+
+  it('検証外れ時のエラーとログにファイル名・行番号・列名が入り、行の値そのものは含まれない（インボイス）', async () => {
+    const outputLogs: string[] = [];
+    const mockStream = {
+      write: (chunk: string) => {
+        outputLogs.push(chunk);
+        return true;
+      },
+    };
+    const mockDb = {
+      execute: async () => ({ rows: [{ acquired: true }] }),
+      insert: () => ({
+        values: () => ({
+          returning: async () => [{ id: 89 }],
+          execute: async () => {},
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => Promise.resolve(),
+        }),
+      }),
+    } as unknown as DbClient;
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ingest-inv-err-'));
+    const invalidFile = path.join(tmpDir, 'invoice_invalid_sample.csv');
+    // 2行目に不正な kind (2文字超) と、秘匿すべき値を含む行
+    const fileContent = [
+      '1,"T1000000000001","01","0","2","1","1","2023-10-01","2026-04-01","","","東京都千代田区","13","101","","","","カナ","有効法人","","","","",""',
+      '2,"T2000000000002","01","0","SECRET_INVALID_KIND","1","1","2023-10-01","2026-04-01","","","東京都港区SECRET_ADDR","13","101","","","","SECRET_KANA","SECRET_CORP_NAME","","","","",""',
+    ].join('\n');
+    fs.writeFileSync(invalidFile, fileContent, 'utf-8');
+
+    try {
+      const importer = new DatasetImporter(mockDb, {
+        logger: createIngestLogger(mockStream as unknown as NodeJS.WritableStream),
+      });
+
+      let thrownError: Error | null = null;
+      try {
+        await importer.importInvoiceFiles([invalidFile], '2026-10-01', 10);
+      } catch (err) {
+        thrownError = err as Error;
+      }
+
+      expect(thrownError).not.toBeNull();
+      // エラーメッセージにファイル名、行番号、列名が含まれること
+      expect(thrownError?.message).toContain('invoice_invalid_sample.csv:2 (column: kind)');
+      // エラーメッセージに行の秘密値（住所・カナ・商号・値そのもの）が含まれないこと
+      expect(thrownError?.message).not.toContain('SECRET_INVALID_KIND');
+      expect(thrownError?.message).not.toContain('SECRET_ADDR');
+      expect(thrownError?.message).not.toContain('SECRET_CORP_NAME');
+      expect(thrownError?.message).not.toContain('SECRET_KANA');
+
+      // ログ全体にも行の値が含まれず、かつ severity: ERROR で記録されること
+      const allLogText = outputLogs.join('\n');
+      expect(allLogText).toContain('"severity":"ERROR"');
+      expect(allLogText).toContain('invoice_invalid_sample.csv:2 (column: kind)');
+      expect(allLogText).not.toContain('SECRET_INVALID_KIND');
+      expect(allLogText).not.toContain('SECRET_ADDR');
+      expect(allLogText).not.toContain('SECRET_CORP_NAME');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('検証外れ時のエラーとログにファイル名・行番号・列名が入り、行の値そのものは含まれない（法人番号）', async () => {
+    const outputLogs: string[] = [];
+    const mockStream = {
+      write: (chunk: string) => {
+        outputLogs.push(chunk);
+        return true;
+      },
+    };
+    const mockDb = {
+      execute: async () => ({ rows: [{ acquired: true }] }),
+      insert: () => ({
+        values: () => ({
+          returning: async () => [{ id: 90 }],
+          execute: async () => {},
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => Promise.resolve(),
+        }),
+      }),
+    } as unknown as DbClient;
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ingest-corp-err-'));
+    const invalidFile = path.join(tmpDir, 'corporate_invalid_sample.csv');
+    // 2行目に不正な法人番号（13桁数字でない）と、秘匿すべき商号・住所を含む行
+    const fileContent = [
+      '1,"1000000000001","01","1","2026-04-01","2026-04-01","株式会社正常","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"',
+      '2,"SECRET_CORP_NUMBER_INVALID","01","1","2026-04-01","2026-04-01","SECRET_CORP_NAME","","301","東京都","千代田区","霞が関SECRET_ADDR","","13","101","1000001","","","","","","","","1","","","","","","0"',
+    ].join('\n');
+    fs.writeFileSync(invalidFile, fileContent, 'utf-8');
+
+    try {
+      const importer = new DatasetImporter(mockDb, {
+        logger: createIngestLogger(mockStream as unknown as NodeJS.WritableStream),
+      });
+
+      let thrownError: Error | null = null;
+      try {
+        await importer.importCorporateFiles([invalidFile], '2026-10-01', 10);
+      } catch (err) {
+        thrownError = err as Error;
+      }
+
+      expect(thrownError).not.toBeNull();
+      // エラーメッセージにファイル名、行番号、列名が含まれること
+      expect(thrownError?.message).toContain(
+        'first invalid in corporate_invalid_sample.csv:2, column: corporate_number',
+      );
+      // エラーメッセージに行の秘密値（法人番号値・商号・住所）が含まれないこと
+      expect(thrownError?.message).not.toContain('SECRET_CORP_NUMBER_INVALID');
+      expect(thrownError?.message).not.toContain('SECRET_CORP_NAME');
+      expect(thrownError?.message).not.toContain('SECRET_ADDR');
+
+      // ログ全体にも行の値が含まれず、かつ severity: ERROR で記録されること
+      const allLogText = outputLogs.join('\n');
+      expect(allLogText).toContain('"severity":"ERROR"');
+      expect(allLogText).toContain(
+        'first invalid in corporate_invalid_sample.csv:2, column: corporate_number',
+      );
+      expect(allLogText).not.toContain('SECRET_CORP_NUMBER_INVALID');
+      expect(allLogText).not.toContain('SECRET_CORP_NAME');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

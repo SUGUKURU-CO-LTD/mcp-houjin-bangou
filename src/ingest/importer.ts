@@ -15,6 +15,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline';
 import type pg from 'pg';
 import { eq, and, sql } from 'drizzle-orm';
@@ -28,6 +29,12 @@ import { parseCorporateCsvLine, parseInvoiceCsvLine } from './parser.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import type { ImportMetrics } from './types.js';
 import { formatErrorWithCause } from '../lib/errors.js';
+
+export interface IngestStreamItem {
+  line: string;
+  sourceFile: string;
+  lineNumber: number;
+}
 
 /**
  * 法人番号データの取り込み排他制御用アドバイザリーロックキー
@@ -190,17 +197,20 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateFiles(): AsyncIterable<string> {
+    async function* iterateFiles(): AsyncIterable<IngestStreamItem> {
       for (const fp of filePaths) {
+        const sourceFile = path.basename(fp);
         const stream = fs.createReadStream(fp, { encoding: 'utf-8' });
         const rl = readline.createInterface({
           input: stream,
           crlfDelay: Infinity,
         });
+        let lineNumber = 0;
         try {
           for await (const line of rl) {
+            lineNumber++;
             if (line.trim().length > 0) {
-              yield line;
+              yield { line, sourceFile, lineNumber };
             }
           }
         } finally {
@@ -222,15 +232,19 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateContent(): AsyncIterable<string> {
+    async function* iterateContent(): AsyncIterable<IngestStreamItem> {
+      const sourceFile = '<memory>';
+      let lineNumber = 0;
       if (Array.isArray(csvContent)) {
         for (const line of csvContent) {
-          if (line.trim().length > 0) yield line;
+          lineNumber++;
+          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
         }
       } else {
         const lines = csvContent.split(/\r?\n/);
         for (const line of lines) {
-          if (line.trim().length > 0) yield line;
+          lineNumber++;
+          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
         }
       }
     }
@@ -242,7 +256,7 @@ export class DatasetImporter {
    * 行ストリームを受け取り、staging 投入から本番昇格までをアトミックに実行する内部共通メソッド（法人番号）
    */
   private async importCorporateInternal(
-    lines: AsyncIterable<string>,
+    lines: AsyncIterable<IngestStreamItem | string>,
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
@@ -317,45 +331,61 @@ export class DatasetImporter {
 
       // 3. corporate_numbers_new へストリーミングでバッチ挿入
       let batch: Array<typeof corporateNumbersNew.$inferInsert> = [];
+      let autoLineNumber = 0;
+      let firstInvalid: { file: string; line: number; column: string } | null = null;
 
-      for await (const line of lines) {
-        if (!line.trim()) continue;
-        const parsed = parseCorporateCsvLine(line);
-        if (!parsed) {
+      for await (const rawItem of lines) {
+        autoLineNumber++;
+        const item: IngestStreamItem =
+          typeof rawItem === 'string'
+            ? { line: rawItem, sourceFile: '<stream>', lineNumber: autoLineNumber }
+            : rawItem;
+
+        if (!item.line.trim()) continue;
+        const parsed = parseCorporateCsvLine(item.line);
+        if (!parsed.ok) {
           invalidRowCount++;
+          if (!firstInvalid) {
+            firstInvalid = {
+              file: item.sourceFile,
+              line: item.lineNumber,
+              column: parsed.errorColumn,
+            };
+          }
           continue;
         }
 
+        const row = parsed.row;
         batch.push({
-          corporateNumber: parsed.corporateNumber,
-          process: parsed.process,
-          correct: parsed.correct,
-          updateDate: parsed.updateDate,
-          changeDate: parsed.changeDate,
-          name: parsed.name,
-          nameImageId: parsed.nameImageId,
-          kind: parsed.kind,
-          prefectureName: parsed.prefectureName,
-          cityName: parsed.cityName,
-          streetNumber: parsed.streetNumber,
-          addressImageId: parsed.addressImageId,
-          prefectureCode: parsed.prefectureCode,
-          cityCode: parsed.cityCode,
-          postCode: parsed.postCode,
-          addressOutside: parsed.addressOutside,
-          addressOutsideImageId: parsed.addressOutsideImageId,
-          closeDate: parsed.closeDate,
-          closeCause: parsed.closeCause,
-          successorCorporateNumber: parsed.successorCorporateNumber,
-          changeCause: parsed.changeCause,
-          assignmentDate: parsed.assignmentDate,
-          latest: parsed.latest ?? '1',
-          enName: parsed.enName,
-          enPrefectureName: parsed.enPrefectureName,
-          enCityName: parsed.enCityName,
-          enAddressOutside: parsed.enAddressOutside,
-          furigana: parsed.furigana,
-          hihyoji: parsed.hihyoji ?? '0',
+          corporateNumber: row.corporateNumber,
+          process: row.process,
+          correct: row.correct,
+          updateDate: row.updateDate,
+          changeDate: row.changeDate,
+          name: row.name,
+          nameImageId: row.nameImageId,
+          kind: row.kind,
+          prefectureName: row.prefectureName,
+          cityName: row.cityName,
+          streetNumber: row.streetNumber,
+          addressImageId: row.addressImageId,
+          prefectureCode: row.prefectureCode,
+          cityCode: row.cityCode,
+          postCode: row.postCode,
+          addressOutside: row.addressOutside,
+          addressOutsideImageId: row.addressOutsideImageId,
+          closeDate: row.closeDate,
+          closeCause: row.closeCause,
+          successorCorporateNumber: row.successorCorporateNumber,
+          changeCause: row.changeCause,
+          assignmentDate: row.assignmentDate,
+          latest: row.latest ?? '1',
+          enName: row.enName,
+          enPrefectureName: row.enPrefectureName,
+          enCityName: row.enCityName,
+          enAddressOutside: row.enAddressOutside,
+          furigana: row.furigana,
+          hihyoji: row.hihyoji ?? '0',
           datasetVersionId: versionId,
         });
 
@@ -377,8 +407,11 @@ export class DatasetImporter {
       if (totalLines > 0) {
         const invalidRatio = invalidRowCount / totalLines;
         if (invalidRatio > this.maxInvalidRowRatio) {
+          const detail = firstInvalid
+            ? ` (first invalid in ${firstInvalid.file}:${firstInvalid.line}, column: ${firstInvalid.column})`
+            : '';
           throw new Error(
-            `Corporate CSV invalid row ratio (${invalidRowCount}/${totalLines}) exceeds maxInvalidRowRatio (${this.maxInvalidRowRatio})`,
+            `Corporate CSV invalid row ratio (${invalidRowCount}/${totalLines}) exceeds maxInvalidRowRatio (${this.maxInvalidRowRatio})${detail}`,
           );
         }
       }
@@ -514,17 +547,20 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateFiles(): AsyncIterable<string> {
+    async function* iterateFiles(): AsyncIterable<IngestStreamItem> {
       for (const fp of filePaths) {
+        const sourceFile = path.basename(fp);
         const stream = fs.createReadStream(fp, { encoding: 'utf-8' });
         const rl = readline.createInterface({
           input: stream,
           crlfDelay: Infinity,
         });
+        let lineNumber = 0;
         try {
-          for await (const line of rl) {
-            if (line.trim().length > 0) {
-              yield line;
+          for await (const rawLine of rl) {
+            lineNumber++;
+            if (rawLine.trim().length > 0) {
+              yield { line: rawLine, sourceFile, lineNumber };
             }
           }
         } finally {
@@ -546,15 +582,19 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateContent(): AsyncIterable<string> {
+    async function* iterateContent(): AsyncIterable<IngestStreamItem> {
+      const sourceFile = '<memory>';
+      let lineNumber = 0;
       if (Array.isArray(csvContent)) {
         for (const line of csvContent) {
-          if (line.trim().length > 0) yield line;
+          lineNumber++;
+          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
         }
       } else {
         const lines = csvContent.split(/\r?\n/);
         for (const line of lines) {
-          if (line.trim().length > 0) yield line;
+          lineNumber++;
+          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
         }
       }
     }
@@ -566,7 +606,7 @@ export class DatasetImporter {
    * 行ストリームを受け取り、invoice_issuers_new 投入から RENAME 入れ替えまでをアトミックに実行する内部共通メソッド
    */
   private async importInvoiceInternal(
-    lines: AsyncIterable<string>,
+    lines: AsyncIterable<IngestStreamItem | string>,
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
@@ -641,42 +681,52 @@ export class DatasetImporter {
 
       // 3. invoice_issuers_new へストリーミングでバッチ挿入
       let batch: Array<typeof invoiceIssuersNew.$inferInsert> = [];
+      let autoLineNumber = 0;
 
-      for await (const line of lines) {
-        if (!line.trim()) continue;
+      for await (const rawItem of lines) {
+        autoLineNumber++;
+        const item: IngestStreamItem =
+          typeof rawItem === 'string'
+            ? { line: rawItem, sourceFile: '<stream>', lineNumber: autoLineNumber }
+            : rawItem;
 
-        const parsed = parseInvoiceCsvLine(line);
-        if (!parsed) {
-          throw new Error('Invalid invoice CSV line: failed 24-column validation');
+        if (!item.line.trim()) continue;
+
+        const parsed = parseInvoiceCsvLine(item.line);
+        if (!parsed.ok) {
+          throw new Error(
+            `Invalid invoice CSV line in ${item.sourceFile}:${item.lineNumber} (column: ${parsed.errorColumn})`,
+          );
         }
 
-        if (!isInvoiceKindCode(parsed.kind)) {
+        const row = parsed.row;
+        if (!isInvoiceKindCode(row.kind)) {
           unknownKindCount++;
         }
 
         batch.push({
-          sequenceNumber: parsed.sequenceNumber,
-          registrationNumber: parsed.registrationNumber,
-          process: parsed.process,
-          correct: parsed.correct,
-          kind: parsed.kind,
-          country: parsed.country,
-          latest: parsed.latest,
-          registrationDate: parsed.registrationDate,
-          updateDate: parsed.updateDate,
-          cancelDate: parsed.cancelDate,
-          expireDate: parsed.expireDate,
-          headOfficeAddress: parsed.headOfficeAddress,
-          headOfficePrefectureCode: parsed.headOfficePrefectureCode,
-          headOfficeCityCode: parsed.headOfficeCityCode,
-          declaredAddress: parsed.declaredAddress,
-          declaredPrefectureCode: parsed.declaredPrefectureCode,
-          declaredCityCode: parsed.declaredCityCode,
-          kana: parsed.kana,
-          legalName: parsed.legalName,
-          domesticOfficeAddress: parsed.domesticOfficeAddress,
-          domesticOfficePrefectureCode: parsed.domesticOfficePrefectureCode,
-          domesticOfficeCityCode: parsed.domesticOfficeCityCode,
+          sequenceNumber: row.sequenceNumber,
+          registrationNumber: row.registrationNumber,
+          process: row.process,
+          correct: row.correct,
+          kind: row.kind,
+          country: row.country,
+          latest: row.latest,
+          registrationDate: row.registrationDate,
+          updateDate: row.updateDate,
+          cancelDate: row.cancelDate,
+          expireDate: row.expireDate,
+          headOfficeAddress: row.headOfficeAddress,
+          headOfficePrefectureCode: row.headOfficePrefectureCode,
+          headOfficeCityCode: row.headOfficeCityCode,
+          declaredAddress: row.declaredAddress,
+          declaredPrefectureCode: row.declaredPrefectureCode,
+          declaredCityCode: row.declaredCityCode,
+          kana: row.kana,
+          legalName: row.legalName,
+          domesticOfficeAddress: row.domesticOfficeAddress,
+          domesticOfficePrefectureCode: row.domesticOfficePrefectureCode,
+          domesticOfficeCityCode: row.domesticOfficeCityCode,
           datasetVersionId: versionId,
         });
 

@@ -25,6 +25,7 @@ import * as schema from '../../src/db/schema.js';
 import { datasetVersions, corporateNumbers, invoiceIssuers } from '../../src/db/schema.js';
 import { DatasetImporter } from '../../src/ingest/importer.js';
 import { DbCorporateDataProvider } from '../../src/repository/corporate-repository.js';
+import { DbInvoiceDataProvider } from '../../src/repository/invoice-repository.js';
 import type { DbClient } from '../../src/db/client.js';
 import { createServer } from '../../src/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -645,6 +646,45 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
     const v2 = await relaxedImporter.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10);
     expect(v2.status).toBe('active');
     expect(v2.count).toBe(5);
+  });
+
+  it('国税庁実データ仕様: 人格区分（kind）が空の行が正常に取り込まれ、lookup_invoice_issuer で business_type: unknown, corporate_name: null, location: null が返ること', async () => {
+    const invoiceDataProvider = new DbInvoiceDataProvider(db);
+    const mcpServer = createServer({
+      invoiceDbProvider: invoiceDataProvider,
+      dataSource: 'db',
+    });
+    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    // 人格区分（5列目）が空のインボイス公表CSV行（国税庁全件データ実態に準拠）
+    const emptyKindInvoiceData = [
+      '1,"T6000000000005","01","0","","1","1","2023-10-01","2026-10-01","","","東京都千代田区麹町一丁目","13","101","","","","テストカナ","テスト商号","","","","",""',
+    ];
+
+    const metrics = await importer.importInvoiceDataset(emptyKindInvoiceData, '2026-10-01', 10);
+    expect(metrics.status).toBe('active');
+    expect(metrics.count).toBe(1);
+    expect(metrics.unknownKindCount).toBe(1);
+
+    const result = await client.callTool({
+      name: 'lookup_invoice_issuer',
+      arguments: { registration_number: 'T6000000000005' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as Record<string, unknown>;
+    expect(sc).toBeDefined();
+    expect(sc.status).toBe('registered');
+    expect(sc.business_type).toBe('unknown');
+    expect(sc.corporate_name).toBeNull();
+    expect(sc.location).toBeNull();
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('事業者区分: 不明');
+    expect(textContent).not.toContain('テスト商号');
+    expect(textContent).not.toContain('麹町');
   });
 
   it('名前検索の1〜2文字前方一致（LIKE prefix%）・3文字以上部分一致（ILIKE %query%）、検索対象除外注記、および EXPLAIN (ANALYZE, BUFFERS) で idx_corporate_numbers_name_pattern 索引が使われること', async () => {

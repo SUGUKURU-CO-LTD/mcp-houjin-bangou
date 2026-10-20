@@ -401,7 +401,8 @@ describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成�
       const logLines = failLogs.getLines();
       expect(logLines).toHaveLength(1);
       expect(logLines[0]?.status).toBe('failed');
-      expect(String(logLines[0]?.msg ?? '')).toContain('failed 24-column validation');
+      expect(String(logLines[0]?.msg ?? '')).toContain('broken.csv:1 (column: column_count)');
+      expect(String(logLines[0]?.msg ?? '')).not.toContain('only');
     });
 
     it('returns exit code 1 when migration fails due to non-existent migrations folder and logs error message', async () => {
