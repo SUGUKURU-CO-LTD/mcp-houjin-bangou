@@ -371,6 +371,46 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
     });
 
+    it('人格区分が空（business_type: unknown）の公表データ: 正常レスポンスを返し、法人名・所在地がnull、事業者区分「不明」が表示されること', async () => {
+      const mockResult: LookupInvoiceIssuerResult = {
+        registration_number: 'T6000000000005',
+        status: 'registered',
+        business_type: 'unknown',
+        registration_date: '2023-10-01',
+        cancellation_date: null,
+        expiration_date: null,
+        corporate_name: null,
+        location: null,
+        was_registered_on_reference_date: null,
+        data_as_of: '2026-10-01',
+        attribution: NTA_INVOICE_HOST_ATTRIBUTION,
+        tax_disclaimer: INVOICE_TAX_DISCLAIMER,
+      };
+
+      const mockProvider: DbInvoiceDataProvider = {
+        mode: 'db',
+        lookupByRegistrationNumber: vi.fn().mockResolvedValue(Result.ok(mockResult)),
+      } as unknown as DbInvoiceDataProvider;
+
+      const client = await createTestClient({ invoiceDbProvider: mockProvider });
+      const result = await client.callTool({
+        name: 'lookup_invoice_issuer',
+        arguments: { registration_number: 'T6000000000005' },
+      });
+
+      expect(result.isError).toBeFalsy();
+      const sc = result.structuredContent as Record<string, unknown>;
+      expect(sc.status).toBe('registered');
+      expect(sc.business_type).toBe('unknown');
+      expect(sc.corporate_name).toBeNull();
+      expect(sc.location).toBeNull();
+
+      const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
+      expect(summaryText).toContain('事業者区分: 不明');
+      expect(summaryText).toContain('所在地: 公表なし');
+      expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
+    });
+
     it('公表データ該当なし (not_found): 正常レスポンス (isError: false, status: not_found) を返し、注記を含むこと', async () => {
       const mockResult: LookupInvoiceIssuerResult = {
         registration_number: 'T9999999999999',

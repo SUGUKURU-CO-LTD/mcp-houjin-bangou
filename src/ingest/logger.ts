@@ -22,6 +22,7 @@ export function createIngestLogger(output: NodeJS.WritableStream = process.stder
     info(metrics, message) {
       writeJson({
         level: 'info',
+        severity: 'INFO',
         time: new Date().toISOString(),
         logger: 'dataset_ingest',
         source_type: metrics.sourceType,
@@ -42,6 +43,7 @@ export function createIngestLogger(output: NodeJS.WritableStream = process.stder
     error(metrics, message) {
       writeJson({
         level: 'error',
+        severity: 'ERROR',
         time: new Date().toISOString(),
         logger: 'dataset_ingest',
         source_type: metrics.sourceType,
