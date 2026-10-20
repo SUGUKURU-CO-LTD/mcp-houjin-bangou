@@ -214,6 +214,27 @@ cmd_release() {
     --project="${PROJECT_ID}" \
     --region="${REGION}" \
     --format="table(status.latestReadyRevisionName,spec.template.spec.containers[0].image)"
+
+  local deployed_image
+  deployed_image="$(gcloud run services describe houjin-bangou-mcp \
+    --project="${PROJECT_ID}" \
+    --region="${REGION}" \
+    --format="value(status.latestReadyRevisionName)" | head -n 1)"
+  
+  local ready_revision_image=""
+  if [[ -n "${deployed_image}" ]]; then
+    ready_revision_image="$(gcloud run revisions describe "${deployed_image}" \
+      --project="${PROJECT_ID}" \
+      --region="${REGION}" \
+      --format="value(spec.containers[0].image)" | head -n 1)"
+  fi
+
+  if [[ "${ready_revision_image}" != "${image_uri}" ]]; then
+    echo "エラー: 新しいリビジョンが準備完了になっていません (検出イメージ: ${ready_revision_image:-なし}, 期待イメージ: ${image_uri})" >&2
+    echo "手動で新しいリビジョンを作成する場合は次のコマンドを実行してください:" >&2
+    echo "gcloud run deploy houjin-bangou-mcp --image=\"${image_uri}\" --region=\"${REGION}\" --project=\"${PROJECT_ID}\"" >&2
+    exit 1
+  fi
 }
 
 cmd_ingest() {
@@ -243,14 +264,20 @@ cmd_ingest() {
   local mount_dir="/mnt/ingest/${dataset_type}/${year_month}"
 
   echo "=== Cloud Run Job 実行: ${job_name} (dir=${mount_dir}, data-as-of=${data_as_of}) ==="
+  local job_exit_code=0
   gcloud run jobs execute "${job_name}" \
     --project="${PROJECT_ID}" \
     --region="${REGION}" \
     --args="--dir,${mount_dir},--data-as-of,${data_as_of}" \
-    --wait
+    --wait || job_exit_code=$?
 
   echo "=== 直近の dataset_ingest ログ ==="
   print_dataset_ingest_logs 5
+
+  if [[ ${job_exit_code} -ne 0 ]]; then
+    echo "エラー: ジョブの実行が失敗またはスキップされました (終了コード: ${job_exit_code})。" >&2
+    exit 1
+  fi
 }
 
 cmd_status() {

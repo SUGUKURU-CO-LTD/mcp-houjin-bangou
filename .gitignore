@@ -73,4 +73,8 @@ terraform.rc
 backend.hcl
 !*.tfvars.example
 !backend.hcl.example
+*.tfplan
+
+# Local operational artifacts
+.local/
 
