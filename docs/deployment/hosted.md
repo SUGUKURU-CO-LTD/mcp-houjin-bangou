@@ -263,44 +263,81 @@ Terraform により `asia-northeast1` に保存期間30日のログバケット�
 
 > `src/ingest/cli.ts` は指定ディレクトリ直下の `.csv` ファイルをファイル名の昇順で読み込み、1つのデータセットバージョンとしてストリーミング投入したうえで、全索引を構築してから単一トランザクションの `RENAME` で本番テーブルと入れ替えます。
 
-### 3.3 Cloud Run Job（`houjin-bangou-ingest-corporate` / `houjin-bangou-ingest-invoice`）の実行
+### 3.3 Cloud Run Job（`houjin-bangou-ingest-corporate` / `houjin-bangou-ingest-invoice`）の実行とログ確認
 
 GCS バケットはジョブコンテナ内の `/mnt/ingest` に読み取り専用でマウントされています。
-各ジョブは `command` に CLI スクリプトと `--type`（`corporate` / `invoice`）が固定定義されており、実行時の `--args` はコンテナの `args` を置き換える仕様のため、実行時は `--dir` と `--data-as-of` のみを安全に渡すことができます（`INGEST_MIN_RECORD_COUNT` もジョブ側の環境変数で設定済み。タイムアウト `ingest_timeout_sec` は初回の実測で決定）。
+認証情報・ADC の種別確認および `infra/terraform/terraform.tfvars` からの `project_id` 読み取りを行ったうえで、対応するジョブの実行と完了待機、直近の `dataset_ingest` ログの表示を一括で行うため、`scripts/ops.sh ingest` を使用します。
 
 1. **法人番号データの取り込み実行**
    ```bash
-   gcloud run jobs execute houjin-bangou-ingest-corporate \
-     --region=asia-northeast1 \
-     --args="--dir,/mnt/ingest/corporate/2026-10,--data-as-of,2026-09-30" \
-     --wait
+   ./scripts/ops.sh ingest corporate 2026-10 2026-09-30
    ```
 
 2. **インボイスデータの取り込み実行**
    ```bash
-   gcloud run jobs execute houjin-bangou-ingest-invoice \
-     --region=asia-northeast1 \
-     --args="--dir,/mnt/ingest/invoice/2026-10,--data-as-of,2026-09-30" \
-     --wait
+   ./scripts/ops.sh ingest invoice 2026-10 2026-09-30
    ```
 
-### 3.4 終了コードとログ・件数の確認
+### 3.4 終了コードと稼働状態の確認
 
 - **CLI 終了コード**:
   - `0`: 入れ替え完了（`status: "active"`）
   - `1`: 失敗（件数下限未満、稼働中件数比 90% 未満、不正行比率超過、引数不正、DB エラー等。前の active なデータと `data_as_of` がそのまま維持されます）
   - `2`: 別の取り込みが実行中のためスキップ（PostgreSQL アドバイザリーロックによる排他制御、`status: "skipped"`）
-- **ログ確認**:
-  - Cloud Logging で `jsonPayload.logger="dataset_ingest"` のログを1行確認し、`status: "active"`、`count`（取り込み件数）、`duration_ms`、`data_as_of` が記録されていること、かつ公表件数と大きくずれていないことを確認します。
+- **ログ・稼働状態の確認**:
+  - `./scripts/ops.sh ingest` 実行後に表示される `dataset_ingest` のログ（または `./scripts/ops.sh status`）で、`severity`、`status: "active"`、`count`（取り込み件数）、`duration_ms`、`msg` が記録されていること、かつ公表件数と大きくずれていないことを確認します。
+  ```bash
+  ./scripts/ops.sh status
+  ```
 
 ### 3.5 取り込み成功後の GCS 一時フォルダの削除
 
 取り込みが正常に完了（終了コード 0、`status: "active"`）したことを確認した後、プライバシーポリシー（第8条）の規定に基づき、取り込み用 GCS バケットに一時配置した該当月の CSV フォルダを速やかに削除します。
 
 ```bash
-gcloud storage rm --recursive "gs://<INGEST_BUCKET>/corporate/<YYYY-MM>/"
-gcloud storage rm --recursive "gs://<INGEST_BUCKET>/invoice/<YYYY-MM>/"
+gcloud storage rm --recursive "gs://<INGEST_BUCKET>/corporate/<YYYY-MM>/" --project="<PROJECT_ID>"
+gcloud storage rm --recursive "gs://<INGEST_BUCKET>/invoice/<YYYY-MM>/" --project="<PROJECT_ID>"
 ```
+
+---
+
+## 3.6 新しい版の反映（リリース手順）
+
+PR を `main` ブランチへマージした後、本番環境へ新しい版を反映する際は `scripts/ops.sh` を使用します。これにより、認証の取り違え（`GOOGLE_APPLICATION_CREDENTIALS` の残存やサービスアカウント ADC の誤用）、イメージの未送信、`gcloud` の既定プロジェクト書き換えによる失敗を防ぎます。
+
+1. **`main` ブランチを最新化する**
+   ```bash
+   git switch main
+   git pull origin main
+   ```
+
+2. **事前確認（`preflight`）を実行する**
+   認証状態、ADC がユーザー認証（`authorized_user`）であること、`infra/terraform/terraform.tfvars` の `project_id`、Docker の起動状態、Git ブランチが `main` で未コミット変更がなく `origin/main` と一致していることを検査します。
+   ```bash
+   ./scripts/ops.sh preflight
+   ```
+
+3. **リリース（`release`）を実行する**
+   `release` サブコマンドは以下を順に自動実行します。
+   - `preflight` の実行
+   - タグ `1.0.0-$(git rev-parse --short HEAD)` で `linux/amd64` イメージをビルド・プッシュ
+   - Artifact Registry にそのタグが存在することの確認
+   - `infra/terraform/terraform.tfvars` の `image` 行の書き換え
+   - `env -u GOOGLE_APPLICATION_CREDENTIALS terraform -chdir=infra/terraform plan -out=.local/release.tfplan` の実行と `add` / `change` / `destroy` 件数の表示（`destroy` が 1 以上の場合は自動で中止）
+   - `y/N` の確認プロンプト表示（`y` 入力時のみ `terraform apply .local/release.tfplan` を実行）
+   - 反映後の Cloud Run サービスのイメージと最新 Ready リビジョンの表示
+   ```bash
+   ./scripts/ops.sh release
+   ```
+
+4. **稼働状態の全体確認（`status`）**
+   Cloud Run サービスのイメージとリビジョン、3つのジョブのイメージ、直近の取り込み結果、DNS（`dig`）、SSL 証明書の状態をまとめて確認できます。
+   ```bash
+   ./scripts/ops.sh status
+   ```
+
+> **補足（`shellcheck` によるスクリプト検証）**
+> `scripts/ops.sh` を編集した場合は、`shellcheck scripts/ops.sh` で構文・静的解析の警告がないことを確認してください。`shellcheck` は `package.json` の `devDependencies` には含めていないため、未導入の環境では macOS なら `brew install shellcheck`、Ubuntu / Debian なら `sudo apt-get install shellcheck` で導入してください。
 
 ---
 
