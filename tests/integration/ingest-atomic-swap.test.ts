@@ -803,4 +803,41 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
       pgClient.release();
     }
   });
+
+  it('国税庁実データ仕様: en_city_name が 121 文字を超える行（varchar(600)）が正常に取り込めること', async () => {
+    // 121文字を超える en_city_name（例: 200文字）および en_address_outside（例: 200文字）を持つ合成データ
+    const longEnCity = 'Minato-ku Roppongi '.repeat(15).trim(); // 284文字 (> 121文字)
+    const longEnAddressOutside = '123 Long Foreign Address Boulevard Suite '.repeat(10).trim(); // 409文字 (> 300文字)
+    expect(longEnCity.length).toBeGreaterThan(121);
+    expect(longEnAddressOutside.length).toBeGreaterThan(300);
+
+    const csvRecords = [
+      `1,"9000000000001","01","1","2026-10-01","2026-10-01","グローバル長文住所株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060032","","","","","","","","1","GLOBAL LONG ADDRESS CORP","TOKYO","${longEnCity}","${longEnAddressOutside}","グローバルチョウブンジュウショカブシキガイシャ","0"`,
+      `2,"9000000000002","01","1","2026-10-01","2026-10-01","通常企業株式会社","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","STANDARD CORP","TOKYO","Chiyoda-ku Otemachi","","ツウジョウキギョウカブシキガイシャ","0"`,
+    ];
+
+    const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
+    expect(v.status).toBe('active');
+    expect(v.count).toBe(2);
+
+    const lookupRes = await dataProvider.lookupByNumber('9000000000001');
+    expect(lookupRes.ok).toBe(true);
+    if (lookupRes.ok && lookupRes.value) {
+      expect(lookupRes.value.corporation.name).toBe('グローバル長文住所株式会社');
+    }
+
+    // DB から直接 en_city_name と en_address_outside の保存値を確認
+    const rows = await db
+      .select({
+        corporateNumber: corporateNumbers.corporateNumber,
+        enCityName: corporateNumbers.enCityName,
+        enAddressOutside: corporateNumbers.enAddressOutside,
+      })
+      .from(corporateNumbers)
+      .where(eq(corporateNumbers.corporateNumber, '9000000000001'));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.enCityName).toBe(longEnCity);
+    expect(rows[0]?.enAddressOutside).toBe(longEnAddressOutside);
+  });
 });

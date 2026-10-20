@@ -71,8 +71,8 @@ export const corporateNumbers = pgTable(
     latest: varchar('latest', { length: 1 }).notNull().default('1'), // 最新履歴区分 (1:最新, 0:過去)
     enName: varchar('en_name', { length: 300 }),
     enPrefectureName: varchar('en_prefecture_name', { length: 50 }),
-    enCityName: varchar('en_city_name', { length: 50 }),
-    enAddressOutside: varchar('en_address_outside', { length: 300 }),
+    enCityName: varchar('en_city_name', { length: 600 }),
+    enAddressOutside: varchar('en_address_outside', { length: 600 }),
     furigana: varchar('furigana', { length: 500 }),
     hihyoji: varchar('hihyoji', { length: 1 }).notNull().default('0'), // 検索対象除外 (0: 検索対象, 1: 検索対象除外)
     datasetVersionId: integer('dataset_version_id')
@@ -122,8 +122,8 @@ export const corporateNumbersStaging = pgTable(
     latest: varchar('latest', { length: 1 }).notNull().default('1'),
     enName: varchar('en_name', { length: 300 }),
     enPrefectureName: varchar('en_prefecture_name', { length: 50 }),
-    enCityName: varchar('en_city_name', { length: 50 }),
-    enAddressOutside: varchar('en_address_outside', { length: 300 }),
+    enCityName: varchar('en_city_name', { length: 600 }),
+    enAddressOutside: varchar('en_address_outside', { length: 600 }),
     furigana: varchar('furigana', { length: 500 }),
     hihyoji: varchar('hihyoji', { length: 1 }).notNull().default('0'), // 検索対象除外 (0: 検索対象, 1: 検索対象除外)
     datasetVersionId: integer('dataset_version_id')
