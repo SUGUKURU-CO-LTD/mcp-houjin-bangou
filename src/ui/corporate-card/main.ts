@@ -73,7 +73,6 @@ function renderCard(output: LookupCorporateOutput): void {
   const codeEl = document.createElement('code');
   codeEl.textContent = vm.corporate_number;
   appendFact(facts, '法人番号', codeEl);
-  appendFact(facts, 'フリガナ', vm.name_kana_display);
   appendFact(facts, '法人種別', vm.legal_type);
 
   if (vm.address_warning !== null) {

@@ -32,6 +32,7 @@ import {
   buildLookupByNumberArgs,
   buildSearchResultsViewModel,
   buildSearchSimilarArgs,
+  formatPostalCodeDisplay,
   type LookupCorporateOutput,
   type SearchCorporateOutput,
 } from '../../src/ui/shared.js';
@@ -197,7 +198,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(vm.close_cause).toBeNull();
     expect(vm.location).toBe('東京都千代田区神田小川町');
     expect(vm.post_code).toBe('1000000');
-    expect(vm.post_code_display).toBe('1000000');
+    expect(vm.post_code_display).toBe('100-0000');
     expect(vm.update_date).toBe('2019-04-03');
     expect(vm.data_as_of).toBe('2019-04-05');
     expect(vm.address_may_be_outdated).toBe(true);
@@ -241,6 +242,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(vm.close_cause).toBe('清算の結了等');
     expect(vm.location).toBe('鹿児島県霧島市国分中央１丁目２−３２');
     expect(vm.post_code).toBe('8994332');
+    expect(vm.post_code_display).toBe('899-4332');
     expect(vm.update_date).toBe('2026-07-15');
     expect(vm.data_as_of).toBe('2026-08-05');
     expect(vm.address_may_be_outdated).toBe(false);
@@ -373,5 +375,26 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
       process.chdir(originalCwd);
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('formatPostalCodeDisplay', () => {
+  it('formats exactly seven digits as NNN-NNNN', () => {
+    expect(formatPostalCodeDisplay('4710826')).toBe('471-0826');
+    expect(formatPostalCodeDisplay('1000000')).toBe('100-0000');
+  });
+
+  it('leaves values that are not seven digits unchanged', () => {
+    expect(formatPostalCodeDisplay('471-0826')).toBe('471-0826');
+    expect(formatPostalCodeDisplay('123')).toBe('123');
+    expect(formatPostalCodeDisplay('12345678')).toBe('12345678');
+    expect(formatPostalCodeDisplay('１２３４５６７')).toBe('１２３４５６７');
+    expect(formatPostalCodeDisplay('471 0826')).toBe('471 0826');
+  });
+
+  it('shows 未登録 when the postal code is missing', () => {
+    expect(formatPostalCodeDisplay(null)).toBe('未登録');
+    expect(formatPostalCodeDisplay('')).toBe('未登録');
+    expect(formatPostalCodeDisplay('   ')).toBe('未登録');
   });
 });
