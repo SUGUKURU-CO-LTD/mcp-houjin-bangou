@@ -24,6 +24,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   NTA_CORPORATE_WEB_API_ATTRIBUTION,
+  formatAttributionLine,
 } from '../lib/tool-response.js';
 import { Result } from '../lib/result.js';
 
@@ -217,7 +218,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
               ]
             : []),
           `データ時点: ${val.data_as_of}`,
-          `出典: ${val.attribution}`,
+          formatAttributionLine(val.attribution),
         ].join('\n');
 
         return createSuccessResponse(summary, output);
@@ -367,7 +368,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
           ? ['※続きの検索結果を取得するには、返却された next_cursor を指定して再実行してください。']
           : []),
         `データ時点: ${dataAsOf}`,
-        `出典: ${NTA_CORPORATE_WEB_API_ATTRIBUTION}`,
+        formatAttributionLine(NTA_CORPORATE_WEB_API_ATTRIBUTION),
       ].join('\n');
 
       return createSuccessResponse(summary, structuredContent);

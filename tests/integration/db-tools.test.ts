@@ -382,7 +382,8 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること（注記はなし）
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
-    expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+    expect(textContent).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+    expect(textContent).not.toContain('出典: ' + '出典：');
     expect(textContent).not.toContain(
       '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
     );
@@ -430,7 +431,8 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     // 要約テキスト（content[0].text）に data_as_of と attribution、および検索対象除外の注記が含まれること
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
-    expect(textContent).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+    expect(textContent).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+    expect(textContent).not.toContain('出典: ' + '出典：');
     expect(textContent).toContain(
       '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
     );
@@ -465,7 +467,8 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(textContent).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
     expect(textContent).toContain('基準日（2024-01-01）時点で有効な登録事業者でした。');
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
-    expect(textContent).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+    expect(textContent).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
+    expect(textContent).not.toContain('出典: ' + '出典：');
     expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 

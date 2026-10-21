@@ -202,7 +202,8 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       expect(summaryText).toContain('所在地: 鹿児島県霧島市国分中央一丁目２−３２');
       expect(summaryText).toContain('登録年月日: 2023-10-01');
       expect(summaryText).toContain('データ時点: 2026-10-01');
-      expect(summaryText).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+      expect(summaryText).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
+      expect(summaryText).not.toContain('出典: ' + '出典：');
       expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
 
       // ログに登録番号が含まれないこと

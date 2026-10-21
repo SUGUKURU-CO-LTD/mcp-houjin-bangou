@@ -304,6 +304,47 @@ describe('SLA2-327 (PR A): Origin検証・IPレート制限・capabilities・Ser
       expect(body.result.capabilities.logging).toBeUndefined();
     });
 
+    it('MCP initialize レスポンスの instructions に、利用制限と税務免責の日英各2文が含まれること (SLA2-329)', async () => {
+      const res = await fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 11,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-11-25',
+            capabilities: {},
+            clientInfo: { name: 'instructions-checker', version: '1.0.0' },
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        result: {
+          instructions?: string;
+        };
+      };
+      const instructions = body.result.instructions ?? '';
+      // 日本語 2文
+      expect(instructions).toContain(
+        'lookup_invoice_issuer は、利用者が示した登録番号を1件ずつ確かめるためのものです。番号の範囲を順に照会したり、登録事業者の一覧を作ったりする用途（法人に限った一覧を含む）には使わないでください。',
+      );
+      expect(instructions).toContain(
+        '仕入税額控除を受けられるかを尋ねられたときは、登録の事実だけを示し、控除の可否はほかの要件にもよるため、税理士や税務署に確認するよう案内してください。',
+      );
+      // 英語 2文
+      expect(instructions).toContain(
+        'Use lookup_invoice_issuer only to check registration numbers that the user explicitly provides, one at a time. Do not iterate over number ranges or compile lists of registered issuers, including lists limited to corporations.',
+      );
+      expect(instructions).toContain(
+        'When asked whether an input tax credit can be claimed, state only the registration facts and explain that eligibility depends on other requirements; suggest consulting a tax accountant or the tax office.',
+      );
+    });
+
     it('GET /.well-known/mcp.json と .well-known/mcp.json ファイルが一致し、最新のツール・プロンプト・リソース・連絡先を反映している', async () => {
       const res = await fetch(`${baseUrl}/.well-known/mcp.json`);
       expect(res.status).toBe(200);

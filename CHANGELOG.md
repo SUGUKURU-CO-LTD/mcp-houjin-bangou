@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `attribution://houjin-bangou` static resource, `corp://{corporate_number}` resource template, and MCP `logging` capability to keep the surface area minimal and read-only.
 - **Policy & Documentation**:
   - Updated `docs/policy/privacy-policy.md` and `docs/policy/terms-of-service.md` to reflect the hosted database architecture, monthly update cycle, sole proprietor data handling, unified office address (`〒899-4332 鹿児島県霧島市国分中央１丁目２−３２ ポーラビル３階`), company name (`スグクル株式会社` / `SUGUKURU CO., LTD.`), and unified contact address (`info@sugu-kuru.co.jp`).
+  - `lookup_invoice_issuer` のツール説明文およびサーバー初期化時の `instructions` に、利用限界（登録番号を1件ずつ確認する用途であり、範囲照会や一覧作成には使わない旨）と仕入税額控除に関する案内（登録事実のみを回答し、控除可否は税理士・税務署への確認を促す旨）を追記（PR 111）。
+
+### Fixed
+
+- ホスト版の照会結果要約テキストにおいて、`attribution` の値が「出典：」で始まる場合に「出典: 出典：...」と見出しが二重に出力される不具合を修正（`formatAttributionLine` の導入）。
 
 ## [0.2.0] - 2026-05-10
 

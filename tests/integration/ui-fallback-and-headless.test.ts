@@ -358,7 +358,8 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(text).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
       expect(text).toContain('状態: 登記中 (active)');
       expect(text).toContain(`データ時点: ${currentDataAsOf}`);
-      expect(text).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+      expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+      expect(text).not.toContain('出典: ' + '出典：');
 
       // 2. 構造化JSON（structuredContent）だけで基幹システムや自動化フローの処理が完結すること
       const sc = result.structuredContent as Record<string, unknown>;
@@ -463,7 +464,8 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
       expect(text).toContain('「株式会社」の検索結果です');
       expect(text).toContain(`データ時点: ${currentDataAsOf}`);
-      expect(text).toContain(`出典: ${NTA_CORPORATE_HOST_ATTRIBUTION}`);
+      expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+      expect(text).not.toContain('出典: ' + '出典：');
 
       // 2. 構造化データ（structuredContent）で全結果とカーソルが完備されていること
       const sc = result.structuredContent as Record<string, unknown>;
@@ -532,7 +534,8 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(text).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
       expect(text).toContain('基準日（2024-01-01）時点で有効な登録事業者でした');
       expect(text).toContain(INVOICE_TAX_DISCLAIMER);
-      expect(text).toContain(`出典: ${NTA_INVOICE_HOST_ATTRIBUTION}`);
+      expect(text).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
+      expect(text).not.toContain('出典: ' + '出典：');
 
       // 構造化データの検証
       const sc = result.structuredContent as Record<string, unknown>;
