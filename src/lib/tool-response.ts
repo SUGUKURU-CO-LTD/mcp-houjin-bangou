@@ -88,3 +88,10 @@ export const NTA_INVOICE_HOST_ATTRIBUTION =
  */
 export const INVOICE_TAX_DISCLAIMER =
   '本ツールが提供する情報は公表データの客観的事実の確認に限られ、税理士法第2条に定める税務相談・仕入税額控除の可否等の税務上の判断は行いません。';
+
+/**
+ * ホスト版の出典表示は、値そのものが「出典：」で始まるので、見出しを重ねない。出典の文字列は変えない。
+ */
+export function formatAttributionLine(attribution: string): string {
+  return attribution.startsWith('出典：') ? attribution : `出典: ${attribution}`;
+}

@@ -15,13 +15,12 @@ flowchart LR
     Express["Express 4"]
     Transport["StreamableHTTPServerTransport<br/>stateless"]
     McpLayer["McpServer (SDK v1)"]
-    Logger["McpLogger<br/>notifications/message<br/>RFC 5424"]
-    subgraph Primitives["7 MCP Primitives"]
+    Logger["McpLogger<br/>stderr への構造化ログ<br/>（MCP の notifications/message は送らない）"]
+    subgraph Primitives["6 MCP Primitives"]
       Tools["5 Tools"]
       Resources["2 UI Resources"]
       Prompts["3 Prompts"]
       Completion["Completion handler"]
-      Logging["Logging capability"]
       Pagination["Pagination (cursor)"]
       ServerCard["Server Card<br/>/.well-known/mcp.json"]
     end
@@ -52,7 +51,7 @@ flowchart LR
   Resources --> Domain
   Prompts --> Domain
   Completion --> Normalizer
-  McpLayer -. notifications .-> Logger
+  McpLayer -. logs .-> Logger
   NtaClient --> RateLimiter
   NtaClient --> CsvParser
   NtaClient -->|"GET /num /name<br/>type=02 CSV UTF-8"| NTA

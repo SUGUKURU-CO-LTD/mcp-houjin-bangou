@@ -1,9 +1,9 @@
-# 法人番号・インボイス照会 MCP インターフェース仕様書 v1.8
+# 法人番号・インボイス照会 MCP インターフェース仕様書 v1.9
 
-- **作成日**: 2026-10-19 JST (v1.8更新)
-- **対象ブランチ**: `a-kabe/sla2-329-submission-fixes`
+- **作成日**: 2026-10-21 JST (v1.9更新)
+- **対象ブランチ**: `a-kabe/sla2-329-attribution-spec-v19`
 - **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.8（承認済み・凍結）
+- **ステータス**: v1.9（承認済み・凍結）
 
 ---
 
@@ -206,8 +206,8 @@
        - 番号を順に試して一覧を作る行為を防ぐため、IP単位の利用上限を設け、超えた場合は `RATE_LIMITED` を返す（B6）
        - DBへのアクセス権は、取り込み処理とツールの読み取りに必要な最小限とする（B6）
 - **名前**: `lookup_invoice_issuer`
-- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。
-- **説明文（英語）**: Look up registered invoice issuer status by T-number (T+13 digits) from NTA public records with optional reference date. Returns factual registration status only without tax advice.
+- **説明文（日本語）**: 適格請求書発行事業者の登録番号（T+13桁）から、国税庁インボイス公表サイトにおける公表事実（登録状態、登録年月日、取消・失効年月日、法人・その他の団体の場合は公表された名称と所在地（その他の団体の所在地は公表データにある場合のみ））を確認します。任意の基準日を指定してその時点での有効性も照会可能です。個人の場合は氏名・屋号を返却せず、税務上の控除判断は行いません。利用者が示した登録番号を1件ずつ確かめるためのツールで、番号の範囲を順に照会して一覧を作る用途には使えません。
+- **説明文（英語）**: Look up registered invoice issuer status by T-number (T+13 digits) from NTA public records with optional reference date. Returns factual registration status only without tax advice. Use only to check registration numbers provided one at a time; do not use to compile lists by iterating over number ranges.
 - **アノテーション**:
   - `title`: "Look up Registered Invoice Issuer by T-number"
   - `readOnlyHint`: `true`
@@ -442,7 +442,7 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 全ツール共通のレスポンス形式を定めます。
 
-- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。また、`lookup_corporate_by_number` および `search_corporate_by_name` において、対象法人の `address_may_be_outdated` が `true` の場合、要約テキストに「※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。」を含めます。
+- **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。要約の出典行は attribution の値を 1 行で示す。値が『出典：』で始まる場合は見出しを付けない。また、`lookup_corporate_by_number` および `search_corporate_by_name` において、対象法人の `address_may_be_outdated` が `true` の場合、要約テキストに「※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。」を含めます。
 - **失敗時**: `isError: true` とし、`structuredContent` は次の形にします。
   ```json
   {
@@ -484,7 +484,9 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 > 個人の連絡先情報やプライバシーに関わるデータの入力は避けてください。
 > 公表データの内容を回答に示すときは、データの時点（data_as_of）と出典表示を併せて示してください。
 > 登録番号（T＋13桁）の確認には lookup_invoice_issuer を使ってください。
+> lookup_invoice_issuer は、利用者が示した登録番号を1件ずつ確かめるためのものです。番号の範囲を順に照会したり、登録事業者の一覧を作ったりする用途（法人に限った一覧を含む）には使わないでください。
 > lookup_invoice_issuer の not_found は、公表データに該当がないことを示すもので、登録されていないことを確定するものではありません。
+> 仕入税額控除を受けられるかを尋ねられたときは、登録の事実だけを示し、控除の可否はほかの要件にもよるため、税理士や税務署に確認するよう案内してください。
 
 ### 5.2 英語説明文（Instructions）
 > This server provides tools to look up and verify Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan.
@@ -493,7 +495,9 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 > Please refrain from providing personal contact details or private personal information in queries.
 > When presenting public data in a response, include the dataset date (data_as_of) and the attribution.
 > Use lookup_invoice_issuer to check invoice registration numbers (T followed by 13 digits).
+> Use lookup_invoice_issuer only to check registration numbers that the user explicitly provides, one at a time. Do not iterate over number ranges or compile lists of registered issuers, including lists limited to corporations.
 > A 'not_found' result from lookup_invoice_issuer means no matching record in the public dataset; it does not establish that the entity is unregistered.
+> When asked whether an input tax credit can be claimed, state only the registration facts and explain that eligibility depends on other requirements; suggest consulting a tax accountant or the tax office.
 
 ---
 
@@ -677,4 +681,21 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
   - **理由**: ツール名表記の統一性を高めるため、`Lookup Registered Invoice Issuer by T-number` から `Look up Registered Invoice Issuer by T-number`（Look up と2語に統一）へ改めました。
 - **ステータス更新**:
   - 仕様書ステータスを「v1.8（承認済み・凍結）」としました（決定日: 2026-10-19）。
+
+---
+
+## 16. v1.9の変更点
+
+提出前の最終修正（Linear SLA2-329、PR 111 および本PR）に基づき、以下の変更を反映しました。
+
+- **1. 利用限界と税務案内に関する説明文の追加（PR 111）**:
+  - **背景**: ChatGPT 等の審査・実機検証において、登録番号の範囲指定による一括照会や一覧作成の要求に対し、意図しない提案（法人限定の一覧作成など）が行われるリスクを防止する。
+  - **サーバー説明文（instructions）**: 第5.1節および第5.2節に、`lookup_invoice_issuer` の利用限界（番号を1件ずつ確認する用途であり範囲照会や一覧作成には使わないこと）と、仕入税額控除の案内（登録の客観的事実のみを示し控除可否は税理士や税務署への確認を促すこと）を日本語・英語で明記しました。
+  - **ツール説明文（DESCRIPTION）**: 第1.3節の `lookup_invoice_issuer` の日本語および英語説明文に、同様の利用限界（1件ずつの照会用途であり一覧作成用途には使えない旨）を追記しました。
+- **2. 要約テキストにおける出典表示の重複解消（本PR）**:
+  - **背景**: ホスト版データベースから取得したデータにおいて、`attribution` の値自体が「出典：」で始まっている場合に、要約テキストで「出典: 出典：...」と見出しが二重出力されていた。
+  - **出力規則の明確化**: 第3.1節に「要約の出典行は attribution の値を 1 行で示す。値が『出典：』で始まる場合は見出しを付けない」を規定し、共通関数 `formatAttributionLine` により整形する仕様としました。
+- **ステータス更新**:
+  - 仕様書ステータスを「v1.9（承認済み・凍結）」としました（決定日: PR 111 のマージ（2026-10-21）および本 PR のマージ）。
+
 

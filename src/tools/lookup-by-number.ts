@@ -21,6 +21,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   NTA_CORPORATE_WEB_API_ATTRIBUTION,
+  formatAttributionLine,
 } from '../lib/tool-response.js';
 import { Result } from '../lib/result.js';
 
@@ -190,7 +191,7 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
               ]
             : []),
           `データ時点: ${val.data_as_of}`,
-          `出典: ${val.attribution}`,
+          formatAttributionLine(val.attribution),
         ].join('\n');
 
         return createSuccessResponse(summary, output);
@@ -303,7 +304,7 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
           ? ['※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。']
           : []),
         `データ時点: ${dataAsOf}`,
-        `出典: ${attribution}`,
+        formatAttributionLine(attribution),
       ].join('\n');
 
       return createSuccessResponse(summary, structuredContent);

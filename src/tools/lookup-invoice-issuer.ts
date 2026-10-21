@@ -18,6 +18,7 @@ import { getToolAnnotations, type DataSourceMode } from '../domain/tool-annotati
 import {
   createSuccessResponse,
   createErrorResponse,
+  formatAttributionLine,
   type ToolSuccessResponse,
   type ToolErrorResponse,
 } from '../lib/tool-response.js';
@@ -225,7 +226,7 @@ export function registerLookupInvoiceIssuerTool(
       }
 
       // 公表データ共通メタデータ（データ時点と出典）
-      summaryLines.push(`データ時点: ${val.data_as_of}`, `出典: ${val.attribution}`);
+      summaryLines.push(`データ時点: ${val.data_as_of}`, formatAttributionLine(val.attribution));
 
       // 税務免責事項
       summaryLines.push(val.tax_disclaimer);

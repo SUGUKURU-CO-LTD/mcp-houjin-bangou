@@ -61,7 +61,7 @@
 撮影前に必ず最新のコードと UI アセットを完全ビルドします。
 
 ```bash
-cd /Users/kabe/houjin_bangou_mcp
+cd .
 
 # サーバーコード、UI bundle (singlefile)、CSPハッシュ注入を一括ビルド
 pnpm build
@@ -110,7 +110,7 @@ pnpm build
 
 #### パターン C: 静的プレビュー (`docs/assets/ui-preview.html`) による撮影（予備）
 実機ホスト接続なしで UI コンポーネント単体の完全な見栄えを撮影したい場合は、同梱の静的プレビューを使用できます：
-1. ブラウザで `file:///Users/kabe/houjin_bangou_mcp/docs/assets/ui-preview.html` を開きます。
+1. ブラウザで `docs/assets/ui-preview.html` を開きます。
 2. `corporate-card` および `search-results` が fixtures データで綺麗にレンダリングされます。
 3. ウィンドウ幅を 800px 程度に設定し、コンポーネント単位でスクリーンショットを撮影します。
 
