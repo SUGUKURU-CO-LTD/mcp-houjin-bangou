@@ -185,6 +185,13 @@ resource "google_storage_bucket" "ingest" {
   public_access_prevention    = "enforced"
   force_destroy               = false
 
+  # 取り込み後に速やかに削除する（プライバシーポリシー第8条）。既定の7日ソフトデリートを残さない。
+  # Delete ingested objects promptly (Privacy Policy Article 8). Do not keep the default 7-day soft delete.
+  # Hapus objek yang sudah diimpor segera (Kebijakan Privasi Pasal 8). Jangan sisakan soft delete 7 hari bawaan.
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+
   depends_on = [google_project_service.apis]
 }
 

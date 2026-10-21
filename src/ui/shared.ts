@@ -8,6 +8,21 @@
 export const ADDRESS_OUTDATED_WARNING =
   '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。';
 
+/**
+ * 郵便番号が半角数字7桁のときだけ「471-0826」の形にして表示する。
+ * Format a postal code as NNN-NNNN only when it is exactly seven digits.
+ * Format kode pos menjadi NNN-NNNN hanya jika tepat tujuh digit.
+ *
+ * ツールが返す post_code 自体は変えない。表示用の文字列だけを返す。
+ */
+export function formatPostalCodeDisplay(postCode: string | null): string {
+  if (postCode === null || postCode.trim() === '') return '未登録';
+  if (/^[0-9]{7}$/.test(postCode)) {
+    return `${postCode.slice(0, 3)}-${postCode.slice(3)}`;
+  }
+  return postCode;
+}
+
 export interface CorporationRecord {
   corporate_number: string;
   name: string;
@@ -187,7 +202,7 @@ export function buildCorporateCardViewModel(
     legal_type: corp.legal_type,
     location: corp.location,
     post_code: postCode,
-    post_code_display: postCode ?? '未登録',
+    post_code_display: formatPostalCodeDisplay(postCode),
     update_date: corp.update_date,
     status: normalizedStatus,
     status_badge: statusBadge(normalizedStatus),
