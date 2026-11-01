@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "jp.co.sugu-kuru/mcp-houjin-bangou",
   "description": "Read-only MCP server for Japan NTA Corporate Numbers and Qualified Invoice Issuers (T-numbers).",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "repository": {
     "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
     "source": "github"
@@ -18,7 +18,7 @@
     {
       "registryType": "npm",
       "identifier": "@sugukuru/mcp-houjin-bangou",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "transport": {
         "type": "streamable-http",
         "url": "http://localhost:3001/mcp"
