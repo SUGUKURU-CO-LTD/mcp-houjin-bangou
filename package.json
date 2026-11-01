@@ -105,6 +105,6 @@
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "^3.2.6"
+    "vitest": "^5.0.5"
   }
 }
