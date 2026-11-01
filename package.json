@@ -81,7 +81,7 @@
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "cors": "^2.8.6",
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "express": "^4.22.3",
     "helmet": "^8.3.0",
     "pg": "8.23.1",
