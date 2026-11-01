@@ -1,6 +1,6 @@
 {
   "name": "@sugukuru/mcp-houjin-bangou",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.",
   "protocol_version": "2025-11-25",
   "homepage": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
