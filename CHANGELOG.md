@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-05
+
+### Security
+
+- 依存ライブラリの既知の脆弱性に対処：
+  - `body-parser@1` を `1.20.9`、`body-parser@2` を `2.4.0` に固定（GHSA-27r3-jxmh-p828, GHSA-mrhx-c7xc-m3w5）
+  - `fast-uri@3` を `3.1.9` に固定（GHSA-w74x-v6f9-j3xg）
+  - `qs@6` を `6.16.1` に固定（GHSA-6pq8-jhm2-2vcw、※14日公開遅延ルールを遵守するため 10/28 公開の 6.16.2 ではなく 10/14 公開の 6.16.1 を指定）
+  - `zod` を `^4.6.7` に更新
+
+### Removed
+
+- 未使用の依存関係を削除：
+  - `dompurify`: コードベースで使用されていないため削除
+  - `pino-http`: コードベースで使用されていないため削除
+
 ## [1.0.0] - 2026-10-19
 
 ### Added

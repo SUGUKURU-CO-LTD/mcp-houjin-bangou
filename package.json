@@ -1,7 +1,7 @@
 {
   "name": "@sugukuru/mcp-houjin-bangou",
   "mcpName": "jp.co.sugu-kuru/mcp-houjin-bangou",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Model Context Protocol server for Japan's National Corporate Number (houjin-bangou) and Qualified Invoice Issuer lookup published by the National Tax Agency of Japan, with deterministic company-name normalization.",
   "license": "MIT",
   "author": "SUGUKURU CO., LTD. (Kagoshima) <info@sugu-kuru.co.jp>",
@@ -45,6 +45,14 @@
     "node": ">=20.19.0"
   },
   "packageManager": "pnpm@9.15.0",
+  "pnpm": {
+    "overrides": {
+      "body-parser@1": "1.20.9",
+      "body-parser@2": "2.4.0",
+      "fast-uri@3": "3.1.9",
+      "qs@6": "6.16.1"
+    }
+  },
   "scripts": {
     "build": "pnpm build:server && pnpm build:ui && pnpm build:csp",
     "build:server": "tsc -p tsconfig.build.json",
@@ -73,23 +81,21 @@
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "cors": "^2.8.6",
-    "dompurify": "^3.4.16",
-    "drizzle-orm": "0.45.3",
-    "express": "^4.22.3",
+    "drizzle-orm": "0.45.4",
+    "express": "^5.3.0",
     "helmet": "^8.3.0",
     "pg": "8.23.1",
     "pino": "^10.4.0",
-    "pino-http": "^10.5.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.25",
+    "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
     "@types/pg": "8.23.1",
     "@typescript-eslint/eslint-plugin": "^8.71.1",
     "@typescript-eslint/parser": "^8.71.1",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^5.0.5",
     "drizzle-kit": "0.31.11",
     "eslint": "^10.12.0",
     "fast-check": "^4.10.2",
@@ -99,6 +105,6 @@
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "^2.1.9"
+    "vitest": "^5.0.5"
   }
 }
