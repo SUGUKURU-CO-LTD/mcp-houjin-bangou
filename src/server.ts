@@ -41,6 +41,10 @@ import {
   IpRateLimiter,
   createIpRateLimitMiddleware,
 } from './lib/http-security.js';
+import {
+  NTA_CORPORATE_HOST_ATTRIBUTION,
+  NTA_INVOICE_HOST_ATTRIBUTION,
+} from './lib/tool-response.js';
 
 export interface CreateAppOptions {
   logger?: Logger;
@@ -317,11 +321,18 @@ export function buildServerCard(): Record<string, unknown> {
       resources: ['ui://corporate-card/mcp-app.html', 'ui://search-results/mcp-app.html'],
     },
     attribution: {
-      data_source: '国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)',
-      license: '公共データ利用規約 第1.0版',
-      api_version: 'Ver.4.0',
-      service_disclaimer:
-        'このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。',
+      hosted: {
+        corporate: NTA_CORPORATE_HOST_ATTRIBUTION,
+        invoice: NTA_INVOICE_HOST_ATTRIBUTION,
+        license: '公共データ利用規約 第1.0版',
+      },
+      self_hosted: {
+        data_source: '国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)',
+        license: '公共データ利用規約 第1.0版',
+        api_version: 'Ver.4.0',
+        service_disclaimer:
+          'このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。',
+      },
     },
     maintainer: {
       name: 'SUGUKURU CO., LTD.',

@@ -1,6 +1,6 @@
 # API Reference
 
-本 MCP サーバー（v1.0.0 / 仕様 v1.8）が提供する **5 Tools + 3 Prompts + 2 UI Resources + Completion + Environment Variables** のリファレンスです。
+本 MCP サーバー（v1.0.1 / 仕様 v1.9）が提供する **5 Tools + 3 Prompts + 2 UI Resources + Completion + Environment Variables** のリファレンスです。
 すべての定義値・型・引数・戻り値は `src/` の実装コードから直接転記されています。
 
 ---

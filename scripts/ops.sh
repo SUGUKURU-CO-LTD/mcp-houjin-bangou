@@ -143,8 +143,12 @@ print_dataset_ingest_logs() {
 cmd_release() {
   cmd_preflight
 
-  local tag image_uri
-  tag="1.0.0-$(git -C "${REPO_ROOT}" rev-parse --short HEAD)"
+  local version tag image_uri
+  version="$(sed -n -E 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "${REPO_ROOT}/package.json" | head -n 1)"
+  if [[ -z "${version}" ]]; then
+    fail "${REPO_ROOT}/package.json から version を読み取れませんでした。"
+  fi
+  tag="${version}-$(git -C "${REPO_ROOT}" rev-parse --short HEAD)"
   image_uri="${REGION}-docker.pkg.dev/${PROJECT_ID}/houjin-bangou-mcp/mcp-houjin-bangou:${tag}"
 
   echo "=== 1. コンテナイメージのビルドとプッシュ (${image_uri}) ==="
