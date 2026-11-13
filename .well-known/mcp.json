@@ -39,10 +39,17 @@
     ]
   },
   "attribution": {
-    "data_source": "国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)",
-    "license": "公共データ利用規約 第1.0版",
-    "api_version": "Ver.4.0",
-    "service_disclaimer": "このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。"
+    "hosted": {
+      "corporate": "出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/ ）。同サイトの公表データをもとにスグクル株式会社が加工して作成",
+      "invoice": "出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html ）。同サイトの公表データをもとにスグクル株式会社が加工して作成",
+      "license": "公共データ利用規約 第1.0版"
+    },
+    "self_hosted": {
+      "data_source": "国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)",
+      "license": "公共データ利用規約 第1.0版",
+      "api_version": "Ver.4.0",
+      "service_disclaimer": "このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。"
+    }
   },
   "maintainer": {
     "name": "SUGUKURU CO., LTD.",

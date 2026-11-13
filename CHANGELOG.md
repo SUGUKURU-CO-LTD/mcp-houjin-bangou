@@ -6,21 +6,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.1] - 2026-11-05
+## [1.0.1] - 2026-11-13
 
 ### Security
 
 - 依存ライブラリの既知の脆弱性に対処：
-  - `body-parser@1` を `1.20.9`、`body-parser@2` を `2.4.0` に固定（GHSA-27r3-jxmh-p828, GHSA-mrhx-c7xc-m3w5）
-  - `fast-uri@3` を `3.1.9` に固定（GHSA-w74x-v6f9-j3xg）
-  - `qs@6` を `6.16.1` に固定（GHSA-6pq8-jhm2-2vcw、※14日公開遅延ルールを遵守するため 10/28 公開の 6.16.2 ではなく 10/14 公開の 6.16.1 を指定）
-  - `zod` を `^4.6.7` に更新
+  - `body-parser@1` を `1.20.9`、`body-parser@2` を `2.4.0` に固定（GHSA-27r3-jxmh-p828）
+  - `fast-uri@3` を `3.1.9` に固定（GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr, GHSA-333x-w4r6-6crp, GHSA-xhq7-xmqj-769h）
+  - `qs@6` を `6.16.1` に固定（GHSA-6pq8-jhm2-2vcw、※14日公開遅延ルールを遵守するため 10/27 公開の 6.16.2 ではなく 10/14 公開の 6.16.1 を指定）
+  - `zod` を `^4.6.7` に更新（GHSA-mrhx-c7xc-m3w5）
+
+### Changed
+
+- 本番依存の更新：`express` を `5.3.0`、`@modelcontextprotocol/sdk` を `1.32.2`、`drizzle-orm` を `0.45.4` に更新
+- パッケージマネージャーを `pnpm@10.34.7` に更新し、`pnpm-workspace.yaml` に `minimumReleaseAge: 20160`（14日公開遅延ルール）を設定して全依存（孫依存を含む）に適用
 
 ### Removed
 
 - 未使用の依存関係を削除：
-  - `dompurify`: コードベースで使用されていないため削除
+  - `dompurify`: コードベースで使用されていないため削除（GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f の解消を含む）
   - `pino-http`: コードベースで使用されていないため削除
+
+### Fixed
+
+- Server Card（`/.well-known/mcp.json`）の `attribution` をホスト版（ダウンロードデータ）とセルフホスト版（Web-API）に分離し、インボイス公表データの出典表示を追記
 
 ## [1.0.0] - 2026-10-19
 
