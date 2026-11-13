@@ -320,7 +320,7 @@ PR を `main` ブランチへマージした後、本番環境へ新しい版を
 3. **リリース（`release`）を実行する**
    `release` サブコマンドは以下を順に自動実行します。
    - `preflight` の実行
-   - タグ `1.0.0-$(git rev-parse --short HEAD)` で `linux/amd64` イメージをビルド・プッシュ
+   - `package.json` の `version` から生成したタグ `<version>-$(git rev-parse --short HEAD)`（例: `1.0.1-dd15908`）で `linux/amd64` イメージをビルド・プッシュ
    - Artifact Registry にそのタグが存在することの確認
    - `infra/terraform/terraform.tfvars` の `image` 行の書き換え
    - `env -u GOOGLE_APPLICATION_CREDENTIALS terraform -chdir=infra/terraform plan -out=.local/release.tfplan` の実行と `add` / `change` / `destroy` 件数の表示（`destroy` が 1 以上の場合は自動で中止）
