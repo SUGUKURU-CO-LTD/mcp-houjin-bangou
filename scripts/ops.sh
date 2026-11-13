@@ -309,7 +309,7 @@ cmd_status() {
 
   echo ""
   echo "=== 4. DNS 名前解決 (${DOMAIN}) ==="
-  dig "${DOMAIN}" A +short
+  dig +noedns "${DOMAIN}" A +short
 
   echo ""
   echo "=== 5. SSL 証明書の状態 (houjin-bangou-ssl-cert) ==="
