@@ -4,6 +4,12 @@
   "version": "1.0.1",
   "description": "Model Context Protocol extension for looking up Japanese National Corporate Numbers and Qualified Invoice Issuers published by the National Tax Agency of Japan.",
   "publisher": "sugukuru",
+  "author": {
+    "name": "SUGUKURU CO., LTD.",
+    "email": "info@sugu-kuru.co.jp",
+    "url": "https://sugu-kuru.co.jp"
+  },
+  "license": "MIT",
   "logo": "assets/logo.svg",
   "repository": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
   "homepage": "https://sugu-kuru.co.jp/mcp/houjin",
@@ -13,7 +19,9 @@
     "invoice",
     "corporate-number",
     "kyc",
-    "nta"
+    "nta",
+    "tax",
+    "business"
   ],
   "rules": [
     ".cursor/rules/houjin-bangou.mdc"
