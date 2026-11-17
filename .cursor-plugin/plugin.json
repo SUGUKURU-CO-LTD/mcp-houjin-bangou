@@ -1,0 +1,9 @@
+{
+  "name": "houjin-bangou",
+  "displayName": "Japan Corporate & Invoice Lookup (SUGUKURU)",
+  "version": "1.0.1",
+  "description": "Model Context Protocol extension for looking up Japanese National Corporate Numbers and Qualified Invoice Issuers published by the National Tax Agency of Japan.",
+  "publisher": "sugukuru",
+  "repository": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
+  "homepage": "https://sugu-kuru.co.jp/mcp/houjin"
+}

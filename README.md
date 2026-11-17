@@ -52,6 +52,28 @@ NTA_APPLICATION_ID="YOUR_NTA_APPLICATION_ID" npx @sugukuru/mcp-houjin-bangou
 }
 ```
 
+##### Google Antigravity (AGY) Plugin
+If you are using Google Antigravity CLI or IDE, you can install this repository directly as an AGY plugin:
+```bash
+# Install with 1 command
+agy plugin install https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
+```
+Alternatively, place it in your local Antigravity plugins directory (`~/.gemini/config/plugins/`). It automatically loads `skills/lookup-japan-corporate` and the hosted endpoint configured in `mcp_config.json`.
+
+##### Cursor IDE / Composer
+This repository includes `.cursor/mcp.json` and `.cursor/rules/houjin-bangou.mdc` out of the box.
+To use in your own projects, add the following to `.cursor/mcp.json` (or `~/.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "houjin-bangou": {
+      "type": "streamable-http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
 ##### Local HTTP Mode (Self-Hosted)
 After starting the local server with the command above:
 ```json

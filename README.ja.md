@@ -52,6 +52,28 @@ NTA_APPLICATION_ID="あなたのアプリケーションID" npx @sugukuru/mcp-ho
 }
 ```
 
+##### Google Antigravity (AGY) プラグインとして利用する場合
+Google Antigravity CLI / IDE をご利用の場合、本リポジトリを直接プラグインとしてインストールできます。
+```bash
+# 1コマンドでインストール
+agy plugin install https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
+```
+または、自社・ローカル環境のプラグインディレクトリ（`~/.gemini/config/plugins/` 等）に配置するだけで、同梱のスキル（`skills/lookup-japan-corporate`）およびホスト版 MCP 設定（`mcp_config.json`）が自動認識されます。
+
+##### Cursor で利用する場合
+Cursor では本リポジトリに `.cursor/mcp.json` および `.cursor/rules/houjin-bangou.mdc` が同梱されているため、クローンするだけで即座に利用可能です。
+他のプロジェクトから利用する場合は、`.cursor/mcp.json`（または `~/.cursor/mcp.json`）に以下を追記してください：
+```json
+{
+  "mcpServers": {
+    "houjin-bangou": {
+      "type": "streamable-http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
 ##### ローカル HTTP モード（セルフホスト）
 手元で上記起動コマンドを実行後、以下のように接続します。
 ```json
