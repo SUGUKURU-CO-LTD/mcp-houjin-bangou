@@ -50,8 +50,7 @@ tmp/
 /data/
 /private/
 
-# Cursor
-.cursor/mcp.json
+# Cursor (personal overrides can go to ~/.cursor/mcp.json)
 
 # cookbook-scout local candidates
 .cookbook-candidates/

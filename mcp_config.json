@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "houjin-bangou": {
+      "serverUrl": "https://houjin.mcp.sugu-kuru.co.jp/mcp",
+      "tools": {
+        "lookup_corporate_by_number": {
+          "eager": true
+        },
+        "search_corporate_by_name": {
+          "eager": true
+        },
+        "lookup_invoice_issuer": {
+          "eager": true
+        },
+        "normalize_company_name": {
+          "eager": true
+        },
+        "validate_corporate_number": {
+          "eager": true
+        }
+      }
+    }
+  }
+}
