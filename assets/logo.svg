@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background with rounded corners -->
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#bgGrad)" stroke="#334155" stroke-width="2"/>
+
+  <!-- Subtle shield outline -->
+  <path d="M128 36 C176 36 208 52 208 92 C208 152 168 196 128 216 C88 196 48 152 48 92 C48 52 80 36 128 36 Z" 
+        fill="none" stroke="#1e293b" stroke-width="4" opacity="0.6"/>
+
+  <!-- Building / Corporate Grid Silhouette -->
+  <g transform="translate(68, 76)">
+    <!-- Main central building -->
+    <rect x="36" y="24" width="48" height="84" rx="4" fill="#334155" />
+    <!-- Left tower -->
+    <rect x="8" y="44" width="24" height="64" rx="3" fill="#1e293b" />
+    <!-- Right tower -->
+    <rect x="88" y="44" width="24" height="64" rx="3" fill="#1e293b" />
+    
+    <!-- Windows on main building -->
+    <rect x="46" y="34" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="66" y="34" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="46" y="50" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="66" y="50" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="46" y="66" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="66" y="66" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="46" y="82" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+    <rect x="66" y="82" width="8" height="8" rx="1.5" fill="#38bdf8" opacity="0.85" />
+
+    <!-- Windows on left & right -->
+    <rect x="16" y="54" width="8" height="8" rx="1.5" fill="#64748b" opacity="0.7" />
+    <rect x="16" y="70" width="8" height="8" rx="1.5" fill="#64748b" opacity="0.7" />
+    <rect x="96" y="54" width="8" height="8" rx="1.5" fill="#64748b" opacity="0.7" />
+    <rect x="96" y="70" width="8" height="8" rx="1.5" fill="#64748b" opacity="0.7" />
+  </g>
+
+  <!-- Verified Check / Seal Badge -->
+  <g transform="translate(148, 148)">
+    <circle cx="28" cy="28" r="28" fill="url(#accentGrad)" />
+    <circle cx="28" cy="28" r="24" fill="#0369a1" />
+    <!-- Checkmark -->
+    <path d="M19 28 L25 34 L38 20" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- "T" badge (Invoice) on left -->
+  <g transform="translate(52, 148)">
+    <rect x="0" y="0" width="36" height="36" rx="8" fill="url(#goldGrad)" />
+    <text x="18" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+          font-size="22" font-weight="900" fill="#ffffff" text-anchor="middle">T</text>
+  </g>
+</svg>
