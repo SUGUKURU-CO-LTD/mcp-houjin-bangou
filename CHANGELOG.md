@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-11-18
+
+### Security
+
+- 本番依存・npm配布パッケージの既知の脆弱性を解消（`pnpm audit --prod` 0件を達成）：
+  - `hono@4` を `4.13.16` に固定（GHSA-4h7h-rv7c-7m2v, GHSA-3gg2-335m-rxc6）
+  - `@hono/node-server@2` を `2.1.6` に固定（GHSA-qv5m-9pm6-hqp3, GHSA-jpvv-r467-5p4w）
+  - 両パッケージとも 2026-11-01 / 2026-11-02 公開であり、14日公開遅延ルール（`minimumReleaseAge: 20160`）を完全充足
+
+### Added
+
+- Google Antigravity および Cursor IDE 向けプラグインマニフェストと自動設定ファイルの追加：
+  - `plugin.json` (Agent Plugins 1.0.0 標準マニフェスト)
+  - `mcp_config.json` (Google Antigravity MCP 設定)
+  - `mcp.json` (Agent Plugins MCP 設定)
+  - `.cursor/mcp.json` および `.mcp.json` (Cursor IDE 設定)
+  - `.cursor/rules/houjin-bangou.mdc` および `rules/houjin-bangou.mdc` (Cursor 取引先照合・インボイス検証ルール)
+  - `.cursor-plugin/plugin.json` (Cursor Marketplace プラグイン定義)
+  - `skills/lookup-japan-corporate/SKILL.md` (Antigravity & Cursor スキル定義)
+  - `assets/logo.svg` および `assets/logo.png` (512x512 高解像度公式ロゴバッジ)
+
 ## [1.0.1] - 2026-11-13
 
 ### Security
