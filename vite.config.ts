@@ -9,8 +9,9 @@ export default defineConfig({
   plugins: [viteSingleFile()],
   root: uiRoot,
   build: {
+    target: 'es2022',
     outDir: path.resolve(process.cwd(), `dist/ui/${entry}`),
-    emptyOutDir: false,
+    emptyOutDir: true,
     rollupOptions: {
       input: path.resolve(uiRoot, 'mcp-app.html'),
     },

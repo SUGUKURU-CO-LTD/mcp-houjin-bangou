@@ -4,7 +4,7 @@
  * 根拠 / Source: Linear issue SLA2-328
  *
  * 【前提方針】
- * - Claude Desktop および ChatGPT は MCP Apps の UI（ui://... リソース）に対応しています。
+ * - Claude Desktop、ChatGPT、VS Code 等は MCP Apps の UI（ui://... リソース）に対応しています。
  * - 本テストスイートでは、UI を表示・解釈できないクライアント（CLI、ターミナル、バッチ処理、
  *   ヘッドレスなエージェント等）であっても、structuredContent（構造化JSON）と content（自然言語文章）
  *   だけで、全5ツールの目的が 100% 完全に果たせることを実証します。
@@ -27,6 +27,15 @@ import {
   NTA_INVOICE_HOST_ATTRIBUTION,
   INVOICE_TAX_DISCLAIMER,
 } from '../../src/lib/tool-response.js';
+import {
+  buildCorporateCardViewModel,
+  buildInvoiceCardViewModel,
+  buildSearchResultsViewModel,
+  extractToolErrorViewModel,
+  type LookupCorporateOutput,
+  type LookupInvoiceOutput,
+  type SearchCorporateOutput,
+} from '../../src/ui/shared.js';
 import type { DbClient } from '../../src/db/client.js';
 import { invoiceIssuers } from '../../src/db/schema.js';
 
@@ -38,6 +47,7 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
     {
       corporateNumber: '9340001026142',
       datasetVersionId: 1,
+      process: '01',
       name: 'スグクル株式会社',
       kind: '301',
       prefectureCode: '46',
@@ -50,12 +60,14 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       updateDate: '2026-07-15',
       closeDate: null,
       closeCause: null,
+      successorCorporateNumber: null,
       furigana: 'スグクルカブシキガイシャ',
       hihyoji: '0',
     },
     {
       corporateNumber: '1000000000008',
       datasetVersionId: 1,
+      process: '01',
       name: '閉鎖テスト株式会社',
       kind: '301',
       prefectureCode: '13',
@@ -68,12 +80,14 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       updateDate: '2026-08-01',
       closeDate: '2026-08-01',
       closeCause: '01', // 清算結了
+      successorCorporateNumber: null,
       furigana: 'ヘイサテストカブシキガイシャ',
       hihyoji: '0',
     },
     {
       corporateNumber: '7000000000002',
       datasetVersionId: 1,
+      process: '01',
       name: '検索対象除外有限会社',
       kind: '302',
       prefectureCode: '46',
@@ -86,6 +100,7 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       updateDate: '2026-05-01',
       closeDate: null,
       closeCause: null,
+      successorCorporateNumber: null,
       furigana: 'ケンサクタイショウジョガイユウゲンガイシャ',
       hihyoji: '1', // 検索対象除外（住居表示実施等）
     },
@@ -269,7 +284,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
               return Promise.resolve([{ total: count }]);
             }
 
-            // invoiceIssuers 判定
             if (table === invoiceIssuers) {
               const targetRegNumber = findRegistrationNumber(condition);
               const matched = targetRegNumber
@@ -278,7 +292,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
               return Promise.resolve(matched);
             }
 
-            // corporateNumbers 判定
             const targetCorpNumber = findCorporateNumber(condition);
             let filteredCorporateData = mockCorporateData;
 
@@ -326,7 +339,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await mcpServer.connect(serverTransport);
 
-    // ヘッドレスクライアント（UI リソース capabilities を持たない標準クライアント）
     const client = new Client(
       { name: 'headless-cli-agent', version: '1.0.0' },
       { capabilities: {} },
@@ -347,7 +359,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
 
       expect(result.isError).toBeFalsy();
 
-      // 1. 自然言語テキスト（content[0].text）だけでユーザー・LLMへの情報伝達が完結すること
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content).toBeDefined();
       expect(content[0]?.type).toBe('text');
@@ -361,7 +372,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
       expect(text).not.toContain('出典: ' + '出典：');
 
-      // 2. 構造化JSON（structuredContent）だけで基幹システムや自動化フローの処理が完結すること
       const sc = result.structuredContent as Record<string, unknown>;
       expect(sc).toBeDefined();
       expect(sc.data_as_of).toBe(currentDataAsOf);
@@ -379,7 +389,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(corp.close_cause).toBeNull();
       expect(corp.address_may_be_outdated).toBe(false);
 
-      // 3. UI テンプレートが表示する全プロパティが structuredContent に 100% 存在すること（欠落ゼロ）
       const uiRequiredFields = [
         'corporate_number',
         'name',
@@ -435,7 +444,7 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(corp.address_may_be_outdated).toBe(true);
     });
 
-    it('該当なし: エラーメッセージがテキストで明瞭に返ること', async () => {
+    it('該当なし: エラーメッセージがテキストおよびUIエラー抽出ヘルパーで明瞭に取得できること', async () => {
       const { client } = await setupHeadlessClient();
 
       const result = await client.callTool({
@@ -446,6 +455,17 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(result.isError).toBe(true);
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
       expect(text).toContain('該当する公表データは見つかりませんでした');
+
+      const errVm = extractToolErrorViewModel(
+        result as {
+          isError?: boolean;
+          _meta?: Record<string, unknown>;
+          structuredContent?: Record<string, unknown>;
+          content?: Array<{ type?: string; text?: string }>;
+        },
+      );
+      expect(errVm?.is_not_found).toBe(true);
+      expect(errVm?.message).toContain('該当する公表データは見つかりませんでした');
     });
   });
 
@@ -460,14 +480,12 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
 
       expect(result.isError).toBeFalsy();
 
-      // 1. テキスト（content[0].text）で検索件数が視認できること
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
       expect(text).toContain('「株式会社」の検索結果です');
       expect(text).toContain(`データ時点: ${currentDataAsOf}`);
       expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
       expect(text).not.toContain('出典: ' + '出典：');
 
-      // 2. 構造化データ（structuredContent）で全結果とカーソルが完備されていること
       const sc = result.structuredContent as Record<string, unknown>;
       expect(sc.data_as_of).toBe(currentDataAsOf);
       expect(sc.attribution).toBe(NTA_CORPORATE_HOST_ATTRIBUTION);
@@ -483,7 +501,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(firstItem?.location).toBe('鹿児島県霧島市国分中央１丁目２−３２');
       expect(firstItem?.status).toBe('active');
 
-      // UI テーブルが表示する全列が structuredContent.results に 100% 含まれること
       for (const item of results) {
         expect(item.corporate_number).toBeDefined();
         expect(item.name).toBeDefined();
@@ -525,7 +542,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
 
       expect(result.isError).toBeFalsy();
 
-      // 自然言語要約の検証
       const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
       expect(text).toContain('適格請求書発行事業者として登録されています');
       expect(text).toContain('登録番号: T9340001026142');
@@ -537,7 +553,6 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
       expect(text).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
       expect(text).not.toContain('出典: ' + '出典：');
 
-      // 構造化データの検証
       const sc = result.structuredContent as Record<string, unknown>;
       expect(sc.registration_number).toBe('T9340001026142');
       expect(sc.status).toBe('registered');
@@ -615,7 +630,7 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
 
       const result = await client.callTool({
         name: 'validate_corporate_number',
-        arguments: { corporate_number: '9340001026140' }, // 最後のチェックディジット不正
+        arguments: { corporate_number: '9340001026140' },
       });
 
       expect(result.isError).toBeFalsy();
@@ -650,56 +665,41 @@ describe('UI Fallback & Headless Client Tests (SLA2-328: UI非対応環境での
     });
   });
 
-  describe('UI と structuredContent の完全等価性検証 (Zero Information Loss)', () => {
-    it('UI が参照するすべてのフィールドが structuredContent に 100% 存在し、UI非対応クライアントが一切不利にならないこと', async () => {
+  describe('UI View-Models と structuredContent の完全等価性検証 (Zero Information Loss)', () => {
+    it('全3照会ツールで UI ViewModel が参照する全フィールドが structuredContent に 100% 存在し、UI非対応クライアントが一切不利にならないこと', async () => {
       const { client } = await setupHeadlessClient();
 
-      // lookup_corporate_by_number の全フィールド検証
       const lookupRes = await client.callTool({
         name: 'lookup_corporate_by_number',
         arguments: { corporate_number: '9340001026142' },
       });
-      const lookupSc = lookupRes.structuredContent as Record<string, unknown>;
-      const corp = lookupSc.corporation as Record<string, unknown>;
+      const lookupSc = lookupRes.structuredContent as LookupCorporateOutput;
+      const cardVm = buildCorporateCardViewModel(lookupSc);
+      expect(cardVm).not.toBeNull();
+      expect(cardVm?.corporate_number).toBe('9340001026142');
+      expect(cardVm?.post_code_display).toBe('899-4332');
+      expect(cardVm?.attribution).toBe(lookupSc.attribution);
 
-      // UI 側の corporate-card/main.ts がレンダリングするすべてのプロパティ
-      const expectedCorpCardFields = [
-        'corporate_number',
-        'name',
-        'legal_type',
-        'location',
-        'post_code',
-        'update_date',
-        'status',
-      ];
-      for (const prop of expectedCorpCardFields) {
-        expect(corp).toHaveProperty(prop);
-        expect(corp[prop]).not.toBeUndefined();
-      }
-      expect(lookupSc).toHaveProperty('data_as_of');
-      expect(lookupSc).toHaveProperty('attribution');
-
-      // search_corporate_by_name の全フィールド検証
       const searchRes = await client.callTool({
         name: 'search_corporate_by_name',
         arguments: { name: 'スグクル' },
       });
-      const searchSc = searchRes.structuredContent as Record<string, unknown>;
-      const searchResults = searchSc.results as Array<Record<string, unknown>>;
+      const searchSc = searchRes.structuredContent as SearchCorporateOutput;
+      const searchVm = buildSearchResultsViewModel(searchSc);
+      expect(searchVm.results.length).toBeGreaterThan(0);
+      expect(searchVm.attribution).toBe(searchSc.attribution);
 
-      // UI 側の search-results/main.ts がテーブルレンダリングするすべてのプロパティ
-      const expectedSearchResultsFields = ['corporate_number', 'name', 'location', 'status'];
-      expect(searchResults.length).toBeGreaterThan(0);
-      for (const item of searchResults) {
-        for (const prop of expectedSearchResultsFields) {
-          expect(item).toHaveProperty(prop);
-          expect(item[prop]).not.toBeUndefined();
-        }
-      }
-      expect(searchSc).toHaveProperty('total_count');
-      expect(searchSc).toHaveProperty('next_cursor');
-      expect(searchSc).toHaveProperty('data_as_of');
-      expect(searchSc).toHaveProperty('attribution');
+      const invoiceRes = await client.callTool({
+        name: 'lookup_invoice_issuer',
+        arguments: { registration_number: 'T9340001026142', reference_date: '2024-01-01' },
+      });
+      const invoiceSc = invoiceRes.structuredContent as LookupInvoiceOutput;
+      const invoiceVm = buildInvoiceCardViewModel(invoiceSc);
+      expect(invoiceVm).not.toBeNull();
+      expect(invoiceVm?.registration_number).toBe('T9340001026142');
+      expect(invoiceVm?.derived_corporate_number).toBe('9340001026142');
+      expect(invoiceVm?.attribution).toBe(invoiceSc.attribution);
+      expect(invoiceVm?.tax_disclaimer).toBe(invoiceSc.tax_disclaimer);
     });
   });
 });

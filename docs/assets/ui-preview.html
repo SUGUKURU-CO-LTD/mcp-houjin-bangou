@@ -3,23 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>mcp-houjin-bangou UI Preview</title>
     <style>
       :root {
         color-scheme: light dark;
-        font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+        --status-active-fg: light-dark(#0d652d, #6dd58c);
+        --status-active-bg: light-dark(#e6f4ea, #0f381e);
+        --status-closed-fg: light-dark(#b3261e, #ff897d);
+        --status-closed-bg: light-dark(#fce8e6, #41110e);
+        --status-warning-fg: light-dark(#8a4b00, #fbbc04);
+        --status-warning-bg: light-dark(#fef7e0, #3b2a00);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'BIZ UDPGothic', 'Noto Sans JP',
+          sans-serif;
+        line-height: 1.55;
       }
       body {
         margin: 0;
         padding: 24px;
         background: Canvas;
         color: CanvasText;
+        max-width: 960px;
+        margin-inline: auto;
       }
-      section {
-        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
-        border-radius: 14px;
+      section.preview-card {
+        border: 1px solid color-mix(in oklab, CanvasText 18%, Canvas);
+        border-radius: 12px;
         margin: 0 0 24px;
         padding: 16px;
+      }
+      .card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid color-mix(in oklab, CanvasText 18%, Canvas);
+        padding-bottom: 12px;
+        margin-bottom: 14px;
       }
       h1 {
         font-size: 22px;
@@ -27,19 +48,33 @@
       }
       h2 {
         font-size: 18px;
-        margin: 0 0 12px;
+        margin: 0 0 4px;
+      }
+      .kana,
+      .attribution,
+      .disclaimer {
+        color: color-mix(in oklab, CanvasText 72%, Canvas);
+        font-size: 12px;
+        margin: 4px 0;
       }
       dl {
         display: grid;
-        grid-template-columns: 160px 1fr;
+        grid-template-columns: 150px 1fr;
         gap: 10px 16px;
+        margin: 14px 0;
       }
       dt {
-        color: color-mix(in srgb, CanvasText 65%, transparent);
+        color: color-mix(in oklab, CanvasText 72%, Canvas);
         font-size: 12px;
+        font-weight: 600;
       }
       dd {
         margin: 0;
+        font-size: 13.5px;
+      }
+      code,
+      .tabular {
+        font-variant-numeric: tabular-nums;
       }
       table {
         border-collapse: collapse;
@@ -47,75 +82,134 @@
       }
       th,
       td {
-        border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
-        padding: 10px;
+        border-bottom: 1px solid color-mix(in oklab, CanvasText 14%, Canvas);
+        padding: 10px 12px;
         text-align: left;
+        font-size: 13px;
+      }
+      th {
+        color: color-mix(in oklab, CanvasText 72%, Canvas);
+        font-size: 12px;
       }
       .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         border: 1px solid currentColor;
         border-radius: 999px;
-        color: #147d3f;
-        font-size: 11px;
-        padding: 3px 8px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+      }
+      .status.active {
+        color: var(--status-active-fg);
+        background: var(--status-active-bg);
+      }
+      .status.closed {
+        color: var(--status-closed-fg);
+        background: var(--status-closed-bg);
       }
       .warning {
-        border: 1px solid color-mix(in srgb, #b85d00 45%, transparent);
+        background: var(--status-warning-bg);
+        border: 1px solid var(--status-warning-fg);
         border-radius: 8px;
-        color: #b85d00;
+        color: var(--status-warning-fg);
         font-size: 12px;
-        margin: 0 0 12px;
-        padding: 8px 10px;
+        font-weight: 500;
+        margin: 6px 0 0;
+        padding: 6px 10px;
       }
-      .attribution {
-        color: color-mix(in srgb, CanvasText 65%, transparent);
-        font-size: 12px;
+      footer {
+        border-top: 1px solid color-mix(in oklab, CanvasText 18%, Canvas);
+        margin-top: 14px;
+        padding-top: 10px;
       }
     </style>
   </head>
   <body>
     <h1>mcp-houjin-bangou UI Preview</h1>
-    <section>
-      <h2>Corporate Card</h2>
-      <p class="warning">本店所在地は登記上の古い情報の可能性があります（検索対象除外フラグあり）</p>
+
+    <section class="preview-card" aria-label="Corporate Card Preview">
+      <div class="card-header">
+        <div>
+          <h2>株式会社検索対象除外</h2>
+          <p class="kana">カブシキガイシャケンサクタイショウジョガイ</p>
+        </div>
+        <span class="status active"><span aria-hidden="true">●</span>登記中 (active)</span>
+      </div>
       <dl>
         <dt>法人番号</dt>
         <dd><code>5111101000006</code></dd>
-        <dt>名称</dt>
-        <dd>株式会社検索対象除外</dd>
-        <dt>フリガナ</dt>
-        <dd>カブシキガイシャケンサクタイショウジョガイ</dd>
         <dt>法人種別</dt>
         <dd>株式会社</dd>
         <dt>本店所在地</dt>
-        <dd>東京都千代田区神田小川町</dd>
+        <dd>
+          <span>東京都千代田区神田小川町</span>
+          <p class="warning">
+            <span aria-hidden="true">▲ </span
+            >※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。
+          </p>
+        </dd>
         <dt>郵便番号</dt>
-        <dd>1000000</dd>
-        <dt>最終更新日</dt>
-        <dd>2019-04-03</dd>
-        <dt>データ基準日</dt>
-        <dd>2019-04-05</dd>
-        <dt>閉鎖日</dt>
-        <dd>なし</dd>
-        <dt>閉鎖事由</dt>
-        <dd>なし</dd>
+        <dd class="tabular">100-0000</dd>
         <dt>状態</dt>
-        <dd><span class="status">登記中 (active)</span></dd>
+        <dd>登記中 (active)</dd>
+        <dt>最終更新日</dt>
+        <dd class="tabular">2019-04-03</dd>
+        <dt>データ時点</dt>
+        <dd class="tabular">2019-04-05</dd>
       </dl>
-      <p class="attribution">
-        出典：国税庁法人番号公表サイト（全件データ） / このサービスは、国税庁法人番号システムのWeb-API機能またはダウンロードデータを利用して取得した情報をもとに作成していますが、サービスの内容は国税庁によって保証されたものではありません。
-      </p>
+      <footer>
+        <p class="attribution">
+          出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/
+          ）。同サイトの公表データをもとにスグクル株式会社が加工して作成
+        </p>
+      </footer>
     </section>
-    <section>
-      <h2>Search Results</h2>
-      <p>全 2 件中 2 件を表示 / 次ページ: なし / 基準日: 2026-10-12</p>
+
+    <section class="preview-card" aria-label="Invoice Issuer Card Preview">
+      <div class="card-header">
+        <div>
+          <h2>スグクル株式会社</h2>
+          <p class="kana tabular">登録番号: T9340001026142</p>
+        </div>
+        <span class="status active"><span aria-hidden="true">●</span>登録有効</span>
+      </div>
+      <dl>
+        <dt>登録番号</dt>
+        <dd><code>T9340001026142</code></dd>
+        <dt>事業者区分</dt>
+        <dd>法人</dd>
+        <dt>所在地</dt>
+        <dd>鹿児島県霧島市国分中央１丁目２−３２</dd>
+        <dt>登録年月日</dt>
+        <dd class="tabular">2023-10-01</dd>
+        <dt>データ時点</dt>
+        <dd class="tabular">2026-10-01</dd>
+      </dl>
+      <footer>
+        <p class="disclaimer">
+          本ツールが提供する情報は公表データの客観的事実の確認に限られ、税理士法第2条に定める税務相談・仕入税額控除の可否等の税務上の判断は行いません。
+        </p>
+        <p class="attribution">
+          出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html
+          ）。同サイトの公表データをもとにスグクル株式会社が加工して作成
+        </p>
+      </footer>
+    </section>
+
+    <section class="preview-card" aria-label="Search Results Preview">
+      <h2>検索結果</h2>
+      <p class="kana tabular">全 2 件中 2 件を表示（データ時点: 2026-10-12）</p>
       <table>
         <thead>
           <tr>
-            <th>法人番号</th>
-            <th>名称</th>
-            <th>法人種別</th>
-            <th>所在地</th>
-            <th>状態</th>
+            <th scope="col">法人番号</th>
+            <th scope="col">名称</th>
+            <th scope="col">法人種別</th>
+            <th scope="col">本店所在地</th>
+            <th scope="col">最終更新日</th>
+            <th scope="col">状態</th>
           </tr>
         </thead>
         <tbody>
@@ -123,21 +217,34 @@
             <td><code>5111101000006</code></td>
             <td>株式会社検索対象除外</td>
             <td>株式会社</td>
-            <td>東京都千代田区神田小川町 ※所在地注意</td>
-            <td><span class="status">登記中 (active)</span></td>
+            <td>東京都千代田区神田小川町</td>
+            <td class="tabular">2019-04-03</td>
+            <td>
+              <span class="status active"><span aria-hidden="true">●</span>登記中 (active)</span>
+            </td>
           </tr>
           <tr>
             <td><code>8040001999013</code></td>
             <td>株式会社商号変更後</td>
             <td>株式会社</td>
             <td>千葉県千葉市中央区蘇我五丁目9番1号</td>
-            <td><span class="status">登記中 (active)</span></td>
+            <td class="tabular">2017-05-09</td>
+            <td>
+              <span class="status active"><span aria-hidden="true">●</span>登記中 (active)</span>
+            </td>
           </tr>
         </tbody>
       </table>
-      <p class="attribution">
-        出典：国税庁法人番号公表サイト（全件データ） / このサービスは、国税庁法人番号システムのWeb-API機能またはダウンロードデータを利用して取得した情報をもとに作成していますが、サービスの内容は国税庁によって保証されたものではありません。
+      <p class="warning">
+        <span aria-hidden="true">▲ </span
+        >※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。
       </p>
+      <footer>
+        <p class="attribution">
+          出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/
+          ）。同サイトの公表データをもとにスグクル株式会社が加工して作成
+        </p>
+      </footer>
     </section>
   </body>
 </html>

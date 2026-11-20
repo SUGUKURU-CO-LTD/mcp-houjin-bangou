@@ -1,14 +1,5 @@
 /**
- * MCP Apps UI (v1.8) pure view-model & resource path resolution tests
- *
- * 根拠 / Source:
- *   Linear SLA2-329:
- *     - tools.test.ts と同じ合成データで得たツールの実際の出力（structuredContent）を使い、
- *       表示の値とボタンの引数が v1.8 に合うことを DOM を使わない純粋関数で確かめる
- *     - 出典はツールが返す attribution の文字列をそのまま表示する（固定文に置き換えない）
- *     - innerHTML / insertAdjacentHTML を使わず createElement と textContent に置き換える
- *     - App の version を src/version.ts（package.json の版）にする
- *     - src/resources/ui-resources.ts の HTML 読み込みを import.meta.url 基準にし、別フォルダから起動しても読めることを確かめる
+ * MCP Apps UI pure view-model, CSP hash pipeline & resource resolution tests
  */
 
 import * as fs from 'node:fs';
@@ -22,17 +13,27 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerAllTools } from '../../src/tools/index.js';
 import { registerAllResources } from '../../src/resources/index.js';
+import { SHARED_UI_META } from '../../src/resources/ui-resources.js';
 import type { NtaClient } from '../../src/api/nta-client.js';
 import { createMcpLogger } from '../../src/lib/mcp-logger.js';
 import { Result } from '../../src/lib/result.js';
 import { VERSION } from '../../src/version.js';
+import { injectCspIntoHtml, sha256Base64 } from '../../scripts/compute-csp-hashes.js';
 import {
   ADDRESS_OUTDATED_WARNING,
+  INDIVIDUAL_PRIVACY_NOTICE,
+  INVOICE_NOT_FOUND_NOTICE,
   buildCorporateCardViewModel,
+  buildInvoiceCardViewModel,
   buildLookupByNumberArgs,
+  buildLookupInvoiceArgs,
+  buildNtaHistoryUrl,
+  buildPaginatedSearchArgs,
   buildSearchResultsViewModel,
   buildSearchSimilarArgs,
+  extractToolErrorViewModel,
   formatPostalCodeDisplay,
+  isInvoiceOutput,
   type LookupCorporateOutput,
   type SearchCorporateOutput,
 } from '../../src/ui/shared.js';
@@ -41,7 +42,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
-// tools.test.ts と同一の合成データ
 const sampleActiveCorporation = {
   sequence_number: 1,
   corporate_number: '5111101000006',
@@ -95,7 +95,7 @@ const sampleClosedCorporation = {
   address_outside: '',
   address_outside_image_id: '',
   close_date: '2026-08-01',
-  close_cause: '01', // 清算の結了等
+  close_cause: '01',
   successor_corporate_number: '',
   change_cause: '',
   assignment_date: '2023-12-01',
@@ -149,7 +149,7 @@ const mockNtaClient: NtaClient = {
   },
 };
 
-describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
+describe('MCP Apps UI View-Model & Resource Resolution', () => {
   let server: McpServer;
   let client: Client;
 
@@ -169,7 +169,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     await server.close();
   });
 
-  it('builds corporate-card view model and button args from actual v1.8 lookup_corporate_by_number output (active + address_may_be_outdated)', async () => {
+  it('builds corporate-card view model and button args from lookup_corporate_by_number output (active + address_may_be_outdated)', async () => {
     const res = await client.callTool({
       name: 'lookup_corporate_by_number',
       arguments: { corporate_number: '5111101000006' },
@@ -196,6 +196,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     });
     expect(vm.close_date).toBeNull();
     expect(vm.close_cause).toBeNull();
+    expect(vm.successor_corporate_number).toBeNull();
     expect(vm.location).toBe('東京都千代田区神田小川町');
     expect(vm.post_code).toBe('1000000');
     expect(vm.post_code_display).toBe('100-0000');
@@ -204,11 +205,9 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(vm.address_may_be_outdated).toBe(true);
     expect(vm.address_warning).toBe(ADDRESS_OUTDATED_WARNING);
 
-    // 出典はツールが返す attribution の文字列をそのまま表示する（固定文に置き換えない）
     expect(typeof structured.attribution).toBe('string');
     expect(vm.attribution).toBe(structured.attribution);
 
-    // 「類似商号を検索」は search_corporate_by_name に { name } だけを渡す
     expect(vm.search_similar_args).toEqual({ name: '株式会社検索対象除外' });
     expect(Object.keys(vm.search_similar_args)).toEqual(['name']);
     expect(buildSearchSimilarArgs('株式会社検索対象除外')).toEqual({
@@ -216,7 +215,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     });
   });
 
-  it('builds corporate-card view model from actual v1.8 lookup_corporate_by_number output (closed corporation)', async () => {
+  it('builds corporate-card view model from lookup_corporate_by_number output (closed corporation & successor_corporate_number)', async () => {
     const res = await client.callTool({
       name: 'lookup_corporate_by_number',
       arguments: { corporate_number: '9340001026142' },
@@ -240,6 +239,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     });
     expect(vm.close_date).toBe('2026-08-01');
     expect(vm.close_cause).toBe('清算の結了等');
+    expect(vm.successor_corporate_number).toBeNull();
     expect(vm.location).toBe('鹿児島県霧島市国分中央１丁目２−３２');
     expect(vm.post_code).toBe('8994332');
     expect(vm.post_code_display).toBe('899-4332');
@@ -248,9 +248,25 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(vm.address_may_be_outdated).toBe(false);
     expect(vm.address_warning).toBeNull();
     expect(vm.attribution).toBe(structured.attribution);
+
+    // 吸収合併等の承継先法人番号が含まれるケース
+    const mergedVm = buildCorporateCardViewModel({
+      ...structured,
+      corporation: structured.corporation
+        ? {
+            ...structured.corporation,
+            close_cause: '吸収合併',
+            successor_corporate_number: '8040001999013',
+          }
+        : null,
+    });
+    expect(mergedVm?.successor_corporate_number).toBe('8040001999013');
+    expect(buildNtaHistoryUrl('8040001999013')).toBe(
+      'https://www.houjin-bangou.nta.go.jp/henkorireki-johoto.html?selHouzinNo=8040001999013',
+    );
   });
 
-  it('builds search-results view model and row click args from actual v1.8 search_corporate_by_name output', async () => {
+  it('builds search-results view model and pagination/lookup args from search_corporate_by_name output', async () => {
     const res = await client.callTool({
       name: 'search_corporate_by_name',
       arguments: { name: 'サンプル' },
@@ -278,7 +294,6 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(firstRow.location).toBe('東京都千代田区神田小川町');
     expect(firstRow.status).toBe('active');
     expect(firstRow.address_may_be_outdated).toBe(true);
-    // 行クリックの再取得は lookup_corporate_by_number に { corporate_number } を渡す
     expect(firstRow.lookup_args).toEqual({ corporate_number: '5111101000006' });
     expect(Object.keys(firstRow.lookup_args)).toEqual(['corporate_number']);
 
@@ -293,7 +308,6 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
       corporate_number: '5111101000006',
     });
 
-    // ページネーション（next_cursor あり、既定 limit=10）の検証
     const pagedRes = await client.callTool({
       name: 'search_corporate_by_name',
       arguments: { name: '多数件' },
@@ -305,9 +319,139 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(pagedVm.summary_text).toBe('全 25 件中 10 件を表示');
     expect(typeof pagedVm.next_cursor).toBe('string');
     expect(pagedVm.next_cursor).toBe(pagedStructured.next_cursor);
+    expect(
+      buildPaginatedSearchArgs(
+        { name: '多数件', prefecture: '13', limit: 10 },
+        pagedVm.next_cursor,
+      ),
+    ).toEqual({
+      name: '多数件',
+      prefecture: '13',
+      limit: 10,
+      cursor: pagedVm.next_cursor,
+    });
   });
 
-  it('verifies UI fixtures match v1.8 view models', () => {
+  it('builds invoice-card view model across corporation, individual (PII-protected), cancelled, and not_found states', () => {
+    const corpRaw = {
+      registration_number: 'T9340001026142',
+      status: 'registered' as const,
+      business_type: 'corporation' as const,
+      registration_date: '2023-10-01',
+      cancellation_date: null,
+      expiration_date: null,
+      corporate_name: 'スグクル株式会社',
+      location: '鹿児島県霧島市国分中央１丁目２−３２',
+      was_registered_on_reference_date: true,
+      data_as_of: '2026-10-01',
+      attribution: '出典：国税庁適格請求書発行事業者公表サイト',
+      tax_disclaimer: '税務判断は行いません。',
+    };
+    expect(isInvoiceOutput(corpRaw)).toBe(true);
+    expect(isInvoiceOutput({ corporation: { corporate_number: '9340001026142' } })).toBe(false);
+
+    const corpVm = buildInvoiceCardViewModel(corpRaw);
+    expect(corpVm).not.toBeNull();
+    expect(corpVm?.status_badge.label).toBe('登録有効');
+    expect(corpVm?.entity_type).toBe('corporation');
+    expect(corpVm?.derived_corporate_number).toBe('9340001026142');
+    expect(corpVm?.lookup_corporate_args).toEqual({ corporate_number: '9340001026142' });
+    expect(corpVm?.reference_date_verdict?.valid).toBe(true);
+    expect(corpVm?.individual_privacy_notice).toBeNull();
+    expect(buildLookupInvoiceArgs('9340001026142', '2024-04-01')).toEqual({
+      registration_number: 'T9340001026142',
+      reference_date: '2024-04-01',
+    });
+
+    // 個人事業者: 万一 corporate_name / location が渡されても強制マスクされること
+    const indivVm = buildInvoiceCardViewModel({
+      registration_number: 'T1000000000001',
+      status: 'registered',
+      business_type: 'individual',
+      registration_date: '2023-10-01',
+      corporate_name: '表示してはならない氏名',
+      location: '表示してはならない住所',
+      was_registered_on_reference_date: null,
+      data_as_of: '2026-10-01',
+      attribution: '出典：国税庁適格請求書発行事業者公表サイト',
+      tax_disclaimer: '税務判断は行いません。',
+    });
+    expect(indivVm?.entity_type).toBe('individual');
+    expect(indivVm?.corporate_name).toBeNull();
+    expect(indivVm?.location).toBeNull();
+    expect(indivVm?.derived_corporate_number).toBeNull();
+    expect(indivVm?.individual_privacy_notice).toBe(INDIVIDUAL_PRIVACY_NOTICE);
+
+    // 該当なし (not_found)
+    const notFoundVm = buildInvoiceCardViewModel({
+      registration_number: 'T9999999999999',
+      status: 'not_found',
+      business_type: 'unknown',
+      was_registered_on_reference_date: false,
+      data_as_of: '2026-10-01',
+      attribution: '出典',
+      tax_disclaimer: '免責',
+    });
+    expect(notFoundVm?.status_badge.label).toBe('該当なし（未登録または公表対象外）');
+    expect(notFoundVm?.not_found_notice).toBe(INVOICE_NOT_FOUND_NOTICE);
+    expect(notFoundVm?.reference_date_verdict?.valid).toBe(false);
+  });
+
+  it('extracts tool error view model from both _meta.error and structuredContent.error + content fallback', () => {
+    expect(
+      extractToolErrorViewModel({ isError: false, content: [{ type: 'text', text: 'ok' }] }),
+    ).toBeNull();
+
+    // New _meta.error contract (#10)
+    const metaErr = extractToolErrorViewModel({
+      isError: true,
+      _meta: { error: { code: 'DATA_UNAVAILABLE', message: 'DB未接続です' } },
+      content: [{ type: 'text', text: '[DATA_UNAVAILABLE] DB未接続です' }],
+    });
+    expect(metaErr).toEqual({
+      code: 'DATA_UNAVAILABLE',
+      message: 'DB未接続です',
+      is_data_unavailable: true,
+      is_rate_limited: false,
+      is_not_found: false,
+      is_invalid_input: false,
+    });
+
+    // Legacy structuredContent.error contract
+    const scErr = extractToolErrorViewModel({
+      isError: true,
+      structuredContent: { error: { code: 'RATE_LIMITED', message: '上限超過' } },
+      content: [{ type: 'text', text: '上限超過' }],
+    });
+    expect(scErr?.code).toBe('RATE_LIMITED');
+    expect(scErr?.is_rate_limited).toBe(true);
+    expect(scErr?.message).toBe('上限超過');
+
+    // Text-only fallback with [CODE] prefix
+    const textOnlyErr = extractToolErrorViewModel({
+      isError: true,
+      content: [{ type: 'text', text: '[INVALID_INPUT] チェックデジット不一致' }],
+    });
+    expect(textOnlyErr?.code).toBe('INVALID_INPUT');
+    expect(textOnlyErr?.is_invalid_input).toBe(true);
+    expect(textOnlyErr?.message).toBe('チェックデジット不一致');
+  });
+
+  it('exposes UI resource metadata (description, zero-network CSP, clipboardWrite permission, prefersBorder: false) on list & read', async () => {
+    const listed = await client.listResources();
+    expect(listed.resources).toHaveLength(2);
+    for (const res of listed.resources) {
+      expect(typeof res.description).toBe('string');
+      expect((res.description ?? '').length).toBeGreaterThan(0);
+      expect((res._meta as { ui?: unknown } | undefined)?.ui).toEqual(SHARED_UI_META);
+    }
+
+    const readCard = await client.readResource({ uri: 'ui://corporate-card/mcp-app.html' });
+    const firstContent = readCard.contents[0] as { _meta?: { ui?: unknown } } | undefined;
+    expect(firstContent?._meta?.ui).toEqual(SHARED_UI_META);
+  });
+
+  it('verifies UI fixtures match view models', () => {
     const cardFixture = JSON.parse(
       fs.readFileSync(path.join(REPO_ROOT, 'docs/assets/ui-fixtures/corporate-card.json'), 'utf-8'),
     ) as LookupCorporateOutput;
@@ -326,7 +470,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(searchVm.results[0]?.lookup_args).toEqual({ corporate_number: '5111101000006' });
   });
 
-  it('ensures src/ui does not use innerHTML or insertAdjacentHTML and uses VERSION from src/version.ts', () => {
+  it('ensures src/ui uses safe DOM creation only and uses VERSION from src/version.ts', () => {
     const pkgJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf-8')) as {
       version: string;
     };
@@ -334,6 +478,7 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
 
     const uiFiles = [
       path.join(REPO_ROOT, 'src/ui/shared.ts'),
+      path.join(REPO_ROOT, 'src/ui/views.ts'),
       path.join(REPO_ROOT, 'src/ui/corporate-card/main.ts'),
       path.join(REPO_ROOT, 'src/ui/search-results/main.ts'),
     ];
@@ -355,7 +500,44 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
     expect(searchMain).toContain('version: VERSION');
   });
 
-  it('loads built UI HTML resources via import.meta.url even when process.cwd() is a different directory', async () => {
+  it('computes exact SHA-256 CSP hashes and keeps <meta charset> first in <head>', () => {
+    const sampleScript = 'console.log("hellohoujin");';
+    const sampleStyle = 'body { color: CanvasText; }';
+    const rawHtml = [
+      '<!doctype html>',
+      '<html lang="ja">',
+      '  <head>',
+      '    <meta charset="UTF-8" />',
+      `    <style>${sampleStyle}</style>`,
+      `    <script type="module">${sampleScript}</script>`,
+      '  </head>',
+      '  <body><main id="app"></main></body>',
+      '</html>',
+    ].join('\n');
+
+    const injected = injectCspIntoHtml(rawHtml);
+    const charsetIdx = injected.indexOf('<meta charset="UTF-8"');
+    const cspIdx = injected.indexOf('http-equiv="Content-Security-Policy"');
+    const styleIdx = injected.indexOf('<style>');
+    expect(charsetIdx).toBeGreaterThan(-1);
+    expect(cspIdx).toBeGreaterThan(charsetIdx);
+    expect(styleIdx).toBeGreaterThan(cspIdx);
+    expect(injected).toContain(`'sha256-${sha256Base64(sampleScript)}'`);
+    expect(injected).toContain(`'sha256-${sha256Base64(sampleStyle)}'`);
+    expect(injected).toContain("default-src 'none'");
+    expect(injected).toContain("connect-src 'none'");
+
+    // Idempotent re-injection
+    const reinjected = injectCspIntoHtml(injected);
+    expect(reinjected.match(/http-equiv="Content-Security-Policy"/g)).toHaveLength(1);
+  });
+
+  it('loads UI HTML resources via import.meta.url even when process.cwd() is a different directory', async () => {
+    const hasBuiltCard = fs.existsSync(path.join(REPO_ROOT, 'dist/ui/corporate-card/mcp-app.html'));
+    const hasBuiltSearch = fs.existsSync(
+      path.join(REPO_ROOT, 'dist/ui/search-results/mcp-app.html'),
+    );
+
     const originalCwd = process.cwd();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'houjin-ui-cwd-test-'));
     try {
@@ -365,12 +547,18 @@ describe('MCP Apps UI v1.8 View-Model & Resource Resolution', () => {
       const cardRes = await client.readResource({ uri: 'ui://corporate-card/mcp-app.html' });
       const cardText = (cardRes.contents[0] as { text?: string })?.text ?? '';
       expect(cardText.toLowerCase()).toContain('<!doctype html>');
-      expect(cardText).not.toContain('is not built yet');
+      expect(cardText).toContain('http-equiv="Content-Security-Policy"');
+      if (hasBuiltCard) {
+        expect(cardText).not.toContain('is not built yet');
+      }
 
       const searchRes = await client.readResource({ uri: 'ui://search-results/mcp-app.html' });
       const searchText = (searchRes.contents[0] as { text?: string })?.text ?? '';
       expect(searchText.toLowerCase()).toContain('<!doctype html>');
-      expect(searchText).not.toContain('is not built yet');
+      expect(searchText).toContain('http-equiv="Content-Security-Policy"');
+      if (hasBuiltSearch) {
+        expect(searchText).not.toContain('is not built yet');
+      }
     } finally {
       process.chdir(originalCwd);
       fs.rmSync(tempDir, { recursive: true, force: true });
