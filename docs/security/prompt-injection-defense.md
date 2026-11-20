@@ -24,7 +24,7 @@ This document publishes the prompt injection and MCP threat defense design of `@
 - **`eslint.config.js` で `no-new-func`, `no-eval`, `no-implied-eval` を `error`** に設定。
 - **`initialize` で `listChanged: false` を返却**（`tools`, `resources`, `prompts` すべて `listChanged: false`）し、起動後にプリミティブ定義を変更しない。
 - **`tests/integration/mcp-contract-snapshot.test.ts`** により、`tools/list`・`prompts/list`・`resources/list` の完全一致スナップショットを CI でロック。
-- **`/.well-known/mcp.json` に Server Card（現行 `version: "1.0.2"`）を公開**し、提供プリミティブと安全対策メタデータを明示。
+- **`/.well-known/mcp.json` に Server Card（現行 `version: "1.1.0"`）を公開**し、提供プリミティブと安全対策メタデータを明示。
 
 ### 2. Tool Shadowing (Cross-Server)
 
@@ -108,4 +108,4 @@ This document publishes the prompt injection and MCP threat defense design of `@
 
 - 2026-04-29: v0.1.0 初版
 - 2026-10-19: v1.0.0（MCP Apps UI `textContent` 徹底、HTTP Origin/RateLimit、DB 3ロール分離を反映）
-- 2026-11-21: v1.0.2+（全ツール `.strict()` 入力スキーマ、UI URI・レート制限・ページ上限・バインド値秘匿の記述を最新実装と同期）
+- 2026-11-21: v1.1.0（全ツール `.strict()` 入力スキーマ、UI URI・レート制限・ページ上限・バインド値秘匿の記述を最新実装と同期）

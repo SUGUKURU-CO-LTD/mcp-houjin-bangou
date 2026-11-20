@@ -18,7 +18,7 @@
 ## イメージのビルド
 
 ```bash
-docker build -t mcp-houjin-bangou:v1.0.2 .
+docker build -t mcp-houjin-bangou:v1.1.0 .
 ```
 
 ## 実行例
@@ -29,7 +29,7 @@ docker build -t mcp-houjin-bangou:v1.0.2 .
 docker run --rm -p 3001:8080 \
   -e DATA_SOURCE=web-api \
   -e NTA_APPLICATION_ID="YOUR_APPLICATION_ID" \
-  mcp-houjin-bangou:v1.0.2
+  mcp-houjin-bangou:v1.1.0
 ```
 
 ※ `DATA_SOURCE=web-api` モードでは法人番号ツールが動作します（`lookup_invoice_issuer` を使用する場合は下記の PostgreSQL `db` モードを使用してください）。
@@ -41,14 +41,14 @@ docker run --rm -p 3001:8080 \
   -e DATA_SOURCE=db \
   -e DATABASE_URL="postgresql://houjin_reader:PASSWORD@host.docker.internal:5432/corp_check" \
   -e ALLOWED_ORIGINS="https://claude.ai,https://chatgpt.com" \
-  mcp-houjin-bangou:v1.0.2
+  mcp-houjin-bangou:v1.1.0
 ```
 
 ## ヘルスチェック確認
 
 ```bash
 curl -fsS http://localhost:3001/health
-# => {"status":"ok","version":"1.0.2","nta_api_version":"Ver.4.0",...}
+# => {"status":"ok","version":"1.1.0","nta_api_version":"Ver.4.0",...}
 ```
 
 ## 本番環境への展開

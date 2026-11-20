@@ -1,6 +1,6 @@
 # API Reference
 
-本 MCP サーバー（`@sugukuru/mcp-houjin-bangou` v1.0.2+）が提供する **5 Tools + 3 Prompts + 2 MCP Apps UI Resources + Completion + Error Contract + Environment Variables** のリファレンスです。
+本 MCP サーバー（`@sugukuru/mcp-houjin-bangou` v1.1.0+）が提供する **5 Tools + 3 Prompts + 2 MCP Apps UI Resources + Completion + Error Contract + Environment Variables** のリファレンスです。
 すべての定義値・型・引数・戻り値は `src/` の実装コードに対応しています。
 
 ---

@@ -3,7 +3,7 @@
   "name": "jp.co.sugu-kuru/mcp-houjin-bangou",
   "title": "Japan Corporate Number & Invoice Check",
   "description": "Read-only MCP server for Japan NTA Corporate Numbers and Qualified Invoice Issuers (T-numbers).",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "repository": {
     "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
     "source": "github"
@@ -19,7 +19,7 @@
     {
       "registryType": "npm",
       "identifier": "@sugukuru/mcp-houjin-bangou",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "transport": {
         "type": "streamable-http",
         "url": "http://127.0.0.1:3001/mcp"

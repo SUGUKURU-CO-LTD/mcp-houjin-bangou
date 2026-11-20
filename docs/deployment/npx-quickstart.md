@@ -22,7 +22,7 @@ NTA_APPLICATION_ID="YOUR_APPLICATION_ID" npx -y @sugukuru/mcp-houjin-bangou
 起動すると標準エラー出力（`stderr`）に以下のような構造化ログが出力されます：
 
 ```json
-{"level":"info","severity":"INFO","time":"...","port":3001,"version":"1.0.2","mcpEndpoint":"http://localhost:3001/mcp","msg":"@sugukuru/mcp-houjin-bangou listening"}
+{"level":"info","severity":"INFO","time":"...","port":3001,"version":"1.1.0","mcpEndpoint":"http://localhost:3001/mcp","msg":"@sugukuru/mcp-houjin-bangou listening"}
 ```
 
 ## ステップ 2: 起動確認 (Smoke Check)
@@ -31,10 +31,10 @@ NTA_APPLICATION_ID="YOUR_APPLICATION_ID" npx -y @sugukuru/mcp-houjin-bangou
 
 ```bash
 curl http://localhost:3001/health
-# => {"status":"ok","version":"1.0.2","nta_api_version":"Ver.4.0",...}
+# => {"status":"ok","version":"1.1.0","nta_api_version":"Ver.4.0",...}
 
 curl http://localhost:3001/.well-known/mcp.json | head -c 200
-# => {"name":"@sugukuru/mcp-houjin-bangou","version":"1.0.2",...
+# => {"name":"@sugukuru/mcp-houjin-bangou","version":"1.1.0",...
 ```
 
 ## ステップ 3: Claude Desktop / Cursor から接続
@@ -91,5 +91,5 @@ Cursor（`.cursor/mcp.json` または `~/.cursor/mcp.json`）:
 `npx -y` は既定で公開済みの最新版を取得します。特定のバージョンに固定する場合：
 
 ```bash
-NTA_APPLICATION_ID="YOUR_APPLICATION_ID" npx -y @sugukuru/mcp-houjin-bangou@1.0.2
+NTA_APPLICATION_ID="YOUR_APPLICATION_ID" npx -y @sugukuru/mcp-houjin-bangou@1.1.0
 ```

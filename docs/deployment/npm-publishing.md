@@ -5,7 +5,7 @@
 - **npm package**: `@sugukuru/mcp-houjin-bangou`
 - **MCP Registry name**: `jp.co.sugu-kuru/mcp-houjin-bangou`
 - **GitHub repository**: `SUGUKURU-CO-LTD/mcp-houjin-bangou`
-- **現行バージョン / Current version**: `1.0.2`
+- **現行バージョン / Current version**: `1.1.0`
 
 ## Trusted Publishing (GitHub OIDC) 構成
 

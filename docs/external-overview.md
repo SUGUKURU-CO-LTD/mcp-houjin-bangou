@@ -92,7 +92,7 @@ flowchart LR
 
 - **npm**: `@sugukuru/mcp-houjin-bangou`
 - **GitHub**: `SUGUKURU-CO-LTD/mcp-houjin-bangou`
-- **Release**: `v1.0.2`
+- **Release**: `v1.1.0`
 - **MCP Server Card**: `/.well-known/mcp.json`
 - **ドキュメント**: README、API リファレンス、ADR、セキュリティ文書、利用規約、プライバシーポリシー
 

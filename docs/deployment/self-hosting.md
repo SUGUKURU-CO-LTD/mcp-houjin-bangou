@@ -124,7 +124,7 @@ server {
 ```bash
 cd /opt/mcp-houjin-bangou
 git fetch --tags
-git checkout v1.0.2  # 対象バージョンタグ
+git checkout v1.1.0  # 対象バージョンタグ
 pnpm install --frozen-lockfile
 pnpm build
 sudo systemctl restart mcp-houjin-bangou

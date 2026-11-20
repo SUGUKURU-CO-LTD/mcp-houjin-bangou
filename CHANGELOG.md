@@ -8,36 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-21
+
 ### Added
 
+- **フラッグシップ MCP Apps UI（`@modelcontextprotocol/ext-apps` v1.7）の拡張と相互ナビゲーション**:
+  - `lookup_invoice_issuer` に `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`（`registerAppTool`, `visibility: ['model', 'app']`）を接続し、単体およびインラインのインボイス登録確認カード表示に対応。
+  - 法人基本情報カードからのワンクリック・インボイス照合、基準日（`reference_date`）ピッカーによる時点再確認、検索結果テーブル（`ui://search-results/mcp-app.html`）の状態フィルタピル・`next_cursor` インタラクティブページ送り・履歴スタック「戻る」ナビゲーション・`updateModelContext` 同期を実装。
+  - WCAG 2.2 AA ライト/ダーク両対応コントラスト（`color-scheme: light dark`）、`SHARED_UI_META`（`clipboardWrite`, `prefersBorder: false`）、`innerHTML` / `insertAdjacentHTML` / `applyHostFonts` 不使用の DOM 構築、および単一ファイル HTML への SHA-256 CSP ハッシュ厳格注入を整備。
 - **承継先法人番号（`successor_corporate_number`）の出力と UI ドリルダウン**:
   - 吸収合併等で閉鎖された法人を `lookup_corporate_by_number` で照会した際、公表データに承継先法人番号がある場合は `corporation.successor_corporate_number` および要約テキストで返却し、MCP Apps UI からワンクリックで承継先法人カードへ遷移可能に改善。
-- **インボイス照会ツールの MCP Apps UI 連携と相互ナビゲーション**:
-  - `lookup_invoice_issuer` に `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"` を接続し、インボイス登録確認カード表示、基準日（`reference_date`）ピッカーでの再確認、法人カードからのワンクリック・インボイス照合、および検索結果テーブルのカーソルページ送り・状態フィルタ・履歴「戻る」ナビゲーション・`updateModelContext` 同期を追加。
-- **Google Antigravity 向けエージェントルール `rules/AGENTS.md` と `.gitattributes` の追加**:
-  - Antigravity プラグインローダーが自動認識するプレーン Markdown ルール（`rules/AGENTS.md`）を追加。
-  - Windows 環境での `CRLF` 混入による Prettier / シェルスクリプト不整合を防ぐ `.gitattributes`（LF 統一）を追加。
+- **ディスカバリエンドポイント・エージェントルール・改行コード統制の追加**:
+  - SEP-2127 Server Card（`/.well-known/mcp.json`）に加え、`/.well-known/ai-catalog.json` エンドポイントを追加し、マニフェスト整合性テスト（`manifest-consistency.test.ts`）を導入。
+  - Google Antigravity プラグインローダーが自動認識するプレーン Markdown ルール（`rules/AGENTS.md`）および Windows 環境での `CRLF` 混入を防ぐ `.gitattributes`（`eol=lf`）を追加。
 
 ### Changed
 
-- **MCP プロトコル準拠・入力検証・ページネーション強化**:
-  - `isError: true` のツールエラー応答で `structuredContent` を省略し `_meta.error` + `[CODE]` テキストで返すよう修正（公式 SDK `Client.callTool()` における `outputSchema` 検証クラッシュを解消）。
-  - 全 5 ツールの `inputSchema` に `.strict()`（`"additionalProperties": false`）を適用。
-  - `/mcp` の非許可 HTTP メソッド応答（`405`）への `Allow: POST, OPTIONS` ヘッダー付与、不正 JSON（`400`）・64KB 超過ボディ（`413`）の JSON-RPC エラー応答化を実施。
-  - `search_corporate_by_name` のカーソルに検索条件（`queryKey`）をバインドし、安全な整数オフセット範囲検証を追加。
-  - 3 種の MCP Prompts の出典案内をホスト版（DB）・ローカル版（Web-API）の双方に適合するよう改善。
-- **ドメイン正規化・DB 検索・インボイス検証の精度向上**:
-  - ホスト版 DB の `search_corporate_by_name` で半角・全角 ASCII 英数字の双方にマッチするよう改善（`NTT` ⇔ `ＮＴＴ` 等）。
-  - `normalize_company_name` で略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、および旧字体→新字体変換のコア名・正式名双方への適用を強化。
-  - `lookup_invoice_issuer` で実在しない暦日（`2026-02-31` 等）の検証、`reference_date > data_as_of` 時のスナップショット基準日注記、および個人事業者の登録番号を考慮した形式検証を整備。
-- **依存関係管理と品質スクリプトの整備**:
-  - `package.json` の非推奨 `pnpm.overrides` を `pnpm-workspace.yaml` の `overrides` / `allowBuilds` に移行し、開発依存を含む `pnpm audit` 脆弱性 0 件を達成。
-  - `prepublishOnly` の実行順序を `build` → `test` に修正し、`lint` / `format:check` の対象を `scripts`・`benchmarks` まで拡大。
+- **MCP プロトコル・公式 SDK 互換性・Streamable HTTP 準拠強化**:
+  - `isError: true` のツールエラー応答で `structuredContent` を省略し `_meta.error` + `[CODE]` テキストで返すよう修正（公式 `@modelcontextprotocol/sdk` の `Client.callTool()` における AJV `outputSchema` 検証クラッシュを解消）。
+  - 全 5 ツールの `inputSchema` に `.strict()`（`"additionalProperties": false`）を適用し、未定義プロパティの注入を拒否。
+  - `/mcp` の非許可 HTTP メソッド応答（`405`）への `Allow: POST, OPTIONS` ヘッダー付与、不正 JSON（`400` / `-32700`）・64KB 超過ボディ（`413` / `-32000`）・バッチ対応 IP レート制限（`429` + `Retry-After`）の JSON-RPC エラー応答化、CORS 公開ヘッダー（`MCP-Protocol-Version`, `Mcp-Session-Id`, `Retry-After`）、モード別デフォルト待受ホスト（`web-api`: `127.0.0.1`, `db`: `0.0.0.0`）、および `SIGTERM`/`SIGINT` グレースフルシャットダウンを実装。
+  - W3C TraceContext（`SEP-414`）伝搬、`search_corporate_by_name` カーソルへの検索条件（`queryKey` + `data_as_of`）バインドと整数オフセット上限検証、および全 3 種 MCP Prompts のホスト版（DB）・ローカル版（Web-API）両対応ガイダンスを整備。
+- **国税庁仕様準拠・ドメイン正規化・PostgreSQL マイグレーション `0006`**:
+  - Drizzle マイグレーション `0006`（`drizzle/0006_nullable_invoice_reg_date.sql`）を追加し、国税庁インボイス公表 CSV 仕様に合わせて `invoice_issuers` / `invoice_issuers_staging` の `registration_date` を NULL 許容化。
+  - `lookup_invoice_issuer` で個人事業者の登録番号（`T`+13桁で法人番号モジュラス9に従わない番号）を許容する形式検証、実在しない暦日（`2026-02-31` 等）の厳格検証（`isValidCalendarDate`）、および `reference_date > data_as_of` 時のスナップショット基準日注記を整備。
+  - ホスト版 DB の `search_corporate_by_name` で半角・全角 ASCII 英数字の双方向一致（`NTT` ⇔ `ＮＴＴ` 等）に対応。
+  - `normalize_company_name` で略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、旧字体→新字体変換のコア名・正式名双方への適用、および異体字セレクタ（IVS）・長音符正規化を強化。
+- **依存関係管理・サプライチェーン保護とドキュメント刷新**:
+  - `package.json` の非推奨 `pnpm.overrides` を `pnpm-workspace.yaml`（`overrides` / `onlyBuiltDependencies` / `allowBuilds` / `minimumReleaseAge: 20160`）に移行し、`pnpm@10.34.7` で本番・開発依存とも `pnpm audit` 脆弱性 0 件を達成。
+  - `server.json`（MCP Registry `2025-12-11`）、`plugin.json`、`mcp_config.json`、`.cursor-plugin/plugin.json` を最新スキーマへ整合し、`prepublishOnly` の実行順序を `build` → `test` に修正、`lint` / `format:check` の対象を `scripts`・`benchmarks` まで拡大、日英 README・`docs/`・`SKILL.md` を全面同期。
 
 ### Security
 
-- DB リポジトリ例外時の SQL 文・バインドパラメータ（`\nparams:` に含まれる法人番号・T番号・検索語）のクライアント応答および標準エラー出力への漏洩を防止し、タイムアウト（PostgreSQL `57014`）を `DATA_UNAVAILABLE` に統一。
-- 法人番号・インボイス公表データの処理区分 `99`（削除）レコードの照会除外および人格区分許可リスト判定を厳格化。
+- DB リポジトリ例外時の SQL 文・バインドパラメータ（`\nparams:` に含まれる法人番号・T番号・検索語）および `NTA_APPLICATION_ID` のクライアント応答・ログへの漏洩を再帰的サニタイズ（`sanitizeLogData` / `formatErrorWithCause`）で防止し、クエリタイムアウト（PostgreSQL `57014`）を `DATA_UNAVAILABLE` に統一。
+- 法人番号・インボイス公表データの処理区分 `99`（削除）レコードの照会除外およびインボイス人格区分許可リスト（`kind === '2'` のみ商号・所在地を開示し個人事業者の PII を完全遮断）を厳格化。
 
 ## [1.0.2] - 2026-11-18
 

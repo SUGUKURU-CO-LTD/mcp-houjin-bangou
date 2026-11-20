@@ -1,7 +1,7 @@
 {
   "name": "houjin-bangou",
   "displayName": "日本 国税庁 法人番号・インボイス照合 (SUGUKURU)",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "国税庁の公表データをもとに、社名正規化を行って日本の法人番号・適格請求書発行事業者（インボイス）の登録状況を照会・検証する公式MCPプラグイン。",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [

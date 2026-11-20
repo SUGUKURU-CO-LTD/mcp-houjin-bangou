@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
   "name": "jp.co.sugu-kuru/mcp-houjin-bangou",
   "title": "Japan Corporate Number & Invoice Check",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.",
   "websiteUrl": "https://sugu-kuru.co.jp/mcp/houjin",
   "repository": {
