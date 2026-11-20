@@ -15,6 +15,9 @@ import {
   DbCorporateDataProvider,
   escapeLikeWildcards,
   isTimeoutError,
+  toHalfWidthAscii,
+  toFullWidthAscii,
+  buildAsciiWidthSearchVariants,
 } from '../../src/repository/corporate-repository.js';
 import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
@@ -31,6 +34,22 @@ describe('escapeLikeWildcards (LIKE/ILIKE特殊文字エスケープ)', () => {
   it('特殊文字を含まない通常の文字列はそのまま維持されること', () => {
     expect(escapeLikeWildcards('スグクル株式会社')).toBe('スグクル株式会社');
     expect(escapeLikeWildcards('Test-Company. 123')).toBe('Test-Company. 123');
+  });
+});
+
+describe('ASCII 半角・全角検索バリエーション展開', () => {
+  it('半角英数字から全角英数字バリエーション（大文字・小文字）を生成すること', () => {
+    expect(toFullWidthAscii('NTTデータ')).toBe('ＮＴＴデータ');
+    expect(toHalfWidthAscii('株式会社ＮＴＴデータ')).toBe('株式会社NTTデータ');
+
+    const variants = buildAsciiWidthSearchVariants('DeNA');
+    expect(variants).toContain('DeNA');
+    expect(variants).toContain('ＤｅＮＡ');
+    expect(variants).toContain('ＤＥＮＡ');
+    expect(variants).toContain('ｄｅｎａ');
+
+    // 純日本語のみの場合は単一要素のまま余計な OR 条件を増やさない
+    expect(buildAsciiWidthSearchVariants('スグクル')).toEqual(['スグクル']);
   });
 });
 
@@ -113,7 +132,10 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
     },
   ];
 
-  function createMockDb(records = mockCorporateData, hasActiveVersion = true): DbClient {
+  function createMockDb(
+    records: ReadonlyArray<Record<string, unknown>> = mockCorporateData,
+    hasActiveVersion = true,
+  ): DbClient {
     return {
       select: (fields?: unknown) => ({
         from: () => ({
@@ -413,6 +435,140 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
 
       expect(result.error.code).toBe('INVALID_INPUT');
       expect(result.error.message).toContain('公表データが更新されたため');
+    });
+
+    it('検索条件（法人名・都道府県）が異なる queryKey のカーソルを使い回した場合は INVALID_INPUT を返す', async () => {
+      const db = createMockDb();
+      const provider = new DbCorporateDataProvider(db);
+
+      const otherQueryCursor = encodeNameSearchCursor({
+        offset: 10,
+        data_as_of: currentDataAsOf,
+        queryKey: '別の会社|13',
+      });
+
+      const result = await provider.searchByName('テスト', '46', otherQueryCursor);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      expect(result.error.code).toBe('INVALID_INPUT');
+      expect(result.error.message).toContain('検索条件が変更されたため');
+    });
+
+    it('処理区分 99（削除）のレコードは lookupByNumber で NOT_FOUND、searchByName で除外されること', async () => {
+      const deletedRow = {
+        corporateNumber: '9000000000009',
+        datasetVersionId: 1,
+        process: '99',
+        name: '削除テスト株式会社',
+        kind: '301',
+        prefectureCode: '46',
+        cityCode: '201',
+        prefectureName: '鹿児島県',
+        cityName: '鹿児島市',
+        streetNumber: '山下町一丁目',
+        addressOutside: null,
+        postCode: '8920816',
+        updateDate: '2026-04-01',
+        closeDate: null,
+        closeCause: null,
+        furigana: 'サクジョテストカブシキガイシャ',
+      };
+      const recordsWithDeleted = [...mockCorporateData, deletedRow];
+      const db = createMockDb(recordsWithDeleted);
+      const provider = new DbCorporateDataProvider(db);
+
+      const singleDeletedDb = createMockDb([deletedRow]);
+      const singleDeletedProvider = new DbCorporateDataProvider(singleDeletedDb);
+      const directDeleted = await singleDeletedProvider.lookupByNumber('9000000000009');
+      expect(directDeleted.ok).toBe(false);
+      if (!directDeleted.ok) {
+        expect(directDeleted.error.code).toBe('NOT_FOUND');
+      }
+
+      const searchRes = await provider.searchByName('テスト');
+      expect(searchRes.ok).toBe(true);
+      if (searchRes.ok) {
+        expect(searchRes.value.results.map((r) => r.corporate_number)).not.toContain(
+          '9000000000009',
+        );
+      }
+    });
+
+    it('吸収合併等で承継先法人番号がある場合 successorCorporateNumber / successor_corporate_number が設定され、非列挙互換であること', async () => {
+      const mergedRecord = {
+        corporateNumber: '1000000000003',
+        datasetVersionId: 1,
+        name: '閉鎖テスト株式会社',
+        kind: '301',
+        prefectureCode: '13',
+        cityCode: '101',
+        prefectureName: '東京都',
+        cityName: '千代田区',
+        streetNumber: '丸の内一丁目',
+        addressOutside: null,
+        postCode: '1000005',
+        updateDate: '2026-06-01',
+        closeDate: '2026-06-01',
+        closeCause: '11',
+        successorCorporateNumber: '9340001026142',
+        furigana: 'ヘイサテストカブシキガイシャ',
+      };
+      const db = createMockDb([mergedRecord]);
+      const provider = new DbCorporateDataProvider(db);
+
+      const res = await provider.lookupByNumber('1000000000003');
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.value.corporation.successorCorporateNumber).toBe('9340001026142');
+        expect(res.value.corporation.successor_corporate_number).toBe('9340001026142');
+        // strict JSON Schema (additionalProperties: false) を壊さないよう camelCase は非列挙
+        expect(Object.keys(res.value.corporation)).not.toContain('successorCorporateNumber');
+      }
+    });
+
+    it('DBエラー時の stderr ログから SQL バインドパラメータ (\\nparams:) が除去されること', async () => {
+      const stderrLogs: string[] = [];
+      const origWrite = process.stderr.write;
+      process.stderr.write = ((chunk: unknown) => {
+        stderrLogs.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+
+      try {
+        const drizzleErr = new Error(
+          'Failed query: select * from "corporate_numbers" where "corporate_number" = $1\nparams: 9340001026142',
+        );
+        const failingDb = {
+          select: (fields?: unknown) => ({
+            from: () => ({
+              where: () => {
+                if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                  return {
+                    orderBy: () => ({
+                      limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                    }),
+                  };
+                }
+                return {
+                  limit: () => Promise.reject(drizzleErr),
+                };
+              },
+            }),
+          }),
+        } as unknown as DbClient;
+
+        const provider = new DbCorporateDataProvider(failingDb);
+        const res = await provider.lookupByNumber('9340001026142');
+        expect(res.ok).toBe(false);
+
+        const logText = stderrLogs.join('');
+        expect(logText).toContain('"logger":"corporate_repository"');
+        expect(logText).not.toContain('params:');
+        expect(logText).not.toContain('9340001026142');
+      } finally {
+        process.stderr.write = origWrite;
+      }
     });
   });
 });

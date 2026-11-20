@@ -34,6 +34,8 @@ import { DbInvoiceDataProvider } from '../../src/repository/invoice-repository.j
 
 const { Pool } = pg;
 
+const HAS_REAL_DB = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+
 const BASE_DB_URL =
   process.env.TEST_DATABASE_URL ||
   process.env.DATABASE_URL ||
@@ -69,403 +71,416 @@ function createLogCollector(): {
   };
 }
 
-describe('Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成テストデータ)', () => {
-  let adminPool: pg.Pool;
-  let pool: pg.Pool;
-  let db: DbClient;
-  let tempRootDir: string;
+describe.skipIf(!HAS_REAL_DB)(
+  'Migrate & Ingest CLI Integration Tests (PostgreSQL 16 実DB・合成テストデータ)',
+  () => {
+    let adminPool: pg.Pool;
+    let pool: pg.Pool;
+    let db: DbClient;
+    let tempRootDir: string;
 
-  beforeAll(async () => {
-    tempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'houjin-ingest-cli-test-'));
+    beforeAll(async () => {
+      tempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'houjin-ingest-cli-test-'));
 
-    // 並列実行される他の実DBテスト（ingest-atomic-swap.test.ts）とテーブル・ロックが競合しないよう専用DBを用意
-    adminPool = new Pool({
-      connectionString: BASE_DB_URL,
-      max: 2,
-    });
-    await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME} WITH (FORCE);`);
-    await adminPool.query(`CREATE DATABASE ${CLI_TEST_DB_NAME};`);
-
-    // 1. migrate CLI (runMigrateCli) でマイグレーションが終了コード 0 で適用されることを検証
-    const migrateLogs = createLogCollector();
-    const migrateCode = await runMigrateCli({ connectionString: TEST_DB_URL }, migrateLogs.stream);
-    expect(migrateCode).toBe(0);
-    const migrateLogEntries = migrateLogs.getLines();
-    expect(migrateLogEntries).toHaveLength(1);
-    expect(migrateLogEntries[0]?.logger).toBe('db_migrate');
-    expect(migrateLogEntries[0]?.status).toBe('completed');
-
-    pool = new Pool({
-      connectionString: TEST_DB_URL,
-      max: 5,
-    });
-    db = drizzle(pool, { schema }) as DbClient;
-  });
-
-  afterAll(async () => {
-    if (pool) {
-      await pool.end();
-    }
-    await closeDbClient();
-    if (adminPool) {
-      await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME};`);
-      await adminPool.end();
-    }
-    if (tempRootDir && fs.existsSync(tempRootDir)) {
-      fs.rmSync(tempRootDir, { recursive: true, force: true });
-    }
-  });
-
-  beforeEach(async () => {
-    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
-    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
-    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_new;`);
-    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
-    await db.execute(
-      sql`TRUNCATE TABLE corporate_numbers, invoice_issuers, dataset_versions CASCADE;`,
-    );
-  });
-
-  describe('CLI argument parsing and directory resolution', () => {
-    it('validates --type, --dir, and --data-as-of arguments strictly', () => {
-      expect(
-        parseIngestCliArgs([
-          '--type',
-          'corporate',
-          '--dir',
-          '/mnt/ingest/corporate/2026-10',
-          '--data-as-of',
-          '2026-09-30',
-        ]),
-      ).toEqual({
-        type: 'corporate',
-        dir: '/mnt/ingest/corporate/2026-10',
-        dataAsOf: '2026-09-30',
+      // 並列実行される他の実DBテスト（ingest-atomic-swap.test.ts）とテーブル・ロックが競合しないよう専用DBを用意
+      adminPool = new Pool({
+        connectionString: BASE_DB_URL,
+        max: 2,
       });
+      await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME} WITH (FORCE);`);
+      await adminPool.query(`CREATE DATABASE ${CLI_TEST_DB_NAME};`);
 
-      expect(() =>
-        parseIngestCliArgs(['--type', 'unknown', '--dir', '/tmp', '--data-as-of', '2026-09-30']),
-      ).toThrow(/--type/);
+      // 1. migrate CLI (runMigrateCli) でマイグレーションが終了コード 0 で適用されることを検証
+      const migrateLogs = createLogCollector();
+      const migrateCode = await runMigrateCli(
+        { connectionString: TEST_DB_URL },
+        migrateLogs.stream,
+      );
+      expect(migrateCode).toBe(0);
+      const migrateLogEntries = migrateLogs.getLines();
+      expect(migrateLogEntries).toHaveLength(1);
+      expect(migrateLogEntries[0]?.logger).toBe('db_migrate');
+      expect(migrateLogEntries[0]?.status).toBe('completed');
 
-      expect(() =>
-        parseIngestCliArgs(['--type', 'corporate', '--data-as-of', '2026-09-30']),
-      ).toThrow(/--dir/);
-
-      expect(() =>
-        parseIngestCliArgs(['--type', 'corporate', '--dir', '/tmp', '--data-as-of', '2026-02-30']),
-      ).toThrow(/--data-as-of/);
-
-      expect(() =>
-        parseIngestCliArgs([
-          '--type',
-          'corporate',
-          '--dir',
-          '/tmp',
-          '--data-as-of',
-          '2026-09-30',
-          'extra-arg',
-        ]),
-      ).toThrow(/positional/);
-    });
-
-    it('reads .csv files in ascending filename order and fails when directory has no .csv', () => {
-      const subDir = path.join(tempRootDir, 'order-check');
-      fs.mkdirSync(subDir, { recursive: true });
-      fs.writeFileSync(path.join(subDir, '02_second.csv'), 'dummy2\n', 'utf-8');
-      fs.writeFileSync(path.join(subDir, '01_first.csv'), 'dummy1\n', 'utf-8');
-      fs.writeFileSync(path.join(subDir, 'readme.txt'), 'ignore me\n', 'utf-8');
-
-      const resolved = resolveCsvFilesInDir(subDir);
-      expect(resolved.map((p) => path.basename(p))).toEqual(['01_first.csv', '02_second.csv']);
-
-      const emptyDir = path.join(tempRootDir, 'empty-dir');
-      fs.mkdirSync(emptyDir, { recursive: true });
-      expect(() => resolveCsvFilesInDir(emptyDir)).toThrow(/No \.csv files/);
-    });
-  });
-
-  describe('Exit codes and end-to-end migrate -> ingest -> query flow', () => {
-    it('returns exit code 1 and logs JSON error on invalid CLI arguments or empty directory', async () => {
-      const argErrorLogs = createLogCollector();
-      const code1 = await runIngestCli(['--type', 'invalid'], {
+      pool = new Pool({
         connectionString: TEST_DB_URL,
-        output: argErrorLogs.stream,
+        max: 5,
       });
-      expect(code1).toBe(1);
-      const lines1 = argErrorLogs.getLines();
-      expect(lines1).toHaveLength(1);
-      expect(lines1[0]?.logger).toBe('dataset_ingest');
-      expect(lines1[0]?.status).toBe('failed');
-      expect(String(lines1[0]?.msg ?? '')).toContain('Invalid or missing --type');
-
-      const missingDirLogs = createLogCollector();
-      const code2 = await runIngestCli(
-        [
-          '--type',
-          'corporate',
-          '--dir',
-          path.join(tempRootDir, 'non-existent-dir'),
-          '--data-as-of',
-          '2026-09-30',
-        ],
-        {
-          connectionString: TEST_DB_URL,
-          output: missingDirLogs.stream,
-        },
-      );
-      expect(code2).toBe(1);
-      const lines2 = missingDirLogs.getLines();
-      expect(lines2).toHaveLength(1);
-      expect(lines2[0]?.status).toBe('failed');
-      expect(String(lines2[0]?.msg ?? '')).toContain('Target directory does not exist');
+      db = drizzle(pool, { schema }) as DbClient;
     });
 
-    it('ingests split corporate and invoice CSV files in filename order (exit code 0) and serves queries via DB providers', async () => {
-      // 1. 法人番号の分割CSVファイルを作成（01 と 02 で同じ法人番号の更新があってもファイル名順に処理される）
-      const corpDir = path.join(tempRootDir, 'corporate-2026-10');
-      fs.mkdirSync(corpDir, { recursive: true });
-
-      const corpRow1 =
-        '1,"1000000000001","01","0","2026-09-30","2026-09-30","株式会社テスト第一","","301","東京都","千代田区","霞が関１丁目１−１","","13","101","1000001","","","","","","","","1","","","","","カブシキガイシャテストダイイチ","0"';
-      const corpRow2 =
-        '2,"9000000000002","01","0","2026-09-30","2026-09-30","合同会社テスト第二","","305","鹿児島県","霧島市","国分中央１丁目","","46","218","8994332","","","","","","","","1","","","","","ゴウドウガイシャテストダイニ","0"';
-
-      fs.writeFileSync(path.join(corpDir, 'part_01.csv'), corpRow1 + '\n', 'utf-8');
-      fs.writeFileSync(path.join(corpDir, 'part_02.csv'), corpRow2 + '\n', 'utf-8');
-
-      const corpLogs = createLogCollector();
-      const corpExitCode = await runIngestCli(
-        ['--type', 'corporate', '--dir', corpDir, '--data-as-of', '2026-09-30'],
-        {
-          connectionString: TEST_DB_URL,
-          output: corpLogs.stream,
-        },
-      );
-
-      expect(corpExitCode).toBe(0);
-      const corpLogLines = corpLogs.getLines();
-      expect(corpLogLines).toHaveLength(1);
-      expect(corpLogLines[0]?.logger).toBe('dataset_ingest');
-      expect(corpLogLines[0]?.source_type).toBe('nta_corporate_download');
-      expect(corpLogLines[0]?.status).toBe('active');
-      expect(corpLogLines[0]?.count).toBe(2);
-      expect(corpLogLines[0]?.data_as_of).toBe('2026-09-30');
-      // 法人番号や名称がログに含まれないことを確認
-      const rawCorpLog = JSON.stringify(corpLogLines[0]);
-      expect(rawCorpLog).not.toContain('1000000000001');
-      expect(rawCorpLog).not.toContain('株式会社テスト第一');
-
-      // 2. インボイスのCSVファイルを作成（公式24列仕様）
-      const invDir = path.join(tempRootDir, 'invoice-2026-10');
-      fs.mkdirSync(invDir, { recursive: true });
-
-      const invRow1 = [
-        '"1"',
-        '"T1000000000001"',
-        '"01"',
-        '"0"',
-        '"2"',
-        '"1"',
-        '"1"',
-        '"2023-10-01"',
-        '"2026-09-30"',
-        '""',
-        '""',
-        '"東京都千代田区霞が関１丁目１−１"',
-        '"13"',
-        '"101"',
-        '""',
-        '""',
-        '""',
-        '"カブシキガイシャテストダイイチ"',
-        '"株式会社テスト第一"',
-        '""',
-        '""',
-        '""',
-        '""',
-        '""',
-      ].join(',');
-
-      fs.writeFileSync(path.join(invDir, 'invoice_01.csv'), invRow1 + '\n', 'utf-8');
-
-      const invLogs = createLogCollector();
-      const invExitCode = await runIngestCli(
-        ['--type', 'invoice', '--dir', invDir, '--data-as-of', '2026-09-30'],
-        {
-          connectionString: TEST_DB_URL,
-          output: invLogs.stream,
-        },
-      );
-
-      expect(invExitCode).toBe(0);
-      const invLogLines = invLogs.getLines();
-      expect(invLogLines).toHaveLength(1);
-      expect(invLogLines[0]?.source_type).toBe('nta_invoice_download');
-      expect(invLogLines[0]?.status).toBe('active');
-      expect(invLogLines[0]?.count).toBe(1);
-
-      // 3. 取り込まれたデータが DB プロバイダ経由で検索できることを確認
-      const corpProvider = new DbCorporateDataProvider(db);
-      const corpResult = await corpProvider.lookupByNumber('1000000000001');
-      expect(corpResult.ok).toBe(true);
-      if (corpResult.ok) {
-        expect(corpResult.value.corporation.name).toBe('株式会社テスト第一');
-        expect(corpResult.value.data_as_of).toBe('2026-09-30');
+    afterAll(async () => {
+      if (pool) {
+        await pool.end();
       }
-
-      const invProvider = new DbInvoiceDataProvider(db);
-      const invResult = await invProvider.lookupByRegistrationNumber('T1000000000001');
-      expect(invResult.ok).toBe(true);
-      if (invResult.ok) {
-        expect(invResult.value.corporate_name).toBe('株式会社テスト第一');
-        expect(invResult.value.data_as_of).toBe('2026-09-30');
+      await closeDbClient();
+      if (adminPool) {
+        await adminPool.query(`DROP DATABASE IF EXISTS ${CLI_TEST_DB_NAME};`);
+        await adminPool.end();
+      }
+      if (tempRootDir && fs.existsSync(tempRootDir)) {
+        fs.rmSync(tempRootDir, { recursive: true, force: true });
       }
     });
 
-    it('returns exit code 2 when another import holds the PostgreSQL advisory lock', async () => {
-      const corpDir = path.join(tempRootDir, 'corporate-lock-test');
-      fs.mkdirSync(corpDir, { recursive: true });
-      const corpRow =
-        '1,"1000000000001","01","0","2026-09-30","2026-09-30","株式会社テスト第一","","301","東京都","千代田区","霞が関１丁目","","13","101","1000001","","","","","","","","1","","","","","","0"';
-      fs.writeFileSync(path.join(corpDir, 'part_01.csv'), corpRow + '\n', 'utf-8');
+    beforeEach(async () => {
+      await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_new;`);
+      await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
+      await db.execute(
+        sql`TRUNCATE TABLE corporate_numbers, invoice_issuers, dataset_versions CASCADE;`,
+      );
+    });
 
-      // 別セッションでアドバイザリーロックを保持
-      const lockClient = await pool.connect();
-      try {
-        await lockClient.query('SELECT pg_advisory_lock($1)', [CORPORATE_INGEST_LOCK_KEY]);
+    describe('CLI argument parsing and directory resolution', () => {
+      it('validates --type, --dir, and --data-as-of arguments strictly', () => {
+        expect(
+          parseIngestCliArgs([
+            '--type',
+            'corporate',
+            '--dir',
+            '/mnt/ingest/corporate/2026-10',
+            '--data-as-of',
+            '2026-09-30',
+          ]),
+        ).toEqual({
+          type: 'corporate',
+          dir: '/mnt/ingest/corporate/2026-10',
+          dataAsOf: '2026-09-30',
+        });
 
-        const skipLogs = createLogCollector();
-        const code = await runIngestCli(
+        expect(() =>
+          parseIngestCliArgs(['--type', 'unknown', '--dir', '/tmp', '--data-as-of', '2026-09-30']),
+        ).toThrow(/--type/);
+
+        expect(() =>
+          parseIngestCliArgs(['--type', 'corporate', '--data-as-of', '2026-09-30']),
+        ).toThrow(/--dir/);
+
+        expect(() =>
+          parseIngestCliArgs([
+            '--type',
+            'corporate',
+            '--dir',
+            '/tmp',
+            '--data-as-of',
+            '2026-02-30',
+          ]),
+        ).toThrow(/--data-as-of/);
+
+        expect(() =>
+          parseIngestCliArgs([
+            '--type',
+            'corporate',
+            '--dir',
+            '/tmp',
+            '--data-as-of',
+            '2026-09-30',
+            'extra-arg',
+          ]),
+        ).toThrow(/positional/);
+      });
+
+      it('reads .csv files in ascending filename order and fails when directory has no .csv', () => {
+        const subDir = path.join(tempRootDir, 'order-check');
+        fs.mkdirSync(subDir, { recursive: true });
+        fs.writeFileSync(path.join(subDir, '02_second.csv'), 'dummy2\n', 'utf-8');
+        fs.writeFileSync(path.join(subDir, '01_first.csv'), 'dummy1\n', 'utf-8');
+        fs.writeFileSync(path.join(subDir, 'readme.txt'), 'ignore me\n', 'utf-8');
+
+        const resolved = resolveCsvFilesInDir(subDir);
+        expect(resolved.map((p) => path.basename(p))).toEqual(['01_first.csv', '02_second.csv']);
+
+        const emptyDir = path.join(tempRootDir, 'empty-dir');
+        fs.mkdirSync(emptyDir, { recursive: true });
+        expect(() => resolveCsvFilesInDir(emptyDir)).toThrow(/No \.csv files/);
+      });
+    });
+
+    describe('Exit codes and end-to-end migrate -> ingest -> query flow', () => {
+      it('returns exit code 1 and logs JSON error on invalid CLI arguments or empty directory', async () => {
+        const argErrorLogs = createLogCollector();
+        const code1 = await runIngestCli(['--type', 'invalid'], {
+          connectionString: TEST_DB_URL,
+          output: argErrorLogs.stream,
+        });
+        expect(code1).toBe(1);
+        const lines1 = argErrorLogs.getLines();
+        expect(lines1).toHaveLength(1);
+        expect(lines1[0]?.logger).toBe('dataset_ingest');
+        expect(lines1[0]?.status).toBe('failed');
+        expect(String(lines1[0]?.msg ?? '')).toContain('Invalid or missing --type');
+
+        const missingDirLogs = createLogCollector();
+        const code2 = await runIngestCli(
+          [
+            '--type',
+            'corporate',
+            '--dir',
+            path.join(tempRootDir, 'non-existent-dir'),
+            '--data-as-of',
+            '2026-09-30',
+          ],
+          {
+            connectionString: TEST_DB_URL,
+            output: missingDirLogs.stream,
+          },
+        );
+        expect(code2).toBe(1);
+        const lines2 = missingDirLogs.getLines();
+        expect(lines2).toHaveLength(1);
+        expect(lines2[0]?.status).toBe('failed');
+        expect(String(lines2[0]?.msg ?? '')).toContain('Target directory does not exist');
+      });
+
+      it('ingests split corporate and invoice CSV files in filename order (exit code 0) and serves queries via DB providers', async () => {
+        // 1. 法人番号の分割CSVファイルを作成（01 と 02 で同じ法人番号の更新があってもファイル名順に処理される）
+        const corpDir = path.join(tempRootDir, 'corporate-2026-10');
+        fs.mkdirSync(corpDir, { recursive: true });
+
+        const corpRow1 =
+          '1,"1000000000001","01","0","2026-09-30","2026-09-30","株式会社テスト第一","","301","東京都","千代田区","霞が関１丁目１−１","","13","101","1000001","","","","","","","","1","","","","","カブシキガイシャテストダイイチ","0"';
+        const corpRow2 =
+          '2,"9000000000002","01","0","2026-09-30","2026-09-30","合同会社テスト第二","","305","鹿児島県","霧島市","国分中央１丁目","","46","218","8994332","","","","","","","","1","","","","","ゴウドウガイシャテストダイニ","0"';
+
+        fs.writeFileSync(path.join(corpDir, 'part_01.csv'), corpRow1 + '\n', 'utf-8');
+        fs.writeFileSync(path.join(corpDir, 'part_02.csv'), corpRow2 + '\n', 'utf-8');
+
+        const corpLogs = createLogCollector();
+        const corpExitCode = await runIngestCli(
           ['--type', 'corporate', '--dir', corpDir, '--data-as-of', '2026-09-30'],
           {
             connectionString: TEST_DB_URL,
-            output: skipLogs.stream,
+            output: corpLogs.stream,
           },
         );
 
-        expect(code).toBe(2);
-        const logLines = skipLogs.getLines();
-        expect(logLines).toHaveLength(1);
-        expect(logLines[0]?.status).toBe('skipped');
-      } finally {
-        await lockClient.query('SELECT pg_advisory_unlock($1)', [CORPORATE_INGEST_LOCK_KEY]);
-        lockClient.release();
-      }
+        expect(corpExitCode).toBe(0);
+        const corpLogLines = corpLogs.getLines();
+        expect(corpLogLines).toHaveLength(1);
+        expect(corpLogLines[0]?.logger).toBe('dataset_ingest');
+        expect(corpLogLines[0]?.source_type).toBe('nta_corporate_download');
+        expect(corpLogLines[0]?.status).toBe('active');
+        expect(corpLogLines[0]?.count).toBe(2);
+        expect(corpLogLines[0]?.data_as_of).toBe('2026-09-30');
+        // 法人番号や名称がログに含まれないことを確認
+        const rawCorpLog = JSON.stringify(corpLogLines[0]);
+        expect(rawCorpLog).not.toContain('1000000000001');
+        expect(rawCorpLog).not.toContain('株式会社テスト第一');
 
-      // インボイス側も同様にロック保持中は終了コード 2 を返すことを確認
-      const invDir = path.join(tempRootDir, 'invoice-lock-test');
-      fs.mkdirSync(invDir, { recursive: true });
-      const invRow = Array.from({ length: 24 }, (_, idx) =>
-        idx === 1 ? '"T1000000000001"' : '"1"',
-      ).join(',');
-      fs.writeFileSync(path.join(invDir, 'inv_01.csv'), invRow + '\n', 'utf-8');
+        // 2. インボイスのCSVファイルを作成（公式24列仕様）
+        const invDir = path.join(tempRootDir, 'invoice-2026-10');
+        fs.mkdirSync(invDir, { recursive: true });
 
-      const invLockClient = await pool.connect();
-      try {
-        await invLockClient.query('SELECT pg_advisory_lock($1)', [INVOICE_INGEST_LOCK_KEY]);
+        const invRow1 = [
+          '"1"',
+          '"T1000000000001"',
+          '"01"',
+          '"0"',
+          '"2"',
+          '"1"',
+          '"1"',
+          '"2023-10-01"',
+          '"2026-09-30"',
+          '""',
+          '""',
+          '"東京都千代田区霞が関１丁目１−１"',
+          '"13"',
+          '"101"',
+          '""',
+          '""',
+          '""',
+          '"カブシキガイシャテストダイイチ"',
+          '"株式会社テスト第一"',
+          '""',
+          '""',
+          '""',
+          '""',
+          '""',
+        ].join(',');
 
-        const skipLogs = createLogCollector();
-        const code = await runIngestCli(
+        fs.writeFileSync(path.join(invDir, 'invoice_01.csv'), invRow1 + '\n', 'utf-8');
+
+        const invLogs = createLogCollector();
+        const invExitCode = await runIngestCli(
           ['--type', 'invoice', '--dir', invDir, '--data-as-of', '2026-09-30'],
           {
             connectionString: TEST_DB_URL,
-            output: skipLogs.stream,
+            output: invLogs.stream,
           },
         );
 
-        expect(code).toBe(2);
-        const logLines = skipLogs.getLines();
+        expect(invExitCode).toBe(0);
+        const invLogLines = invLogs.getLines();
+        expect(invLogLines).toHaveLength(1);
+        expect(invLogLines[0]?.source_type).toBe('nta_invoice_download');
+        expect(invLogLines[0]?.status).toBe('active');
+        expect(invLogLines[0]?.count).toBe(1);
+
+        // 3. 取り込まれたデータが DB プロバイダ経由で検索できることを確認
+        const corpProvider = new DbCorporateDataProvider(db);
+        const corpResult = await corpProvider.lookupByNumber('1000000000001');
+        expect(corpResult.ok).toBe(true);
+        if (corpResult.ok) {
+          expect(corpResult.value.corporation.name).toBe('株式会社テスト第一');
+          expect(corpResult.value.data_as_of).toBe('2026-09-30');
+        }
+
+        const invProvider = new DbInvoiceDataProvider(db);
+        const invResult = await invProvider.lookupByRegistrationNumber('T1000000000001');
+        expect(invResult.ok).toBe(true);
+        if (invResult.ok) {
+          expect(invResult.value.corporate_name).toBe('株式会社テスト第一');
+          expect(invResult.value.data_as_of).toBe('2026-09-30');
+        }
+      });
+
+      it('returns exit code 2 when another import holds the PostgreSQL advisory lock', async () => {
+        const corpDir = path.join(tempRootDir, 'corporate-lock-test');
+        fs.mkdirSync(corpDir, { recursive: true });
+        const corpRow =
+          '1,"1000000000001","01","0","2026-09-30","2026-09-30","株式会社テスト第一","","301","東京都","千代田区","霞が関１丁目","","13","101","1000001","","","","","","","","1","","","","","","0"';
+        fs.writeFileSync(path.join(corpDir, 'part_01.csv'), corpRow + '\n', 'utf-8');
+
+        // 別セッションでアドバイザリーロックを保持
+        const lockClient = await pool.connect();
+        try {
+          await lockClient.query('SELECT pg_advisory_lock($1)', [CORPORATE_INGEST_LOCK_KEY]);
+
+          const skipLogs = createLogCollector();
+          const code = await runIngestCli(
+            ['--type', 'corporate', '--dir', corpDir, '--data-as-of', '2026-09-30'],
+            {
+              connectionString: TEST_DB_URL,
+              output: skipLogs.stream,
+            },
+          );
+
+          expect(code).toBe(2);
+          const logLines = skipLogs.getLines();
+          expect(logLines).toHaveLength(1);
+          expect(logLines[0]?.status).toBe('skipped');
+        } finally {
+          await lockClient.query('SELECT pg_advisory_unlock($1)', [CORPORATE_INGEST_LOCK_KEY]);
+          lockClient.release();
+        }
+
+        // インボイス側も同様にロック保持中は終了コード 2 を返すことを確認
+        const invDir = path.join(tempRootDir, 'invoice-lock-test');
+        fs.mkdirSync(invDir, { recursive: true });
+        const invRow = Array.from({ length: 24 }, (_, idx) =>
+          idx === 1 ? '"T1000000000001"' : '"1"',
+        ).join(',');
+        fs.writeFileSync(path.join(invDir, 'inv_01.csv'), invRow + '\n', 'utf-8');
+
+        const invLockClient = await pool.connect();
+        try {
+          await invLockClient.query('SELECT pg_advisory_lock($1)', [INVOICE_INGEST_LOCK_KEY]);
+
+          const skipLogs = createLogCollector();
+          const code = await runIngestCli(
+            ['--type', 'invoice', '--dir', invDir, '--data-as-of', '2026-09-30'],
+            {
+              connectionString: TEST_DB_URL,
+              output: skipLogs.stream,
+            },
+          );
+
+          expect(code).toBe(2);
+          const logLines = skipLogs.getLines();
+          expect(logLines).toHaveLength(1);
+          expect(logLines[0]?.status).toBe('skipped');
+        } finally {
+          await invLockClient.query('SELECT pg_advisory_unlock($1)', [INVOICE_INGEST_LOCK_KEY]);
+          invLockClient.release();
+        }
+      });
+
+      it('returns exit code 1 when validation fails (e.g. broken invoice CSV) and preserves active dataset', async () => {
+        const brokenDir = path.join(tempRootDir, 'invoice-broken');
+        fs.mkdirSync(brokenDir, { recursive: true });
+        fs.writeFileSync(path.join(brokenDir, 'broken.csv'), '"only","three","columns"\n', 'utf-8');
+
+        const failLogs = createLogCollector();
+        const code = await runIngestCli(
+          ['--type', 'invoice', '--dir', brokenDir, '--data-as-of', '2026-09-30'],
+          {
+            connectionString: TEST_DB_URL,
+            output: failLogs.stream,
+          },
+        );
+
+        expect(code).toBe(1);
+        const logLines = failLogs.getLines();
         expect(logLines).toHaveLength(1);
-        expect(logLines[0]?.status).toBe('skipped');
-      } finally {
-        await invLockClient.query('SELECT pg_advisory_unlock($1)', [INVOICE_INGEST_LOCK_KEY]);
-        invLockClient.release();
-      }
+        expect(logLines[0]?.status).toBe('failed');
+        expect(String(logLines[0]?.msg ?? '')).toContain('broken.csv:1 (column: column_count)');
+        expect(String(logLines[0]?.msg ?? '')).not.toContain('only');
+      });
+
+      it('returns exit code 1 when migration fails due to non-existent migrations folder and logs error message', async () => {
+        const failMigrateLogs = createLogCollector();
+        const code = await runMigrateCli(
+          {
+            connectionString: TEST_DB_URL,
+            migrationsFolder: path.join(tempRootDir, 'missing-migrations-folder'),
+          },
+          failMigrateLogs.stream,
+        );
+        expect(code).toBe(1);
+        const logLines = failMigrateLogs.getLines();
+        expect(logLines).toHaveLength(1);
+        expect(logLines[0]?.logger).toBe('db_migrate');
+        expect(logLines[0]?.status).toBe('failed');
+        expect(typeof logLines[0]?.msg).toBe('string');
+        expect(String(logLines[0]?.msg ?? '').length).toBeGreaterThan(0);
+      });
+
+      it('logs cause message and strips params when an error with cause and params occurs in importer', async () => {
+        const ingestLogs = createLogCollector();
+        const mockLogger = createIngestLogger(ingestLogs.stream);
+        const mockError = new Error(
+          'Failed query: insert into "corporate_numbers_new" values ($1)\nparams: ["1234567890123", "secret_company_name"]',
+        );
+        mockError.cause = new Error(
+          'permission denied for table corporate_numbers_new\nparams: ["1234567890123"]',
+        );
+
+        const fakeDb = {
+          transaction: async () => {
+            throw mockError;
+          },
+          select: () => {
+            throw mockError;
+          },
+          execute: () => {
+            throw mockError;
+          },
+        } as unknown as DbClient;
+
+        const importer = new DatasetImporter(fakeDb, { logger: mockLogger });
+        const testCsvDir = path.join(tempRootDir, 'test-cause-csv');
+        fs.mkdirSync(testCsvDir, { recursive: true });
+        const sampleCsv = path.join(testCsvDir, 'sample.csv');
+        fs.writeFileSync(
+          sampleCsv,
+          '1,1234567890123,01,1,2026-10-01,2026-10-01,"テスト",,,,,,,,,,,,,,,,,,,,0\n',
+          'utf-8',
+        );
+
+        await expect(importer.importCorporateFiles([sampleCsv], '2026-10-01')).rejects.toThrow();
+
+        const lines = ingestLogs.getLines();
+        expect(lines).toHaveLength(1);
+        const logMsg = String(lines[0]?.msg ?? '');
+        expect(logMsg).toContain('Corporate dataset import failed');
+        expect(logMsg).toContain('Failed query: insert into "corporate_numbers_new" values ($1)');
+        expect(logMsg).toContain('/ cause: permission denied for table corporate_numbers_new');
+        expect(logMsg).not.toContain('params:');
+        expect(logMsg).not.toContain('1234567890123');
+        expect(logMsg).not.toContain('secret_company_name');
+      });
     });
-
-    it('returns exit code 1 when validation fails (e.g. broken invoice CSV) and preserves active dataset', async () => {
-      const brokenDir = path.join(tempRootDir, 'invoice-broken');
-      fs.mkdirSync(brokenDir, { recursive: true });
-      fs.writeFileSync(path.join(brokenDir, 'broken.csv'), '"only","three","columns"\n', 'utf-8');
-
-      const failLogs = createLogCollector();
-      const code = await runIngestCli(
-        ['--type', 'invoice', '--dir', brokenDir, '--data-as-of', '2026-09-30'],
-        {
-          connectionString: TEST_DB_URL,
-          output: failLogs.stream,
-        },
-      );
-
-      expect(code).toBe(1);
-      const logLines = failLogs.getLines();
-      expect(logLines).toHaveLength(1);
-      expect(logLines[0]?.status).toBe('failed');
-      expect(String(logLines[0]?.msg ?? '')).toContain('broken.csv:1 (column: column_count)');
-      expect(String(logLines[0]?.msg ?? '')).not.toContain('only');
-    });
-
-    it('returns exit code 1 when migration fails due to non-existent migrations folder and logs error message', async () => {
-      const failMigrateLogs = createLogCollector();
-      const code = await runMigrateCli(
-        {
-          connectionString: TEST_DB_URL,
-          migrationsFolder: path.join(tempRootDir, 'missing-migrations-folder'),
-        },
-        failMigrateLogs.stream,
-      );
-      expect(code).toBe(1);
-      const logLines = failMigrateLogs.getLines();
-      expect(logLines).toHaveLength(1);
-      expect(logLines[0]?.logger).toBe('db_migrate');
-      expect(logLines[0]?.status).toBe('failed');
-      expect(typeof logLines[0]?.msg).toBe('string');
-      expect(String(logLines[0]?.msg ?? '').length).toBeGreaterThan(0);
-    });
-
-    it('logs cause message and strips params when an error with cause and params occurs in importer', async () => {
-      const ingestLogs = createLogCollector();
-      const mockLogger = createIngestLogger(ingestLogs.stream);
-      const mockError = new Error(
-        'Failed query: insert into "corporate_numbers_new" values ($1)\nparams: ["1234567890123", "secret_company_name"]',
-      );
-      mockError.cause = new Error(
-        'permission denied for table corporate_numbers_new\nparams: ["1234567890123"]',
-      );
-
-      const fakeDb = {
-        transaction: async () => {
-          throw mockError;
-        },
-        select: () => {
-          throw mockError;
-        },
-        execute: () => {
-          throw mockError;
-        },
-      } as unknown as DbClient;
-
-      const importer = new DatasetImporter(fakeDb, { logger: mockLogger });
-      const testCsvDir = path.join(tempRootDir, 'test-cause-csv');
-      fs.mkdirSync(testCsvDir, { recursive: true });
-      const sampleCsv = path.join(testCsvDir, 'sample.csv');
-      fs.writeFileSync(
-        sampleCsv,
-        '1,1234567890123,01,1,2026-10-01,2026-10-01,"テスト",,,,,,,,,,,,,,,,,,,,0\n',
-        'utf-8',
-      );
-
-      await expect(importer.importCorporateFiles([sampleCsv], '2026-10-01')).rejects.toThrow();
-
-      const lines = ingestLogs.getLines();
-      expect(lines).toHaveLength(1);
-      const logMsg = String(lines[0]?.msg ?? '');
-      expect(logMsg).toContain('Corporate dataset import failed');
-      expect(logMsg).toContain('Failed query: insert into "corporate_numbers_new" values ($1)');
-      expect(logMsg).toContain('/ cause: permission denied for table corporate_numbers_new');
-      expect(logMsg).not.toContain('params:');
-      expect(logMsg).not.toContain('1234567890123');
-      expect(logMsg).not.toContain('secret_company_name');
-    });
-  });
-});
+  },
+);

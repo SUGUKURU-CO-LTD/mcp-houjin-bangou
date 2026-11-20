@@ -990,4 +990,58 @@ describe('DatasetImporter Atomic Switch (合成テストデータ使用)', () =>
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('RFC 4180 のダブルクォート内改行および先頭 UTF-8 BOM を含む CSV ファイルを正常にストリーミング取り込みできる', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ingest-multiline-'));
+    const csvFile = path.join(tmpDir, 'multiline_bom.csv');
+    // 1行目に BOM + 変更事由列内の改行を含むレコード
+    const content =
+      '\uFEFF1,"1000000000001","01","0","2026-10-01","2026-10-01","株式会社改行テスト","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","変更事由1行目\n変更事由2行目 ""引用"" あり","2015-10-05","1","","","","","","0"\n';
+    fs.writeFileSync(csvFile, content, 'utf-8');
+
+    const insertedRows: Array<Record<string, unknown>> = [];
+    const mockDb = {
+      execute: async () => ({ rows: [{ acquired: true }] }),
+      insert: () => ({
+        values: (val: unknown) => {
+          if (Array.isArray(val)) {
+            insertedRows.push(...(val as Array<Record<string, unknown>>));
+          }
+          return {
+            returning: async () => [{ id: 105 }],
+            execute: async () => {},
+          };
+        },
+      }),
+      transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          execute: async () => {},
+          update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+        }),
+    } as unknown as DbClient;
+
+    try {
+      const importer = new DatasetImporter(mockDb);
+      const metrics = await importer.importCorporateFiles([csvFile], '2026-10-01', 10);
+      expect(metrics.status).toBe('active');
+      expect(metrics.count).toBe(1);
+      expect(metrics.invalidRowCount).toBe(0);
+      expect(insertedRows[0]?.changeCause).toContain('変更事由1行目\n変更事由2行目 "引用" あり');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('swapCorporateTable / swapInvoiceTable: アドバイザリーロックが他セッションに保持されている場合はエラーで中止する', async () => {
+    const lockedDb = {
+      execute: async () => ({ rows: [{ acquired: false }] }),
+      transaction: async () => {},
+    } as unknown as DbClient;
+
+    const importer = new DatasetImporter(lockedDb);
+    await expect(importer.swapCorporateTable(101, 10, '2026-10-01')).rejects.toThrow(
+      /advisory lock/,
+    );
+    await expect(importer.swapInvoiceTable(102, 10, '2026-10-01')).rejects.toThrow(/advisory lock/);
+  });
 });

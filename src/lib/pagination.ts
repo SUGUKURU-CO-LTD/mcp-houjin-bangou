@@ -32,6 +32,9 @@ export function encodeCursor(divide: number, queryKey?: string): string {
   return Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64url');
 }
 
+export const MAX_CURSOR_OFFSET = 10_000;
+export const MAX_CURSOR_DIVIDE = 99_999;
+
 /**
  * MCP cursor を decode (不正な cursor は null)
  */
@@ -45,9 +48,17 @@ export function decodeCursor(cursor: string | undefined): CursorPayload | null {
       parsed !== null &&
       'divide' in parsed &&
       typeof (parsed as CursorPayload).divide === 'number' &&
+      Number.isSafeInteger((parsed as CursorPayload).divide) &&
       (parsed as CursorPayload).divide >= 1 &&
-      (parsed as CursorPayload).divide <= 99999
+      (parsed as CursorPayload).divide <= MAX_CURSOR_DIVIDE
     ) {
+      if (
+        'queryKey' in parsed &&
+        (parsed as CursorPayload).queryKey !== undefined &&
+        typeof (parsed as CursorPayload).queryKey !== 'string'
+      ) {
+        return null;
+      }
       return parsed as CursorPayload;
     }
     return null;
@@ -89,11 +100,27 @@ export function decodeNameSearchCursor(cursor: string | undefined): NameSearchCu
       parsed !== null &&
       'offset' in parsed &&
       typeof (parsed as NameSearchCursorPayload).offset === 'number' &&
+      Number.isSafeInteger((parsed as NameSearchCursorPayload).offset) &&
       (parsed as NameSearchCursorPayload).offset >= 0 &&
+      (parsed as NameSearchCursorPayload).offset <= MAX_CURSOR_OFFSET &&
       'data_as_of' in parsed &&
-      typeof (parsed as NameSearchCursorPayload).data_as_of === 'string'
+      typeof (parsed as NameSearchCursorPayload).data_as_of === 'string' &&
+      (parsed as NameSearchCursorPayload).data_as_of.length > 0
     ) {
-      return parsed as NameSearchCursorPayload;
+      const candidate = parsed as NameSearchCursorPayload;
+      if (
+        candidate.divide !== undefined &&
+        (typeof candidate.divide !== 'number' ||
+          !Number.isSafeInteger(candidate.divide) ||
+          candidate.divide < 1 ||
+          candidate.divide > MAX_CURSOR_DIVIDE)
+      ) {
+        return null;
+      }
+      if (candidate.queryKey !== undefined && typeof candidate.queryKey !== 'string') {
+        return null;
+      }
+      return candidate;
     }
     return null;
   } catch {
@@ -103,14 +130,15 @@ export function decodeNameSearchCursor(cursor: string | undefined): NameSearchCu
 
 export type CursorValidationResult =
   | { valid: true; payload: NameSearchCursorPayload }
-  | { valid: false; reason: 'malformed' | 'stale'; message: string };
+  | { valid: false; reason: 'malformed' | 'stale' | 'query_mismatch'; message: string };
 
 /**
- * B2: カーソルを検証し、形式不正や data_as_of 不一致（更新後の古いカーソル）を検出
+ * B2: カーソルを検証し、形式不正・data_as_of 不一致（更新後の古いカーソル）・検索条件不一致を検出
  */
 export function validateNameSearchCursor(
   cursor: string | undefined,
   currentDataAsOf: string,
+  expectedQueryKey?: string,
 ): CursorValidationResult {
   if (cursor === undefined || cursor === '') {
     return { valid: false, reason: 'malformed', message: 'カーソルが指定されていません。' };
@@ -125,6 +153,17 @@ export function validateNameSearchCursor(
       reason: 'stale',
       message:
         '公表データが更新されたため、カーソルが無効になりました。最初から再検索してください。',
+    };
+  }
+  if (
+    expectedQueryKey !== undefined &&
+    payload.queryKey !== undefined &&
+    payload.queryKey !== expectedQueryKey
+  ) {
+    return {
+      valid: false,
+      reason: 'query_mismatch',
+      message: '検索条件が変更されたため、カーソルが無効になりました。最初から再検索してください。',
     };
   }
   return { valid: true, payload };

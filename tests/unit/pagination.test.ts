@@ -94,4 +94,35 @@ describe('NameSearchCursor (B2 spec)', () => {
       expect(result.reason).toBe('malformed');
     }
   });
+
+  it('rejects non-integer, negative, or >10000 offset and invalid divide', () => {
+    for (const badPayload of [
+      { offset: -1, data_as_of: '2026-10-12' },
+      { offset: 1.5, data_as_of: '2026-10-12' },
+      { offset: 10_001, data_as_of: '2026-10-12' },
+      { offset: 10, data_as_of: '2026-10-12', divide: 0 },
+      { offset: 10, data_as_of: '2026-10-12', divide: 100_000 },
+      { offset: 10, data_as_of: '2026-10-12', divide: 1.2 },
+      { offset: 10, data_as_of: '' },
+    ]) {
+      const encoded = Buffer.from(JSON.stringify(badPayload), 'utf-8').toString('base64url');
+      expect(decodeNameSearchCursor(encoded)).toBeNull();
+    }
+  });
+
+  it('validateNameSearchCursor rejects mismatched expectedQueryKey', () => {
+    const encoded = encodeNameSearchCursor({
+      offset: 10,
+      data_as_of: '2026-10-12',
+      queryKey: 'スグクル|46',
+    });
+
+    expect(validateNameSearchCursor(encoded, '2026-10-12', 'スグクル|46').valid).toBe(true);
+
+    const mismatch = validateNameSearchCursor(encoded, '2026-10-12', '別の会社|13');
+    expect(mismatch.valid).toBe(false);
+    if (!mismatch.valid) {
+      expect(mismatch.reason).toBe('query_mismatch');
+    }
+  });
 });

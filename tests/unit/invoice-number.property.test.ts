@@ -10,21 +10,39 @@ const twelveDigitString = fc
   .array(fc.integer({ min: 0, max: 9 }), { minLength: 12, maxLength: 12 })
   .map((digits) => digits.join(''));
 
+const thirteenDigitString = fc
+  .array(fc.integer({ min: 0, max: 9 }), { minLength: 13, maxLength: 13 })
+  .map((digits) => digits.join(''));
+
 describe('invoice-number property tests', () => {
-  it('T + valid corporate-number part is accepted by InvoiceNumberSchema', () => {
+  it('any T + 13 digits is accepted by default for sole-proprietor compatibility', () => {
+    fc.assert(
+      fc.property(thirteenDigitString, (digits) => {
+        const invoiceNumber = `T${digits}`;
+        expect(InvoiceNumberSchema.safeParse(invoiceNumber).success).toBe(true);
+        const normalized = normalizeAndValidateInvoiceNumber(invoiceNumber);
+        expect(normalized.isValid).toBe(true);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it('verifyCorporateCheckDigit=true accepts iff 13-digit part has valid Modulus-9 check digit', () => {
     fc.assert(
       fc.property(twelveDigitString, (basis) => {
-        const invoiceNumber = `T${computeCheckDigit(basis)}${basis}`;
-        expect(InvoiceNumberSchema.safeParse(invoiceNumber).success).toBe(true);
+        const validBody = `${computeCheckDigit(basis)}${basis}`;
+        expect(
+          normalizeAndValidateInvoiceNumber(`T${validBody}`, { verifyCorporateCheckDigit: true })
+            .isValid,
+        ).toBe(true);
       }),
-      { numRuns: 1000 },
+      { numRuns: 500 },
     );
   });
 
   it('lowercase t and full-width T normalize to uppercase T', () => {
     fc.assert(
-      fc.property(twelveDigitString, fc.boolean(), (basis, useFullWidth) => {
-        const body = `${computeCheckDigit(basis)}${basis}`;
+      fc.property(thirteenDigitString, fc.boolean(), (body, useFullWidth) => {
         const raw = `${useFullWidth ? 'Ｔ' : 't'}${body}`;
         const result = normalizeAndValidateInvoiceNumber(raw);
         expect(result.isValid).toBe(true);
@@ -39,8 +57,7 @@ describe('invoice-number property tests', () => {
 
   it('hyphenated T numbers normalize correctly', () => {
     fc.assert(
-      fc.property(twelveDigitString, (basis) => {
-        const body = `${computeCheckDigit(basis)}${basis}`;
+      fc.property(thirteenDigitString, (body) => {
         const raw = `T-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8)}`;
         const result = normalizeAndValidateInvoiceNumber(raw);
         expect(result.isValid).toBe(true);

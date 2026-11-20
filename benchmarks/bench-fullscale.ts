@@ -57,7 +57,7 @@ const QUERIES = [
     term: '合宿',
     limit: 10,
     expectedBehavior:
-      '2文字語のため trigram 未生成。主キー順 (Index Scan) 走査または Seq Scan にフォールバック',
+      '2文字語のため前方一致 (LIKE prefix%) に切り替わり、text_pattern_ops B-tree 索引 (idx_corporate_numbers_name_pattern) で高速検索',
   },
   {
     name: '3. 大量に当たる語の検索（株式会社）',
@@ -67,20 +67,41 @@ const QUERIES = [
   },
 ];
 
-async function runExplainAnalyze(db: ReturnType<typeof getDb>, term: string, limit: number) {
-  const pattern = `%${escapeLikeWildcards(term)}%`;
+async function runExplainAnalyze(
+  db: ReturnType<typeof getDb>,
+  term: string,
+  limit: number,
+  datasetVersionId?: number,
+) {
+  const trimmed = term.trim();
+  const escaped = escapeLikeWildcards(trimmed);
+  const isShort = trimmed.length <= 2;
 
-  // EXPLAIN (ANALYZE, BUFFERS)
-  const query = sql`
-    EXPLAIN (ANALYZE, BUFFERS)
-    SELECT
-      corporate_number, name, kind, prefecture_name, city_name,
-      street_number, address_outside, update_date, close_date, close_cause
-    FROM corporate_numbers
-    WHERE name ILIKE ${pattern}
-    ORDER BY corporate_number ASC
-    LIMIT ${limit + 1};
-  `;
+  const query = isShort
+    ? sql`
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT
+          corporate_number, name, kind, prefecture_name, city_name,
+          street_number, address_outside, update_date, close_date, close_cause
+        FROM corporate_numbers
+        WHERE (${datasetVersionId ?? null}::int IS NULL OR dataset_version_id = ${datasetVersionId ?? null})
+          AND (process IS NULL OR process <> '99')
+          AND name LIKE ${`${escaped}%`}
+        ORDER BY corporate_number ASC
+        LIMIT ${limit + 1};
+      `
+    : sql`
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT
+          corporate_number, name, kind, prefecture_name, city_name,
+          street_number, address_outside, update_date, close_date, close_cause
+        FROM corporate_numbers
+        WHERE (${datasetVersionId ?? null}::int IS NULL OR dataset_version_id = ${datasetVersionId ?? null})
+          AND (process IS NULL OR process <> '99')
+          AND name ILIKE ${`%${escaped}%`}
+        ORDER BY corporate_number ASC
+        LIMIT ${limit + 1};
+      `;
 
   const result = await db.execute(query);
   return result;
@@ -191,11 +212,12 @@ async function runBenchmarkImportAndSwap(
   const constraintDuration = (performance.now() - constraintStart) / 1000;
   console.log(`  ✓ 制約作成所要時間: ${constraintDuration.toFixed(2)} 秒`);
 
-  console.log('- 索引 (GIN 1本, B-tree 4本) を作成中...');
+  console.log('- 索引 (GIN 1本, B-tree 5本) を作成中...');
   const indexStart = performance.now();
   await ingestDb.execute(sql`
     CREATE INDEX idx_corporate_numbers_number_new ON corporate_numbers_new (corporate_number);
     CREATE INDEX idx_corporate_numbers_name_new ON corporate_numbers_new (name);
+    CREATE INDEX idx_corporate_numbers_name_pattern_new ON corporate_numbers_new USING btree (name text_pattern_ops);
     CREATE INDEX idx_corporate_numbers_name_trgm_new ON corporate_numbers_new USING gin (name gin_trgm_ops);
     CREATE INDEX idx_corporate_numbers_prefecture_new ON corporate_numbers_new (prefecture_code);
     CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
@@ -245,6 +267,7 @@ async function runBenchmarkImportAndSwap(
         TO corporate_numbers_dataset_versions_fk_old;
       ALTER INDEX idx_corporate_numbers_number RENAME TO idx_corporate_numbers_number_old;
       ALTER INDEX idx_corporate_numbers_name RENAME TO idx_corporate_numbers_name_old;
+      ALTER INDEX idx_corporate_numbers_name_pattern RENAME TO idx_corporate_numbers_name_pattern_old;
       ALTER INDEX idx_corporate_numbers_name_trgm RENAME TO idx_corporate_numbers_name_trgm_old;
       ALTER INDEX idx_corporate_numbers_prefecture RENAME TO idx_corporate_numbers_prefecture_old;
       ALTER INDEX idx_corporate_numbers_version RENAME TO idx_corporate_numbers_version_old;
@@ -263,6 +286,7 @@ async function runBenchmarkImportAndSwap(
         TO corporate_numbers_dataset_version_id_dataset_versions_id_fk;
       ALTER INDEX idx_corporate_numbers_number_new RENAME TO idx_corporate_numbers_number;
       ALTER INDEX idx_corporate_numbers_name_new RENAME TO idx_corporate_numbers_name;
+      ALTER INDEX idx_corporate_numbers_name_pattern_new RENAME TO idx_corporate_numbers_name_pattern;
       ALTER INDEX idx_corporate_numbers_name_trgm_new RENAME TO idx_corporate_numbers_name_trgm;
       ALTER INDEX idx_corporate_numbers_prefecture_new RENAME TO idx_corporate_numbers_prefecture;
       ALTER INDEX idx_corporate_numbers_version_new RENAME TO idx_corporate_numbers_version;
@@ -354,8 +378,10 @@ async function main() {
     console.log('    ドライランモードとして合成データ定義とクエリ生成の整合性を検証します。');
     console.log('\n[測定対象パターン]');
     for (const q of QUERIES) {
-      const pattern = `%${escapeLikeWildcards(q.term)}%`;
-      console.log(`- ${q.name}: 入力='${q.term}' -> ILIKE '${pattern}' (LIMIT ${q.limit + 1})`);
+      const trimmed = q.term.trim();
+      const escaped = escapeLikeWildcards(trimmed);
+      const clause = trimmed.length <= 2 ? `LIKE '${escaped}%'` : `ILIKE '%${escaped}%'`;
+      console.log(`- ${q.name}: 入力='${q.term}' -> ${clause} (LIMIT ${q.limit + 1})`);
       console.log(`  想定挙動: ${q.expectedBehavior}`);
     }
     console.log('\n✅ ドライラン検証完了: 実DB接続時は DATABASE_URL を指定して実行してください。');
@@ -426,7 +452,7 @@ async function main() {
     for (let i = 1; i <= config.iterations; i++) {
       const start = performance.now();
       try {
-        const planResult = await runExplainAnalyze(db, q.term, q.limit);
+        const planResult = await runExplainAnalyze(db, q.term, q.limit, active?.id);
         const elapsed = performance.now() - start;
         latencies.push(elapsed);
 

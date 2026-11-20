@@ -5,8 +5,10 @@
  * 根拠 / Source:
  *   国税庁仕様書 第二編 別紙2: HTTP 403 は「同一アプリケーションIDで一定期間内に多数アクセス」で発動
  *   別添1 第9条第1項三号: 短時間における大量アクセスは禁止
- *   → 保守的に 1 RPS デフォルト、403 受信時は指数バックオフ
+ *   → 保守的に 1 RPS デフォルト、403 受信時は指数バックオフ (バックオフ期間中は即座に RateLimitError で fail-fast)
  */
+
+import { RateLimitError } from '../lib/errors.js';
 
 export interface RateLimiterOptions {
   /** リクエスト毎秒 (requests per second) */
@@ -40,20 +42,25 @@ export class TokenBucket {
     }
   }
 
-  /**
-   * 1トークン獲得するまで待機
-   * Awaits until a token is available (resolves immediately if bucket full)
-   */
-  async acquire(): Promise<void> {
+  private throwIfBackingOff(): void {
     const now = Date.now();
     if (now < this.backoffUntil) {
       const waitMs = this.backoffUntil - now;
-      await sleep(waitMs);
+      throw new RateLimitError(`Rate limited by NTA; backoff active for ${waitMs}ms`, waitMs);
     }
+  }
+
+  /**
+   * 1トークン獲得するまで待機 (バックオフ期間中はハングせず RateLimitError を投げる)
+   * Awaits until a token is available (resolves immediately if bucket full; fails fast during backoff)
+   */
+  async acquire(): Promise<void> {
+    this.throwIfBackingOff();
     this.refill();
     while (this.tokens < 1) {
       const neededMs = Math.ceil((1 - this.tokens) / this.refillPerMs);
       await sleep(neededMs);
+      this.throwIfBackingOff();
       this.refill();
     }
     this.tokens -= 1;

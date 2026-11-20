@@ -1,7 +1,6 @@
 /**
  * 表記揺れ正規化 (T7 の核)
  * Company name normalization (T7 core logic)
- * Normalisasi nama perusahaan (inti T7)
  *
  * ポジショニング / Positioning:
  *   国税庁 API `target=1` が既にあいまい検索を内蔵する (第二編 §4.6.2):
@@ -9,14 +8,15 @@
  *     - 英小文字 → 英大文字置換
  *     - 中点 (・) や全角スペース削除
  *
- *   T7 はこれらを重複実装せず、国税庁が拾えない 7 パターンを補完:
- *     1. (株)/㈱/株式会社 表記揺れ (前株・後株・省略 の3展開)
- *     2. 法人種別 [株式/有限/合同/合名/合資/一般社団/...] の正規化 + 分離
- *     3. 英語法人名 → 日本語候補 (K.K. / Kabushiki Kaisha / Inc. 検出)
- *     4. 半角/全角英数字の正規化 (NFKC)
- *     5. 旧字体 → 新字体 (髙 → 高、齋 → 斎 等)
+ *   T7 は国税庁 API およびホスト版 DB 検索の双方に対して決定論的な正規化を提供する:
+ *     1. (株)/㈱/(有)/(同)/(一社)/(医) 等の略称展開 + 前株・後株・省略の展開
+ *     2. 全主要な日本の法人種別（会社・一般/公益法人・医療/学校/社会福祉/宗教・士業・組合・金庫等）の最長一致検出と分離
+ *     3. 英語法人名 → 日本語/英語検索候補 (K.K. / Kabushiki Kaisha / Co.,Ltd. / Inc. / LLC / G.K. 等)
+ *     4. 半角/全角英数字・合字の正規化 (NFKC)
+ *     5. 旧字体 → 新字体 (髙→高、齋→斎、證→証、會→会 等、旧字候補も併存)
  *     6. 異体字セレクタ (IVS / VS) 除去
  *     7. 空白類の揃え (タブ・連続スペース・全角/半角スペース)
+ *     8. カタカナ語中のハイフン誤記 → 長音符 (ー) 補正および中点除去候補
  */
 
 export type KindHint =
@@ -37,10 +37,12 @@ export type KindHint =
   | 'other'
   | 'unknown';
 
+export type CorporateLegalType = KindHint;
+
 export type PrefixOrSuffix = 'mae_kabu' | 'ato_kabu' | 'none';
 
 export interface NormalizedCandidate {
-  /** 国税庁 API に投げる法人名候補 */
+  /** 国税庁 API / DB に投げる法人名候補 */
   name: string;
   /** 推定される法人種別 */
   kind_hint: KindHint;
@@ -63,10 +65,10 @@ export interface NormalizerResult {
 
 /**
  * 旧字体 → 新字体 辞書 (JIS 第一・第二水準への縮退補助)
- * 根拠: 法務省「戸籍統一文字」「人名用漢字の新字旧字対応表」
+ * 根拠: 法務省「戸籍統一文字」「人名用漢字の新字旧字対応表」および商業登記頻出字
  *
- * 国税庁 API の `target=1` (第二編 §4.6.2) は ひらがな↔カタカナ・英大小・中点削除は
- * 吸収するが、旧字体→新字体変換は未対応なので本 lookup で補う。
+ * 商業登記では旧字体が正式商号である法人（例: 野村證券株式会社）も多いため、
+ * 新字体変換後の候補に加えて元の旧字体候補も併存させる。
  */
 const OLD_TO_NEW: Record<string, string> = {
   髙: '高',
@@ -116,36 +118,251 @@ const OLD_TO_NEW: Record<string, string> = {
   讀: '読',
   變: '変',
   體: '体',
+  會: '会',
+  證: '証',
+  栁: '柳',
+  櫻: '桜',
+  冨: '富',
+  峯: '峰',
+  嶋: '島',
+  嶌: '島',
+  萬: '万',
+  圓: '円',
+  榮: '栄',
+  實: '実',
+  壽: '寿',
+  澁: '渋',
+  澀: '渋',
+  關: '関',
+  纖: '繊',
+  藥: '薬',
+  釀: '醸',
+  麴: '麹',
+  龍: '竜',
+  兒: '児',
+  鑄: '鋳',
+  鑛: '鉱',
+  桒: '桑',
 };
 
-const KIND_KEYWORDS_JA: Array<{ word: string; hint: KindHint }> = [
-  { word: '株式会社', hint: 'kabushiki_kaisha' },
-  { word: '㈱', hint: 'kabushiki_kaisha' },
-  { word: '（株）', hint: 'kabushiki_kaisha' },
-  { word: '(株)', hint: 'kabushiki_kaisha' },
-  { word: '有限会社', hint: 'yugen_kaisha' },
-  { word: '（有）', hint: 'yugen_kaisha' },
-  { word: '(有)', hint: 'yugen_kaisha' },
-  { word: '㈲', hint: 'yugen_kaisha' },
-  { word: '合同会社', hint: 'godo_kaisha' },
-  { word: '合名会社', hint: 'gomei_kaisha' },
-  { word: '合資会社', hint: 'goshi_kaisha' },
-  { word: '一般社団法人', hint: 'ippan_shadan_hojin' },
-  { word: '一般財団法人', hint: 'ippan_zaidan_hojin' },
-  { word: '公益社団法人', hint: 'koueki_shadan_hojin' },
-  { word: '公益財団法人', hint: 'koueki_zaidan_hojin' },
-  { word: '特定非営利活動法人', hint: 'npo_hojin' },
-  { word: 'NPO法人', hint: 'npo_hojin' },
+interface KindKeywordEntry {
+  word: string;
+  canonical: string;
+  hint: KindHint;
+  /** 前株↔後株（前付け↔後付け）の反転候補を生成するか */
+  invertible?: boolean;
+  /** KindHint が単一の法人格文字列と 1:1 対応するか（normalize-company-name ツール互換用） */
+  exactHintLabel?: boolean;
+}
+
+/**
+ * 日本の法人種別・略称キーワード定義（NFKC 適用後の文字列で照合）
+ * ※ NFKC により `（株）` / `㈱` → `(株)`、`（有）` / `㈲` → `(有)`、`㍿` → `株式会社` 等は事前変換される。
+ */
+const RAW_KIND_KEYWORDS_JA: ReadonlyArray<KindKeywordEntry> = [
+  // 会社法・特例有限会社・相互会社 (前付け・後付け両対応)
+  {
+    word: '株式会社',
+    canonical: '株式会社',
+    hint: 'kabushiki_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '(株)',
+    canonical: '株式会社',
+    hint: 'kabushiki_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '特例有限会社',
+    canonical: '有限会社',
+    hint: 'yugen_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '有限会社',
+    canonical: '有限会社',
+    hint: 'yugen_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '(有)',
+    canonical: '有限会社',
+    hint: 'yugen_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '合同会社',
+    canonical: '合同会社',
+    hint: 'godo_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '(同)',
+    canonical: '合同会社',
+    hint: 'godo_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '合名会社',
+    canonical: '合名会社',
+    hint: 'gomei_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '(名)',
+    canonical: '合名会社',
+    hint: 'gomei_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '合資会社',
+    canonical: '合資会社',
+    hint: 'goshi_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  {
+    word: '(資)',
+    canonical: '合資会社',
+    hint: 'goshi_kaisha',
+    invertible: true,
+    exactHintLabel: true,
+  },
+  { word: '相互会社', canonical: '相互会社', hint: 'other_registered', invertible: true },
+  { word: '(相)', canonical: '相互会社', hint: 'other_registered', invertible: true },
+
+  // 一般・公益社団/財団法人・NPO法人
+  {
+    word: '一般社団法人',
+    canonical: '一般社団法人',
+    hint: 'ippan_shadan_hojin',
+    exactHintLabel: true,
+  },
+  { word: '(一社)', canonical: '一般社団法人', hint: 'ippan_shadan_hojin', exactHintLabel: true },
+  {
+    word: '一般財団法人',
+    canonical: '一般財団法人',
+    hint: 'ippan_zaidan_hojin',
+    exactHintLabel: true,
+  },
+  { word: '(一財)', canonical: '一般財団法人', hint: 'ippan_zaidan_hojin', exactHintLabel: true },
+  {
+    word: '公益社団法人',
+    canonical: '公益社団法人',
+    hint: 'koueki_shadan_hojin',
+    exactHintLabel: true,
+  },
+  { word: '(公社)', canonical: '公益社団法人', hint: 'koueki_shadan_hojin', exactHintLabel: true },
+  {
+    word: '公益財団法人',
+    canonical: '公益財団法人',
+    hint: 'koueki_zaidan_hojin',
+    exactHintLabel: true,
+  },
+  { word: '(公財)', canonical: '公益財団法人', hint: 'koueki_zaidan_hojin', exactHintLabel: true },
+  {
+    word: '特定非営利活動法人',
+    canonical: '特定非営利活動法人',
+    hint: 'npo_hojin',
+    exactHintLabel: true,
+  },
+  { word: 'NPO法人', canonical: '特定非営利活動法人', hint: 'npo_hojin', exactHintLabel: true },
+  { word: '(特非)', canonical: '特定非営利活動法人', hint: 'npo_hojin', exactHintLabel: true },
+
+  // 医療・学校・社会福祉・宗教・更生保護法人 (最長一致順で医療法人社団/財団を先に判定)
+  { word: '医療法人社団', canonical: '医療法人社団', hint: 'other_registered' },
+  { word: '(医社)', canonical: '医療法人社団', hint: 'other_registered' },
+  { word: '医療法人財団', canonical: '医療法人財団', hint: 'other_registered' },
+  { word: '(医財)', canonical: '医療法人財団', hint: 'other_registered' },
+  { word: '社会医療法人', canonical: '社会医療法人', hint: 'other_registered' },
+  { word: '医療法人', canonical: '医療法人', hint: 'other_registered' },
+  { word: '(医)', canonical: '医療法人', hint: 'other_registered' },
+  { word: '学校法人', canonical: '学校法人', hint: 'other_registered' },
+  { word: '(学)', canonical: '学校法人', hint: 'other_registered' },
+  { word: '社会福祉法人', canonical: '社会福祉法人', hint: 'other_registered' },
+  { word: '(福)', canonical: '社会福祉法人', hint: 'other_registered' },
+  { word: '宗教法人', canonical: '宗教法人', hint: 'other_registered' },
+  { word: '(宗)', canonical: '宗教法人', hint: 'other_registered' },
+  { word: '更生保護法人', canonical: '更生保護法人', hint: 'other_registered' },
+
+  // 国立/公立大学・独立行政法人
+  { word: '国立大学法人', canonical: '国立大学法人', hint: 'other_registered' },
+  { word: '公立大学法人', canonical: '公立大学法人', hint: 'other_registered' },
+  { word: '地方独立行政法人', canonical: '地方独立行政法人', hint: 'other_registered' },
+  { word: '独立行政法人', canonical: '独立行政法人', hint: 'other_registered' },
+  { word: '(独)', canonical: '独立行政法人', hint: 'other_registered' },
+
+  // 士業法人 (有限責任監査法人を監査法人より先に判定)
+  { word: '社会保険労務士法人', canonical: '社会保険労務士法人', hint: 'other_registered' },
+  { word: '土地家屋調査士法人', canonical: '土地家屋調査士法人', hint: 'other_registered' },
+  { word: '有限責任監査法人', canonical: '有限責任監査法人', hint: 'other_registered' },
+  { word: '司法書士法人', canonical: '司法書士法人', hint: 'other_registered' },
+  { word: '行政書士法人', canonical: '行政書士法人', hint: 'other_registered' },
+  { word: '特許業務法人', canonical: '特許業務法人', hint: 'other_registered' },
+  { word: '弁護士法人', canonical: '弁護士法人', hint: 'other_registered' },
+  { word: '税理士法人', canonical: '税理士法人', hint: 'other_registered' },
+  { word: '弁理士法人', canonical: '弁理士法人', hint: 'other_registered' },
+  { word: '監査法人', canonical: '監査法人', hint: 'other_registered' },
+
+  // 金融・金庫・組合・投資法人
+  { word: '商店街振興組合', canonical: '商店街振興組合', hint: 'other_registered' },
+  { word: '農業協同組合', canonical: '農業協同組合', hint: 'other_registered' },
+  { word: '漁業協同組合', canonical: '漁業協同組合', hint: 'other_registered' },
+  { word: '生活協同組合', canonical: '生活協同組合', hint: 'other_registered' },
+  { word: '事業協同組合', canonical: '事業協同組合', hint: 'other_registered' },
+  { word: '管理組合法人', canonical: '管理組合法人', hint: 'other_registered' },
+  { word: '信用金庫', canonical: '信用金庫', hint: 'other_registered' },
+  { word: '(信金)', canonical: '信用金庫', hint: 'other_registered' },
+  { word: '信用組合', canonical: '信用組合', hint: 'other_registered' },
+  { word: '(信組)', canonical: '信用組合', hint: 'other_registered' },
+  { word: '労働金庫', canonical: '労働金庫', hint: 'other_registered' },
+  { word: '協同組合', canonical: '協同組合', hint: 'other_registered' },
+  { word: '企業組合', canonical: '企業組合', hint: 'other_registered' },
+  { word: '協業組合', canonical: '協業組合', hint: 'other_registered' },
+  { word: '商工組合', canonical: '商工組合', hint: 'other_registered' },
+  { word: '投資法人', canonical: '投資法人', hint: 'other_registered' },
 ];
+
+/** 文字数降順（最長一致優先）でソート済みの法人種別辞書 */
+const KIND_KEYWORDS_JA: ReadonlyArray<KindKeywordEntry> = [...RAW_KIND_KEYWORDS_JA].sort(
+  (a, b) => b.word.length - a.word.length,
+);
 
 const EN_SUFFIX_PATTERNS: Array<{ regex: RegExp; hint: KindHint }> = [
   { regex: /\b(K\.?\s*K\.?)\b/gi, hint: 'kabushiki_kaisha' },
   { regex: /\bKabushiki\s*Kaisha\b/gi, hint: 'kabushiki_kaisha' },
+  { regex: /\bGodo\s*Kaisha\b/gi, hint: 'godo_kaisha' },
+  { regex: /\b(G\.?\s*K\.?)\b/gi, hint: 'godo_kaisha' },
   { regex: /\bCo\.?\s*,?\s*Ltd\.?\b/gi, hint: 'kabushiki_kaisha' },
+  { regex: /\bCorporation\b/gi, hint: 'other_registered' },
   { regex: /\bCorp\.?\b/gi, hint: 'other_registered' },
+  { regex: /\bIncorporated\b/gi, hint: 'foreign_company' },
   { regex: /\bInc\.?\b/gi, hint: 'foreign_company' },
+  { regex: /\bLimited\b/gi, hint: 'other_registered' },
+  { regex: /\bLtd\.?\b/gi, hint: 'other_registered' },
   { regex: /\bLLC\b/gi, hint: 'godo_kaisha' },
 ];
+
+/**
+ * カタカナ語中のハイフン類誤記（OCR 等による `サントリ-` / `ホ-ルディングス`）を長音符 `ー` に補正する。
+ * `ン` (\u30F3) や `ッ` (\u30C3) の直後は `セブン-イレブン` 等の区切りハイフンであるため変換しない。
+ */
+function normalizeKatakanaChoonpu(text: string): string {
+  return text.replace(
+    /([\u30A1-\u30C2\u30C4-\u30F2\u30F4-\u30FA])[-‐‑–—―－](?=[\u30A1-\u30FA\u30FC]|$|[\s(])/gu,
+    '$1ー',
+  );
+}
 
 /**
  * 文字列を正規化して法人名候補リストを生成
@@ -170,151 +387,273 @@ export function normalizeCompanyName(raw: string): NormalizerResult {
   let work = trimmed.replace(/[\t\u3000]+/g, ' ').replace(/ {2,}/g, ' ');
   if (work !== trimmed) appliedRules.push('rule7_whitespace');
 
-  // Rule 4: NFKC 正規化 (半角/全角英数字の揃え)
+  // Rule 4: NFKC 正規化 (半角/全角英数字・㈱/㈲/㍿ 等の揃え)
   const beforeNfkc = work;
   work = work.normalize('NFKC');
   if (work !== beforeNfkc) appliedRules.push('rule4_nfkc');
 
+  // NFKC 後に生じた連続空白の再圧縮
+  work = work.replace(/ {2,}/g, ' ').trim();
+
   // Rule 6: 異体字セレクタ除去 (BMP Variation Selectors + Supplementary IVS)
-  // 注意: \uE0100 は 4 hex digit 評価 + 余剰トークンになり char class を破壊するため
-  //       \u{...} 表記を u フラグ下で使用する必要がある
   const beforeVs = work;
   work = work.replace(/[\uFE00-\uFE0F]|[\u{E0100}-\u{E01EF}]/gu, '');
   if (work !== beforeVs) appliedRules.push('rule6_ivs_removed');
 
-  // Rule 5: 旧字体 → 新字体 (候補として別バージョンも保持)
-  let newVariant: string | null = null;
-  const newWork = applyOldToNew(work);
-  if (newWork !== work) {
-    newVariant = newWork;
-    appliedRules.push('rule5_old_to_new_char');
-  }
+  // Rule 8: カタカナ長音符のハイフン誤記補正
+  const beforeChoonpu = work;
+  work = normalizeKatakanaChoonpu(work);
+  if (work !== beforeChoonpu) appliedRules.push('rule8_choonpu_normalized');
 
-  // Rule 1/2: 法人種別検出 + 前株/後株判定
-  const kindDetection = detectKind(work);
+  // Rule 1/2: 法人種別検出 + 前付け/後付け判定 (最長一致・端アンカー優先)
+  // 「株式會社」「醫療法人」「學校法人」のように法人種別自体が旧字体の場合は新字体変換後で再検出する
+  const newWork = applyOldToNew(work);
+  const directKindDetection = detectKind(work);
+  const kindOnNewOnly = directKindDetection.hint === null && newWork !== work;
+  const kindDetection = kindOnNewOnly ? detectKind(newWork) : directKindDetection;
+  const workForKind = kindOnNewOnly ? newWork : work;
 
   // Rule 3: 英語法人名検出
   const enDetection = detectEnglishKind(work);
 
   // ターゲット推定
-  const suggestedTarget: '1' | '2' | '3' = enDetection.hint !== null ? '3' : '1';
+  const suggestedTarget: '1' | '2' | '3' =
+    kindDetection.hint === null && enDetection.hint !== null ? '3' : '1';
 
   // コア名 (法人種別を取り除いた部分)
-  const coreName = stripKindFromName(work, kindDetection);
+  const rawCoreName = stripKindFromName(workForKind, kindDetection);
+  const newCoreName = applyOldToNew(rawCoreName);
+  const hasOldKanjiInCore = newCoreName !== rawCoreName || kindOnNewOnly;
+
+  // 法人種別の略称展開を含めた正式商号 (旧字保持版 & 新字変換版)
+  const canonicalOldFull = kindOnNewOnly ? work : buildFullName(rawCoreName, kindDetection, work);
+  const canonicalNewFull = applyOldToNew(buildFullName(newCoreName, kindDetection, newWork));
+  const hasOldKanjiOverall = canonicalNewFull !== canonicalOldFull || hasOldKanjiInCore;
+  if (hasOldKanjiOverall) {
+    appliedRules.push('rule5_old_to_new_char');
+  }
+
+  const abbrevExpanded =
+    kindDetection.entry !== null && kindDetection.entry.word !== kindDetection.entry.canonical;
+  const baseRules = abbrevExpanded ? [...appliedRules, 'rule1_abbrev_expanded'] : [...appliedRules];
+
+  // normalize-company-name.ts が `other_registered` を「その他の設立登記法人」ラベルに置換して
+  // 商号を破壊しないよう、1:1 対応の種別のみ mae_kabu/ato_kabu を公開する
+  const publicPosition: PrefixOrSuffix = kindDetection.entry?.exactHintLabel
+    ? kindDetection.rawPosition
+    : 'none';
+
+  const effectiveHint: KindHint = kindDetection.hint ?? enDetection.hint ?? 'unknown';
 
   // 候補生成
   const candidates: NormalizedCandidate[] = [];
 
-  // a. 正規化済みの元のまま (core name 保持)
+  // a1. 正式法人格展開 + 新字体変換済みフルネーム（最優先候補）
   candidates.push({
-    name: work,
-    kind_hint: kindDetection.hint ?? enDetection.hint ?? 'unknown',
-    prefix_or_suffix: kindDetection.position,
+    name: canonicalNewFull,
+    kind_hint: effectiveHint,
+    prefix_or_suffix: publicPosition,
     suggested_target: suggestedTarget,
     confidence: 0.95,
-    applied_rules: [...appliedRules],
+    applied_rules: hasOldKanjiOverall ? [...baseRules, 'rule5_old_to_new_applied'] : [...baseRules],
   });
 
-  // b. 法人種別を除去したコア名のみ
-  if (coreName !== work && coreName.length > 0) {
+  // a2. 旧字体が含まれていた場合、旧字体を保持した正式フルネームも併存（例: 野村證券株式会社）
+  if (canonicalOldFull !== canonicalNewFull) {
     candidates.push({
-      name: coreName,
+      name: canonicalOldFull,
+      kind_hint: effectiveHint,
+      prefix_or_suffix: publicPosition,
+      suggested_target: suggestedTarget,
+      confidence: 0.92,
+      applied_rules: baseRules.filter((r) => r !== 'rule5_old_to_new_char'),
+    });
+  }
+
+  // b1. 法人種別を除去したコア名（新字体版）
+  if (newCoreName.length > 0 && newCoreName !== canonicalNewFull) {
+    candidates.push({
+      name: newCoreName,
       kind_hint: kindDetection.hint ?? 'unknown',
       prefix_or_suffix: 'none',
       suggested_target: suggestedTarget,
       confidence: 0.9,
-      applied_rules: [...appliedRules, 'rule2_kind_separated'],
+      applied_rules: [...baseRules, 'rule2_kind_separated'],
     });
   }
 
-  // c. 前株 ↔ 後株 の反転候補 (株式会社のみ)
-  if (kindDetection.hint === 'kabushiki_kaisha' && coreName.length > 0) {
-    if (kindDetection.position === 'mae_kabu') {
+  // b2. 法人種別を除去したコア名（旧字体保持版）
+  if (hasOldKanjiInCore && rawCoreName.length > 0) {
+    candidates.push({
+      name: rawCoreName,
+      kind_hint: kindDetection.hint ?? 'unknown',
+      prefix_or_suffix: 'none',
+      suggested_target: suggestedTarget,
+      confidence: 0.85,
+      applied_rules: [
+        ...baseRules.filter((r) => r !== 'rule5_old_to_new_char'),
+        'rule2_kind_separated',
+      ],
+    });
+  }
+
+  // c. 前付け ↔ 後付け の反転候補 (株式会社・有限会社・合同会社・合資会社・合名会社・相互会社)
+  if (kindDetection.entry?.invertible && newCoreName.length > 0) {
+    const canonicalKind = kindDetection.entry.canonical;
+    if (kindDetection.rawPosition === 'mae_kabu') {
+      const invertedPosition: PrefixOrSuffix = kindDetection.entry.exactHintLabel
+        ? 'ato_kabu'
+        : 'none';
       candidates.push({
-        name: `${coreName}株式会社`,
-        kind_hint: 'kabushiki_kaisha',
-        prefix_or_suffix: 'ato_kabu',
+        name: `${newCoreName}${canonicalKind}`,
+        kind_hint: kindDetection.entry.hint,
+        prefix_or_suffix: invertedPosition,
         suggested_target: suggestedTarget,
         confidence: 0.75,
-        applied_rules: [...appliedRules, 'rule1_kabu_position_inverted'],
+        applied_rules: [...baseRules, 'rule1_kabu_position_inverted'],
       });
-    } else if (kindDetection.position === 'ato_kabu') {
+      if (hasOldKanjiInCore) {
+        candidates.push({
+          name: `${rawCoreName}${canonicalKind}`,
+          kind_hint: kindDetection.entry.hint,
+          prefix_or_suffix: invertedPosition,
+          suggested_target: suggestedTarget,
+          confidence: 0.72,
+          applied_rules: [
+            ...baseRules.filter((r) => r !== 'rule5_old_to_new_char'),
+            'rule1_kabu_position_inverted',
+          ],
+        });
+      }
+    } else if (kindDetection.rawPosition === 'ato_kabu') {
+      const invertedPosition: PrefixOrSuffix = kindDetection.entry.exactHintLabel
+        ? 'mae_kabu'
+        : 'none';
       candidates.push({
-        name: `株式会社${coreName}`,
-        kind_hint: 'kabushiki_kaisha',
-        prefix_or_suffix: 'mae_kabu',
+        name: `${canonicalKind}${newCoreName}`,
+        kind_hint: kindDetection.entry.hint,
+        prefix_or_suffix: invertedPosition,
         suggested_target: suggestedTarget,
         confidence: 0.75,
-        applied_rules: [...appliedRules, 'rule1_kabu_position_inverted'],
+        applied_rules: [...baseRules, 'rule1_kabu_position_inverted'],
       });
+      if (hasOldKanjiInCore) {
+        candidates.push({
+          name: `${canonicalKind}${rawCoreName}`,
+          kind_hint: kindDetection.entry.hint,
+          prefix_or_suffix: invertedPosition,
+          suggested_target: suggestedTarget,
+          confidence: 0.72,
+          applied_rules: [
+            ...baseRules.filter((r) => r !== 'rule5_old_to_new_char'),
+            'rule1_kabu_position_inverted',
+          ],
+        });
+      }
     }
   }
 
   // d. 英語法人名が検出された場合、英語表記での検索候補
-  if (enDetection.hint !== null) {
-    const enCore = enDetection.stripped;
+  if (enDetection.hint !== null && enDetection.stripped.length > 0) {
     candidates.push({
-      name: enCore,
+      name: enDetection.stripped,
       kind_hint: enDetection.hint,
       prefix_or_suffix: 'none',
       suggested_target: '3',
       confidence: 0.7,
-      applied_rules: [...appliedRules, 'rule3_english_detected'],
+      applied_rules: [...baseRules, 'rule3_english_detected'],
     });
   }
 
-  // e. 旧字体→新字体の候補
-  if (newVariant !== null) {
-    candidates.push({
-      name: newVariant,
-      kind_hint: kindDetection.hint ?? 'unknown',
-      prefix_or_suffix: kindDetection.position,
-      suggested_target: '1',
-      confidence: 0.8,
-      applied_rules: [...appliedRules, 'rule5_old_to_new_applied'],
-    });
+  // e. 中点 (・) を含む場合、ホスト版 DB 検索向けに中点除去コア名候補も追加
+  if (newCoreName.includes('・')) {
+    const dotless = newCoreName.replace(/・+/g, '');
+    if (dotless.length > 0) {
+      candidates.push({
+        name: dotless,
+        kind_hint: kindDetection.hint ?? 'unknown',
+        prefix_or_suffix: 'none',
+        suggested_target: '1',
+        confidence: 0.68,
+        applied_rules: [...baseRules, 'rule8_middle_dot_stripped'],
+      });
+    }
   }
 
   // 重複除去 + 10件上限
   const seen = new Set<string>();
   const uniqueCandidates = candidates
     .filter((c) => {
-      if (seen.has(c.name)) return false;
+      if (c.name.length === 0 || seen.has(c.name)) return false;
       seen.add(c.name);
       return true;
     })
     .slice(0, 10);
 
+  // コア名（新字体変換済み。英語サフィックスのみ検出された場合は英語コア名）
+  const extractedCore =
+    kindDetection.hint === null && enDetection.hint !== null && enDetection.stripped.length > 0
+      ? applyOldToNew(enDetection.stripped)
+      : newCoreName;
+
   return {
     original: raw,
-    extracted_core_name: coreName,
+    extracted_core_name: extractedCore,
     normalized_candidates: uniqueCandidates,
   };
 }
 
 interface KindDetection {
   hint: KindHint | null;
-  position: PrefixOrSuffix;
-  matchedWord: string | null;
+  rawPosition: PrefixOrSuffix;
+  entry: KindKeywordEntry | null;
 }
 
 function detectKind(text: string): KindDetection {
-  for (const { word, hint } of KIND_KEYWORDS_JA) {
-    const idx = text.indexOf(word);
-    if (idx === -1) continue;
-    const atStart = idx === 0;
-    const atEnd = idx + word.length === text.length;
-    let position: PrefixOrSuffix = 'none';
-    if (atStart) position = 'mae_kabu';
-    else if (atEnd) position = 'ato_kabu';
-    return { hint, position, matchedWord: word };
+  // 1. 先頭一致（前株・前付け法人格）を最長一致順で検査
+  for (const entry of KIND_KEYWORDS_JA) {
+    if (text.startsWith(entry.word)) {
+      return { hint: entry.hint, rawPosition: 'mae_kabu', entry };
+    }
   }
-  return { hint: null, position: 'none', matchedWord: null };
+  // 2. 末尾一致（後株・後付け法人格）を最長一致順で検査
+  for (const entry of KIND_KEYWORDS_JA) {
+    if (text.endsWith(entry.word)) {
+      return { hint: entry.hint, rawPosition: 'ato_kabu', entry };
+    }
+  }
+  // 3. 中間出現（例: 支店名付き等）のフォールバック
+  for (const entry of KIND_KEYWORDS_JA) {
+    if (text.includes(entry.word)) {
+      return { hint: entry.hint, rawPosition: 'none', entry };
+    }
+  }
+  return { hint: null, rawPosition: 'none', entry: null };
 }
 
 function stripKindFromName(text: string, detection: KindDetection): string {
-  if (detection.matchedWord === null) return text;
-  return text.replace(detection.matchedWord, '').trim();
+  if (detection.entry === null) return text;
+  const word = detection.entry.word;
+  if (detection.rawPosition === 'mae_kabu') {
+    return text.slice(word.length).trim();
+  }
+  if (detection.rawPosition === 'ato_kabu') {
+    return text.slice(0, text.length - word.length).trim();
+  }
+  return text.replace(word, ' ').replace(/ {2,}/g, ' ').trim();
+}
+
+function buildFullName(coreName: string, detection: KindDetection, fallbackWork: string): string {
+  if (detection.entry === null) return fallbackWork;
+  const canonical = detection.entry.canonical;
+  if (coreName.length === 0) return canonical;
+  if (detection.rawPosition === 'mae_kabu') {
+    return `${canonical}${coreName}`;
+  }
+  if (detection.rawPosition === 'ato_kabu') {
+    return `${coreName}${canonical}`;
+  }
+  return fallbackWork.replace(detection.entry.word, canonical);
 }
 
 interface EnglishDetection {
@@ -331,6 +670,7 @@ function detectEnglishKind(text: string): EnglishDetection {
       const stripped = text
         .replace(freshRegex, '')
         .replace(/\s+,?\s*$/, '')
+        .replace(/^,\s*/, '')
         .trim();
       return { hint, stripped, matchedSuffix: match[0] };
     }
@@ -338,7 +678,7 @@ function detectEnglishKind(text: string): EnglishDetection {
   return { hint: null, stripped: text, matchedSuffix: null };
 }
 
-function applyOldToNew(text: string): string {
+export function applyOldToNew(text: string): string {
   let result = text;
   for (const [oldChar, newChar] of Object.entries(OLD_TO_NEW)) {
     if (result.includes(oldChar)) {

@@ -1,26 +1,20 @@
 /**
- * T 番号 (適格請求書発行事業者 登録番号) のテスト
- * 根拠: 第二編 1.5版 2.1.3 + リソース定義書 1.5版 項番8
+ * T 番号 (適格請求書発行事業者 登録番号) および暦日検証のテスト
+ * 根拠: 第二編 1.5版 2.1.3 + リソース定義書 1.5版 項番8 + SLA2-326 監査決定
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   InvoiceNumberSchema,
   normalizeAndValidateInvoiceNumber,
+  isValidCalendarDate,
 } from '../../src/domain/invoice-number.js';
 
-/**
- * 注意: 仕様書 (第二編) のサンプル番号 T8040001999011 は架空番号で、
- * チェックデジットが実際の計算式 (9 - Σ(P_n×Q_n) mod 9) と一致しない。
- * 本テストでは実在する有効な法人番号 + T プレフィックスを使用する:
- *   - 8040001999013 (第二編 法人番号 §2.3 サンプル、実在する有効番号)
- *   - 5111101000006 (国土交通省の法人番号)
- */
 const VALID_T_NUMBER = 'T8040001999013';
 const VALID_T_NUMBER_2 = 'T5111101000006';
 const VALID_BASE = '8040001999013';
 
-describe('normalizeAndValidateInvoiceNumber', () => {
+describe('normalizeAndValidateInvoiceNumber (default: verifyCorporateCheckDigit = false)', () => {
   it('有効な T+13桁を正規化する', () => {
     const result = normalizeAndValidateInvoiceNumber(VALID_T_NUMBER);
     expect(result.isValid).toBe(true);
@@ -30,35 +24,32 @@ describe('normalizeAndValidateInvoiceNumber', () => {
     }
   });
 
-  it('全角 T (Ｔ) を半角に正規化', () => {
-    const result = normalizeAndValidateInvoiceNumber('Ｔ8040001999013');
-    expect(result.isValid).toBe(true);
-    if (result.isValid) {
-      expect(result.normalized).toBe(VALID_T_NUMBER);
+  it('全角 T (Ｔ) / 小文字 t / 全角数字 / ハイフン区切りを半角 T+13桁に正規化する', () => {
+    for (const raw of [
+      'Ｔ8040001999013',
+      't8040001999013',
+      'Ｔ８０４０００１９９９０１３',
+      'T-8040-0019-99013',
+    ]) {
+      const result = normalizeAndValidateInvoiceNumber(raw);
+      expect(result.isValid).toBe(true);
+      if (result.isValid) {
+        expect(result.normalized).toBe(VALID_T_NUMBER);
+      }
     }
   });
 
-  it('小文字 t を大文字 T に正規化', () => {
-    const result = normalizeAndValidateInvoiceNumber('t8040001999013');
-    expect(result.isValid).toBe(true);
-    if (result.isValid) {
-      expect(result.normalized).toBe(VALID_T_NUMBER);
+  it('個人事業者の登録番号想定: 法人モジュラス9に一致しない T+13桁や先頭0も既定では有効として受け入れる', () => {
+    const nonMod9 = normalizeAndValidateInvoiceNumber('T8040001999011');
+    expect(nonMod9.isValid).toBe(true);
+    if (nonMod9.isValid) {
+      expect(nonMod9.normalized).toBe('T8040001999011');
     }
-  });
 
-  it('全角数字を含む T番号を正規化', () => {
-    const result = normalizeAndValidateInvoiceNumber('Ｔ８０４０００１９９９０１３');
-    expect(result.isValid).toBe(true);
-    if (result.isValid) {
-      expect(result.normalized).toBe(VALID_T_NUMBER);
-    }
-  });
-
-  it('ハイフン区切りを正規化', () => {
-    const result = normalizeAndValidateInvoiceNumber('T-8040-0019-99013');
-    expect(result.isValid).toBe(true);
-    if (result.isValid) {
-      expect(result.normalized).toBe(VALID_T_NUMBER);
+    const leadingZero = normalizeAndValidateInvoiceNumber('T0040001999013');
+    expect(leadingZero.isValid).toBe(true);
+    if (leadingZero.isValid) {
+      expect(leadingZero.normalized).toBe('T0040001999013');
     }
   });
 
@@ -70,17 +61,50 @@ describe('normalizeAndValidateInvoiceNumber', () => {
     }
   });
 
-  it('T の後が 12桁の場合は not_13_digits_after_T', () => {
-    const result = normalizeAndValidateInvoiceNumber('T804000199901');
-    expect(result.isValid).toBe(false);
-    if (!result.isValid) {
-      expect(result.reason).toBe('not_13_digits_after_T');
+  it('T の後が 12桁または空の場合は not_13_digits_after_T', () => {
+    const r1 = normalizeAndValidateInvoiceNumber('T804000199901');
+    expect(r1.isValid).toBe(false);
+    if (!r1.isValid) {
+      expect(r1.reason).toBe('not_13_digits_after_T');
+    }
+
+    const r2 = normalizeAndValidateInvoiceNumber('T---');
+    expect(r2.isValid).toBe(false);
+    if (!r2.isValid) {
+      expect(r2.reason).toBe('not_13_digits_after_T');
+    }
+  });
+
+  it('英字混入は invalid_characters、空文字列は not_prefixed_with_T', () => {
+    const r1 = normalizeAndValidateInvoiceNumber('T8abc001999013');
+    expect(r1.isValid).toBe(false);
+    if (!r1.isValid) {
+      expect(r1.reason).toBe('invalid_characters');
+    }
+
+    const r2 = normalizeAndValidateInvoiceNumber('');
+    expect(r2.isValid).toBe(false);
+    if (!r2.isValid) {
+      expect(r2.reason).toBe('not_prefixed_with_T');
+    }
+  });
+});
+
+describe('normalizeAndValidateInvoiceNumber ({ verifyCorporateCheckDigit: true })', () => {
+  it('法人チェックデジット一致時は有効', () => {
+    const result = normalizeAndValidateInvoiceNumber(VALID_T_NUMBER, {
+      verifyCorporateCheckDigit: true,
+    });
+    expect(result.isValid).toBe(true);
+    if (result.isValid) {
+      expect(result.corporateNumberPart).toBe(VALID_BASE);
     }
   });
 
   it('チェックデジット不一致は check_digit_mismatch', () => {
-    // T9040001999013: 9 は 040001999013 の正しいチェックデジット (8) ではない
-    const result = normalizeAndValidateInvoiceNumber('T9040001999013');
+    const result = normalizeAndValidateInvoiceNumber('T9040001999013', {
+      verifyCorporateCheckDigit: true,
+    });
     expect(result.isValid).toBe(false);
     if (!result.isValid) {
       expect(result.reason).toBe('check_digit_mismatch');
@@ -88,77 +112,45 @@ describe('normalizeAndValidateInvoiceNumber', () => {
   });
 
   it('T の直後が 0 は first_digit_zero_after_T', () => {
-    const result = normalizeAndValidateInvoiceNumber('T0040001999013');
+    const result = normalizeAndValidateInvoiceNumber('T0040001999013', {
+      verifyCorporateCheckDigit: true,
+    });
     expect(result.isValid).toBe(false);
     if (!result.isValid) {
       expect(result.reason).toBe('first_digit_zero_after_T');
     }
   });
+});
 
-  it('英字混入は invalid_characters', () => {
-    const result = normalizeAndValidateInvoiceNumber('T8abc001999013');
-    expect(result.isValid).toBe(false);
-    if (!result.isValid) {
-      expect(result.reason).toBe('invalid_characters');
-    }
+describe('isValidCalendarDate', () => {
+  it('実在する暦日（うるう年 2024-02-29 含む）を受け入れる', () => {
+    expect(isValidCalendarDate('2023-10-01')).toBe(true);
+    expect(isValidCalendarDate('2024-02-29')).toBe(true);
+    expect(isValidCalendarDate('2026-11-30')).toBe(true);
   });
 
-  it('空文字列は not_prefixed_with_T', () => {
-    const result = normalizeAndValidateInvoiceNumber('');
-    expect(result.isValid).toBe(false);
-    if (!result.isValid) {
-      expect(result.reason).toBe('not_prefixed_with_T');
-    }
+  it('存在しない暦日（2026-02-29, 2026-02-31, 2026-04-31 等）や不正形式を拒否する', () => {
+    expect(isValidCalendarDate('2026-02-29')).toBe(false);
+    expect(isValidCalendarDate('2026-02-31')).toBe(false);
+    expect(isValidCalendarDate('2026-04-31')).toBe(false);
+    expect(isValidCalendarDate('2026-13-01')).toBe(false);
+    expect(isValidCalendarDate('2026-00-10')).toBe(false);
+    expect(isValidCalendarDate('2026-01-00')).toBe(false);
+    expect(isValidCalendarDate('2026/10/01')).toBe(false);
+    expect(isValidCalendarDate('')).toBe(false);
   });
 });
 
 describe('InvoiceNumberSchema (Zod)', () => {
-  it('有効な T番号を受け入れる (T8040001999013)', () => {
-    const result = InvoiceNumberSchema.safeParse(VALID_T_NUMBER);
-    expect(result.success).toBe(true);
+  it('有効な T番号を受け入れる', () => {
+    expect(InvoiceNumberSchema.safeParse(VALID_T_NUMBER).success).toBe(true);
+    expect(InvoiceNumberSchema.safeParse(VALID_T_NUMBER_2).success).toBe(true);
+    expect(InvoiceNumberSchema.safeParse('T1040001999013').success).toBe(true);
   });
 
-  it('形式エラー: T なし', () => {
-    const result = InvoiceNumberSchema.safeParse(VALID_BASE);
-    expect(result.success).toBe(false);
-  });
-
-  it('形式エラー: 14桁以上', () => {
-    const result = InvoiceNumberSchema.safeParse('T80400019990130');
-    expect(result.success).toBe(false);
-  });
-
-  it('T+13桁数字であれば形式上は受け入れる (チェックデジット計算は要求しない)', () => {
-    // リソース定義書1.5版 別紙1 項番8 に基づき、個人の番号も包含できるよう形式検証のみ
-    const result = InvoiceNumberSchema.safeParse('T1040001999013');
-    expect(result.success).toBe(true);
-  });
-
-  it('形式エラー: 半角数字以外が含まれる', () => {
-    const result = InvoiceNumberSchema.safeParse('T804000199901A');
-    expect(result.success).toBe(false);
-  });
-
-  it('国土交通省の法人番号 + T プレフィックスも有効', () => {
-    const result = InvoiceNumberSchema.safeParse(VALID_T_NUMBER_2);
-    expect(result.success).toBe(true);
-  });
-});
-
-describe('法人番号と T番号の整合性 (normalizeAndValidateInvoiceNumber)', () => {
-  it('同じ13桁部分なら法人番号と T番号 両方とも有効', () => {
-    const invoiceResult = normalizeAndValidateInvoiceNumber(VALID_T_NUMBER);
-    expect(invoiceResult.isValid).toBe(true);
-    if (invoiceResult.isValid) {
-      expect(invoiceResult.corporateNumberPart).toBe(VALID_BASE);
-    }
-  });
-
-  it('法人番号チェックデジットと照合する関数では、架空番号 T8040001999011 は拒否される', () => {
-    const result = normalizeAndValidateInvoiceNumber('T8040001999011');
-    expect(result.isValid).toBe(false);
-    if (!result.isValid) {
-      expect(result.reason).toBe('check_digit_mismatch');
-    }
+  it('形式エラーを拒否する', () => {
+    expect(InvoiceNumberSchema.safeParse(VALID_BASE).success).toBe(false);
+    expect(InvoiceNumberSchema.safeParse('T80400019990130').success).toBe(false);
+    expect(InvoiceNumberSchema.safeParse('T804000199901A').success).toBe(false);
   });
 });

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { corporateNumbers, corporateNumbersStaging } from '../../src/db/schema.js';
-import { corporateNumbersNew } from '../../src/ingest/importer.js';
+import {
+  corporateNumbers,
+  corporateNumbersStaging,
+  invoiceIssuers,
+  invoiceIssuersStaging,
+} from '../../src/db/schema.js';
+import { corporateNumbersNew, invoiceIssuersNew } from '../../src/ingest/importer.js';
 
 /**
  * 国税庁「リソース定義書（ダウンロードファイル、Web-API）4.0版」に基づく法人番号テーブルの列長テスト
@@ -81,4 +86,31 @@ describe('Corporate numbers column length specifications (Resource Definition ve
       });
     });
   }
+
+  describe('Invoice issuers column length & nullability parity (Resource Definition ver 1.5)', () => {
+    const invoiceTables = [
+      { name: 'invoiceIssuers', table: invoiceIssuers },
+      { name: 'invoiceIssuersStaging', table: invoiceIssuersStaging },
+      { name: 'invoiceIssuersNew', table: invoiceIssuersNew },
+    ];
+
+    for (const { name, table } of invoiceTables) {
+      it(`${name}: address, kana, legalName lengths and nullable registrationDate match spec`, () => {
+        expect(
+          (table.headOfficeAddress as unknown as { length?: number }).length,
+        ).toBeGreaterThanOrEqual(600);
+        expect(
+          (table.declaredAddress as unknown as { length?: number }).length,
+        ).toBeGreaterThanOrEqual(600);
+        expect(
+          (table.domesticOfficeAddress as unknown as { length?: number }).length,
+        ).toBeGreaterThanOrEqual(600);
+        expect((table.kana as unknown as { length?: number }).length).toBeGreaterThanOrEqual(500);
+        expect((table.legalName as unknown as { length?: number }).length).toBeGreaterThanOrEqual(
+          300,
+        );
+        expect((table.registrationDate as unknown as { notNull?: boolean }).notNull).toBe(false);
+      });
+    }
+  });
 });

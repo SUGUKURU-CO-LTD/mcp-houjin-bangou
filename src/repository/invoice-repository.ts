@@ -2,11 +2,13 @@
  * Invoice Issuer Data Provider Interface & Database Implementation
  *
  * 根拠 / Source:
- *   docs/plan/corp-check-interface-v1.md §1.3, §3.1, §4, §6.1, §6.2 (v1.6 凍結仕様)
+ *   docs/plan/corp-check-interface-v1.md §1.3, §3.1, §4, §6.1, §6.2 (v1.9 凍結仕様)
  *   実装指示書v1 §5(B5):
  *     - インボイス公表データの登録番号 (T+13桁) から公表事実（登録状態、登録日、取消・失効日、法人等の名称・所在地）を確認
- *     - 個人事業者の場合は氏名・屋号・所在地を返却しない
+ *     - 個人事業者および人格区分不明行の場合は氏名・屋号・所在地を返却しない（kind='2' のみ許可）
+ *     - 処理区分 '99'（削除）は not_found として扱う
  *     - not_found は status: not_found で返し、エラーコード NOT_FOUND は使用しない
+ *     - DB エラー時に SQL 文やバインドパラメータ（登録番号等）をクライアントやログに漏洩しない
  *     - 税理士法に配慮し、税務免責事項 (tax_disclaimer) を必須で返却
  */
 
@@ -14,7 +16,9 @@ import { eq, and, desc } from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { datasetVersions, invoiceIssuers } from '../db/schema.js';
 import { Result } from '../lib/result.js';
+import { formatErrorWithCause } from '../lib/errors.js';
 import { NTA_INVOICE_HOST_ATTRIBUTION, INVOICE_TAX_DISCLAIMER } from '../lib/tool-response.js';
+import { isTimeoutError } from './corporate-repository.js';
 
 export type InvoiceIssuerStatus = 'registered' | 'cancelled' | 'expired' | 'not_found';
 export type InvoiceBusinessType = 'corporation' | 'individual' | 'other' | 'unknown';
@@ -45,6 +49,42 @@ export interface InvoiceDataProvider {
     registrationNumber: string,
     referenceDate?: string,
   ): Promise<Result<LookupInvoiceIssuerResult, InvoiceError>>;
+}
+
+function writeRepositoryErrorLog(operation: string, err: unknown): void {
+  const errorType = err instanceof Error ? err.name : 'UnknownError';
+  const msg = formatErrorWithCause(err);
+  process.stderr.write(
+    JSON.stringify({
+      level: 'error',
+      severity: 'ERROR',
+      time: new Date().toISOString(),
+      logger: 'invoice_repository',
+      operation,
+      error_type: errorType,
+      msg,
+    }) + '\n',
+  );
+}
+
+function buildNotFoundResult(
+  registrationNumber: string,
+  dataAsOf: string,
+): LookupInvoiceIssuerResult {
+  return {
+    registration_number: registrationNumber,
+    status: 'not_found',
+    business_type: 'unknown',
+    registration_date: null,
+    cancellation_date: null,
+    expiration_date: null,
+    corporate_name: null,
+    location: null,
+    was_registered_on_reference_date: null,
+    data_as_of: dataAsOf,
+    attribution: NTA_INVOICE_HOST_ATTRIBUTION,
+    tax_disclaimer: INVOICE_TAX_DISCLAIMER,
+  };
 }
 
 /**
@@ -100,24 +140,8 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
         );
 
       // 1. レコードが存在しない場合 (not_found)
-      // ※ docs/plan/corp-check-interface-v1.md §4 注記:
-      //   lookup_invoice_issuer は status: not_found で返すため、エラーではなく正常レスポンスとする。
-      //   該当なしの場合は基準日を指定しても判定不能（未登録の確定ではない）であるため null とする。
       if (rows.length === 0) {
-        return Result.ok({
-          registration_number: registrationNumber,
-          status: 'not_found',
-          business_type: 'unknown',
-          registration_date: null,
-          cancellation_date: null,
-          expiration_date: null,
-          corporate_name: null,
-          location: null,
-          was_registered_on_reference_date: null,
-          data_as_of: activeVersion.dataAsOf,
-          attribution: NTA_INVOICE_HOST_ATTRIBUTION,
-          tax_disclaimer: INVOICE_TAX_DISCLAIMER,
-        });
+        return Result.ok(buildNotFoundResult(registrationNumber, activeVersion.dataAsOf));
       }
 
       // 一連番号（sequenceNumber）を数値として昇順ソート（varchar だと '10' が '9' より前になるのを防ぐ）
@@ -130,25 +154,32 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
       if (!latestRow) {
         return Result.err({
           code: 'INTERNAL_ERROR',
-          message: 'Failed to retrieve invoice issuer row',
+          message: 'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
         });
       }
 
-      // 登録状態の判定
+      // 2. 事業者処理区分 '99'（削除: 登録自体がなかったものとして効力を失ったレコード）は該当なし扱い
+      if (latestRow.process === '99') {
+        return Result.ok(buildNotFoundResult(registrationNumber, activeVersion.dataAsOf));
+      }
+
+      // 登録状態の判定（process='04'取消 / '03'失効 と日付の整合性を考慮）
+      const hasCancel = Boolean(latestRow.cancelDate && latestRow.cancelDate.trim() !== '');
+      const hasExpire = Boolean(latestRow.expireDate && latestRow.expireDate.trim() !== '');
       let status: InvoiceIssuerStatus;
-      if (latestRow.cancelDate && latestRow.cancelDate.trim() !== '') {
+      if (latestRow.process === '03' && hasExpire) {
+        status = 'expired';
+      } else if (latestRow.process === '04' && hasCancel) {
         status = 'cancelled';
-      } else if (latestRow.expireDate && latestRow.expireDate.trim() !== '') {
+      } else if (hasCancel) {
+        status = 'cancelled';
+      } else if (hasExpire) {
         status = 'expired';
       } else {
         status = 'registered';
       }
 
       // 事業者区分の判定
-      // kind='1': 個人
-      // kind='2': 法人（人格のない社団等を含む）
-      //   - 本店所在地がなく公表申出所在地がある場合: other（人格のない社団等）
-      //   - それ以外: corporation（法人）
       let businessType: InvoiceBusinessType;
       if (latestRow.kind === '1') {
         businessType = 'individual';
@@ -162,12 +193,12 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
         businessType = 'unknown';
       }
 
-      // 名称・所在地の取得（個人事業者の場合は公表・返却しない）
-      const isIndividual = latestRow.kind === '1';
-      const corporateName = isIndividual ? null : (latestRow.legalName ?? null);
+      // 名称・所在地の取得（厳格な許可リスト方式: kind === '2' の場合のみ公開し、個人・区分不明は常に null）
+      const canExposeIdentity = latestRow.kind === '2';
+      const corporateName = canExposeIdentity ? (latestRow.legalName ?? null) : null;
 
       let location: string | null = null;
-      if (!isIndividual) {
+      if (canExposeIdentity) {
         location =
           latestRow.headOfficeAddress ??
           latestRow.declaredAddress ??
@@ -176,8 +207,7 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
       }
 
       // 基準日時点の有効性判定 (was_registered_on_reference_date)
-      // 履歴行を登録年月日ごとにまとめ、各まとまりの最後の行の取消・失効年月日で登録期間を作る。
-      // 再登録された場合も含め、基準日がいずれかの登録期間に入れば true とする。
+      // 履歴行（削除行 process='99' を除く）を登録年月日ごとにまとめ、各まとまりの最後の行の取消・失効年月日で登録期間を作る。
       let wasRegisteredOnReferenceDate: boolean | null = null;
       if (referenceDate !== undefined) {
         const periods: Array<{
@@ -188,6 +218,7 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
 
         const groups = new Map<string, typeof sortedRows>();
         for (const row of sortedRows) {
+          if (row.process === '99') continue;
           const regDate = row.registrationDate?.trim();
           if (!regDate) continue;
           const group = groups.get(regDate) ?? [];
@@ -213,10 +244,8 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
         }
 
         if (periods.length === 0) {
-          // 登録年月日が空の行では判定できないため null
           wasRegisteredOnReferenceDate = null;
         } else {
-          // 基準日がいずれかの登録期間に入れば true
           wasRegisteredOnReferenceDate = periods.some((period) => {
             const isAfterOrOnReg = referenceDate >= period.registrationDate;
             const isBeforeCancel = period.cancelDate === null || referenceDate < period.cancelDate;
@@ -235,9 +264,13 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
             ? latestRow.registrationDate.trim()
             : null,
         cancellation_date:
-          latestRow.cancelDate && latestRow.cancelDate.trim() !== '' ? latestRow.cancelDate : null,
+          latestRow.cancelDate && latestRow.cancelDate.trim() !== ''
+            ? latestRow.cancelDate.trim()
+            : null,
         expiration_date:
-          latestRow.expireDate && latestRow.expireDate.trim() !== '' ? latestRow.expireDate : null,
+          latestRow.expireDate && latestRow.expireDate.trim() !== ''
+            ? latestRow.expireDate.trim()
+            : null,
         corporate_name: corporateName,
         location,
         was_registered_on_reference_date: wasRegisteredOnReferenceDate,
@@ -246,9 +279,16 @@ export class DbInvoiceDataProvider implements InvoiceDataProvider {
         tax_disclaimer: INVOICE_TAX_DISCLAIMER,
       });
     } catch (err) {
+      if (isTimeoutError(err)) {
+        return Result.err({
+          code: 'DATA_UNAVAILABLE',
+          message: 'データベースの検索が上限時間を超過しました。時間をおいて再試行してください。',
+        });
+      }
+      writeRepositoryErrorLog('lookupByRegistrationNumber', err);
       return Result.err({
         code: 'INTERNAL_ERROR',
-        message: err instanceof Error ? err.message : 'Database error occurred',
+        message: 'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
       });
     }
   }

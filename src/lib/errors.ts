@@ -57,16 +57,43 @@ export class NtaApiError extends Error {
     return new NtaApiError(message, code, status);
   }
 
-  static fromUnknown(err: unknown): NtaApiError {
+  static fromUnknown(err: unknown, redactSecrets?: readonly string[]): NtaApiError {
     if (err instanceof NtaApiError) return err;
+    if (err instanceof RateLimitError) {
+      return new NtaApiError(
+        redactSensitiveQuerySecrets(err.message, redactSecrets),
+        'http_403',
+        429,
+      );
+    }
     if (err instanceof Error) {
       if (err.name === 'AbortError' || err.message.toLowerCase().includes('abort')) {
         return new NtaApiError('NTA API request timed out', 'timeout');
       }
-      return new NtaApiError(`NTA API network error: ${err.message}`, 'network_error');
+      const safeMessage = redactSensitiveQuerySecrets(err.message, redactSecrets);
+      return new NtaApiError(`NTA API network error: ${safeMessage}`, 'network_error');
     }
     return new NtaApiError('Unknown NTA API error', 'unknown');
   }
+}
+
+/**
+ * URL クエリ内の id=... パラメータおよび指定されたシークレット文字列をマスクする
+ */
+export function redactSensitiveQuerySecrets(input: string, secrets?: readonly string[]): string {
+  let sanitized = input.replace(/([?&])id=[^&\s"']+/gi, '$1id=***REDACTED***');
+  if (secrets) {
+    for (const secret of secrets) {
+      if (secret && secret.length > 0) {
+        sanitized = sanitized.split(secret).join('***REDACTED***');
+        const encoded = encodeURIComponent(secret);
+        if (encoded !== secret) {
+          sanitized = sanitized.split(encoded).join('***REDACTED***');
+        }
+      }
+    }
+  }
+  return sanitized;
 }
 
 /**

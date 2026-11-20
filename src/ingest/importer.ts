@@ -109,11 +109,107 @@ export const invoiceIssuersNew = pgTable('invoice_issuers_new', {
   declaredCityCode: varchar('declared_city_code', { length: 3 }),
   kana: varchar('kana', { length: 500 }),
   legalName: varchar('legal_name', { length: 300 }),
-  domesticOfficeAddress: varchar('domestic_office_address', { length: 300 }),
+  domesticOfficeAddress: varchar('domestic_office_address', { length: 600 }),
   domesticOfficePrefectureCode: varchar('domestic_office_prefecture_code', { length: 2 }),
   domesticOfficeCityCode: varchar('domestic_office_city_code', { length: 3 }),
   datasetVersionId: integer('dataset_version_id').notNull(),
 });
+
+const MAX_MULTILINE_CSV_BUFFER_CHARS = 65_536;
+
+/**
+ * RFC 4180 に従い、レコード内のダブルクォートが閉じているかを判定する（"" エスケープ対応）
+ */
+export function isCsvRecordComplete(record: string): boolean {
+  let inQuotes = false;
+  for (let i = 0; i < record.length; i++) {
+    const ch = record[i];
+    if (ch === '"') {
+      if (inQuotes && record[i + 1] === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    }
+  }
+  return !inQuotes;
+}
+
+/**
+ * ファイル配列を行単位ストリーミングで読み取り、引用符内改行（RFC 4180）を結合して yield する共通イテレータ
+ */
+async function* iterateCsvFilesRfc4180(filePaths: string[]): AsyncIterable<IngestStreamItem> {
+  for (const fp of filePaths) {
+    const sourceFile = path.basename(fp);
+    const stream = fs.createReadStream(fp, { encoding: 'utf-8' });
+    const rl = readline.createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+    let physicalLine = 0;
+    let recordStartLine = 1;
+    let buffer = '';
+    try {
+      for await (const rawLine of rl) {
+        physicalLine++;
+        const line =
+          physicalLine === 1 && rawLine.startsWith('\uFEFF') ? rawLine.slice(1) : rawLine;
+        if (buffer.length === 0) {
+          if (line.trim().length === 0) continue;
+          recordStartLine = physicalLine;
+          buffer = line;
+        } else {
+          buffer += `\n${line}`;
+        }
+
+        if (isCsvRecordComplete(buffer) || buffer.length >= MAX_MULTILINE_CSV_BUFFER_CHARS) {
+          yield { line: buffer, sourceFile, lineNumber: recordStartLine };
+          buffer = '';
+        }
+      }
+      if (buffer.trim().length > 0) {
+        yield { line: buffer, sourceFile, lineNumber: recordStartLine };
+      }
+    } finally {
+      rl.close();
+      stream.destroy();
+    }
+  }
+}
+
+/**
+ * 文字列または行配列から引用符内改行（RFC 4180）を結合して yield する共通イテレータ
+ */
+async function* iterateCsvContentRfc4180(
+  csvContent: string | string[],
+): AsyncIterable<IngestStreamItem> {
+  const sourceFile = '<memory>';
+  const rawLines = Array.isArray(csvContent) ? csvContent : csvContent.split(/\r?\n/);
+  let physicalLine = 0;
+  let recordStartLine = 1;
+  let buffer = '';
+
+  for (const rawLine of rawLines) {
+    physicalLine++;
+    const line = physicalLine === 1 && rawLine.startsWith('\uFEFF') ? rawLine.slice(1) : rawLine;
+    if (buffer.length === 0) {
+      if (line.trim().length === 0) continue;
+      recordStartLine = physicalLine;
+      buffer = line;
+    } else {
+      buffer += `\n${line}`;
+    }
+
+    if (isCsvRecordComplete(buffer) || buffer.length >= MAX_MULTILINE_CSV_BUFFER_CHARS) {
+      yield { line: buffer, sourceFile, lineNumber: recordStartLine };
+      buffer = '';
+    }
+  }
+
+  if (buffer.trim().length > 0) {
+    yield { line: buffer, sourceFile, lineNumber: recordStartLine };
+  }
+}
 
 export interface ImporterOptions {
   batchSize?: number;
@@ -197,30 +293,7 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateFiles(): AsyncIterable<IngestStreamItem> {
-      for (const fp of filePaths) {
-        const sourceFile = path.basename(fp);
-        const stream = fs.createReadStream(fp, { encoding: 'utf-8' });
-        const rl = readline.createInterface({
-          input: stream,
-          crlfDelay: Infinity,
-        });
-        let lineNumber = 0;
-        try {
-          for await (const line of rl) {
-            lineNumber++;
-            if (line.trim().length > 0) {
-              yield { line, sourceFile, lineNumber };
-            }
-          }
-        } finally {
-          rl.close();
-          stream.destroy();
-        }
-      }
-    }
-
-    return this.importCorporateInternal(iterateFiles(), dataAsOf, batchSize);
+    return this.importCorporateInternal(iterateCsvFilesRfc4180(filePaths), dataAsOf, batchSize);
   }
 
   /**
@@ -232,24 +305,7 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateContent(): AsyncIterable<IngestStreamItem> {
-      const sourceFile = '<memory>';
-      let lineNumber = 0;
-      if (Array.isArray(csvContent)) {
-        for (const line of csvContent) {
-          lineNumber++;
-          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
-        }
-      } else {
-        const lines = csvContent.split(/\r?\n/);
-        for (const line of lines) {
-          lineNumber++;
-          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
-        }
-      }
-    }
-
-    return this.importCorporateInternal(iterateContent(), dataAsOf, batchSize);
+    return this.importCorporateInternal(iterateCsvContentRfc4180(csvContent), dataAsOf, batchSize);
   }
 
   /**
@@ -547,30 +603,7 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateFiles(): AsyncIterable<IngestStreamItem> {
-      for (const fp of filePaths) {
-        const sourceFile = path.basename(fp);
-        const stream = fs.createReadStream(fp, { encoding: 'utf-8' });
-        const rl = readline.createInterface({
-          input: stream,
-          crlfDelay: Infinity,
-        });
-        let lineNumber = 0;
-        try {
-          for await (const rawLine of rl) {
-            lineNumber++;
-            if (rawLine.trim().length > 0) {
-              yield { line: rawLine, sourceFile, lineNumber };
-            }
-          }
-        } finally {
-          rl.close();
-          stream.destroy();
-        }
-      }
-    }
-
-    return this.importInvoiceInternal(iterateFiles(), dataAsOf, batchSize);
+    return this.importInvoiceInternal(iterateCsvFilesRfc4180(filePaths), dataAsOf, batchSize);
   }
 
   /**
@@ -582,24 +615,7 @@ export class DatasetImporter {
     dataAsOf: string,
     batchSize = 1000,
   ): Promise<ImportMetrics> {
-    async function* iterateContent(): AsyncIterable<IngestStreamItem> {
-      const sourceFile = '<memory>';
-      let lineNumber = 0;
-      if (Array.isArray(csvContent)) {
-        for (const line of csvContent) {
-          lineNumber++;
-          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
-        }
-      } else {
-        const lines = csvContent.split(/\r?\n/);
-        for (const line of lines) {
-          lineNumber++;
-          if (line.trim().length > 0) yield { line, sourceFile, lineNumber };
-        }
-      }
-    }
-
-    return this.importInvoiceInternal(iterateContent(), dataAsOf, batchSize);
+    return this.importInvoiceInternal(iterateCsvContentRfc4180(csvContent), dataAsOf, batchSize);
   }
 
   /**
@@ -1019,24 +1035,67 @@ export class DatasetImporter {
     }
 
     const startTime = Date.now();
-    await this.executeAtomicSwap(datasetVersionId, recordCount);
-    // コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
-    await this.db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
-    await this.db.execute(sql`ANALYZE corporate_numbers;`);
+    let lockClient: pg.PoolClient | undefined;
+    let lockAcquired = false;
+    let activeDb: DbClient = this.db;
 
-    const durationMs = Date.now() - startTime;
-    this.logger.info(
-      {
-        sourceType: 'nta_corporate_download',
-        dataAsOf,
-        datasetVersionId,
-        count: recordCount,
-        durationMs,
-        status: 'active',
-      },
-      'Corporate table swapped atomically via RENAME Swap',
-    );
-    return { durationMs };
+    try {
+      const underlyingPool = (this.db as unknown as { $client?: pg.Pool }).$client;
+      if (underlyingPool && typeof underlyingPool.connect === 'function') {
+        lockClient = await underlyingPool.connect();
+        const lockRes = await lockClient.query<{ acquired: boolean }>(
+          'SELECT pg_try_advisory_lock($1) AS acquired',
+          [CORPORATE_INGEST_LOCK_KEY],
+        );
+        lockAcquired = lockRes.rows[0]?.acquired === true;
+        if (!lockAcquired) {
+          throw new Error('Corporate table swap aborted: advisory lock is held by another session');
+        }
+        activeDb = drizzle(lockClient, { schema }) as DbClient;
+      } else {
+        const lockRes = (await this.db.execute(
+          sql`SELECT pg_try_advisory_lock(${CORPORATE_INGEST_LOCK_KEY}) AS acquired;`,
+        )) as unknown as { rows?: Array<{ acquired?: boolean }> } | undefined;
+        if (lockRes?.rows && lockRes.rows[0]?.acquired === false) {
+          throw new Error('Corporate table swap aborted: advisory lock is held by another session');
+        }
+        lockAcquired = true;
+      }
+
+      await this.executeAtomicSwap(datasetVersionId, recordCount, activeDb);
+      // コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
+      await activeDb.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await activeDb.execute(sql`ANALYZE corporate_numbers;`);
+
+      const durationMs = Date.now() - startTime;
+      this.logger.info(
+        {
+          sourceType: 'nta_corporate_download',
+          dataAsOf,
+          datasetVersionId,
+          count: recordCount,
+          durationMs,
+          status: 'active',
+        },
+        'Corporate table swapped atomically via RENAME Swap',
+      );
+      return { durationMs };
+    } finally {
+      if (lockAcquired) {
+        try {
+          if (lockClient) {
+            await lockClient.query('SELECT pg_advisory_unlock($1)', [CORPORATE_INGEST_LOCK_KEY]);
+          } else {
+            await this.db.execute(sql`SELECT pg_advisory_unlock(${CORPORATE_INGEST_LOCK_KEY});`);
+          }
+        } catch {
+          // ignore unlock errors on cleanup
+        }
+      }
+      if (lockClient) {
+        lockClient.release();
+      }
+    }
   }
 
   /**
@@ -1056,23 +1115,66 @@ export class DatasetImporter {
     }
 
     const startTime = Date.now();
-    await this.executeInvoiceAtomicSwap(datasetVersionId, recordCount);
-    // コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
-    await this.db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
-    await this.db.execute(sql`ANALYZE invoice_issuers;`);
+    let lockClient: pg.PoolClient | undefined;
+    let lockAcquired = false;
+    let activeDb: DbClient = this.db;
 
-    const durationMs = Date.now() - startTime;
-    this.logger.info(
-      {
-        sourceType: 'nta_invoice_download',
-        dataAsOf,
-        datasetVersionId,
-        count: recordCount,
-        durationMs,
-        status: 'active',
-      },
-      'Invoice table swapped atomically via RENAME Swap',
-    );
-    return { durationMs };
+    try {
+      const underlyingPool = (this.db as unknown as { $client?: pg.Pool }).$client;
+      if (underlyingPool && typeof underlyingPool.connect === 'function') {
+        lockClient = await underlyingPool.connect();
+        const lockRes = await lockClient.query<{ acquired: boolean }>(
+          'SELECT pg_try_advisory_lock($1) AS acquired',
+          [INVOICE_INGEST_LOCK_KEY],
+        );
+        lockAcquired = lockRes.rows[0]?.acquired === true;
+        if (!lockAcquired) {
+          throw new Error('Invoice table swap aborted: advisory lock is held by another session');
+        }
+        activeDb = drizzle(lockClient, { schema }) as DbClient;
+      } else {
+        const lockRes = (await this.db.execute(
+          sql`SELECT pg_try_advisory_lock(${INVOICE_INGEST_LOCK_KEY}) AS acquired;`,
+        )) as unknown as { rows?: Array<{ acquired?: boolean }> } | undefined;
+        if (lockRes?.rows && lockRes.rows[0]?.acquired === false) {
+          throw new Error('Invoice table swap aborted: advisory lock is held by another session');
+        }
+        lockAcquired = true;
+      }
+
+      await this.executeInvoiceAtomicSwap(datasetVersionId, recordCount, activeDb);
+      // コミット後、旧表を CASCADE なしで削除し、ANALYZE を実行
+      await activeDb.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
+      await activeDb.execute(sql`ANALYZE invoice_issuers;`);
+
+      const durationMs = Date.now() - startTime;
+      this.logger.info(
+        {
+          sourceType: 'nta_invoice_download',
+          dataAsOf,
+          datasetVersionId,
+          count: recordCount,
+          durationMs,
+          status: 'active',
+        },
+        'Invoice table swapped atomically via RENAME Swap',
+      );
+      return { durationMs };
+    } finally {
+      if (lockAcquired) {
+        try {
+          if (lockClient) {
+            await lockClient.query('SELECT pg_advisory_unlock($1)', [INVOICE_INGEST_LOCK_KEY]);
+          } else {
+            await this.db.execute(sql`SELECT pg_advisory_unlock(${INVOICE_INGEST_LOCK_KEY});`);
+          }
+        } catch {
+          // ignore unlock errors on cleanup
+        }
+      }
+      if (lockClient) {
+        lockClient.release();
+      }
+    }
   }
 }

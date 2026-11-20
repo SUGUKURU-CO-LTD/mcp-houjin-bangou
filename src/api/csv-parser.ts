@@ -34,7 +34,8 @@ export interface ParsedNtaResponse {
  * @param csvText UTF-8 でデコード済みの CSV 本体
  */
 export function parseNtaCsv(csvText: string): ParsedNtaResponse {
-  const lines = splitCsvLines(csvText);
+  const withoutBom = csvText.startsWith('\uFEFF') ? csvText.slice(1) : csvText;
+  const lines = splitCsvLines(withoutBom);
   if (lines.length === 0) {
     throw new Error('Empty NTA CSV response');
   }

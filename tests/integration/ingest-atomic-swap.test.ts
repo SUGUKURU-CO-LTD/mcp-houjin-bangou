@@ -36,280 +36,293 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const HAS_REAL_DB = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+
 const TEST_DB_URL =
   process.env.TEST_DATABASE_URL ||
   process.env.DATABASE_URL ||
   'postgres://test:test@localhost:55069/test';
 
-describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テストデータ)', () => {
-  let pool: pg.Pool;
-  let db: DbClient;
-  let importer: DatasetImporter;
-  let dataProvider: DbCorporateDataProvider;
+describe.skipIf(!HAS_REAL_DB)(
+  'Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テストデータ)',
+  () => {
+    let pool: pg.Pool;
+    let db: DbClient;
+    let importer: DatasetImporter;
+    let dataProvider: DbCorporateDataProvider;
 
-  beforeAll(async () => {
-    pool = new Pool({
-      connectionString: TEST_DB_URL,
-      max: 5,
+    beforeAll(async () => {
+      pool = new Pool({
+        connectionString: TEST_DB_URL,
+        max: 5,
+      });
+      db = drizzle(pool, { schema }) as DbClient;
+
+      // マイグレーション適用（0000, 0001, 0002, 0003）
+      const migrationsFolder = path.resolve(__dirname, '../../drizzle');
+      await migrate(db as unknown as NodePgDatabase<Record<string, unknown>>, { migrationsFolder });
+
+      importer = new DatasetImporter(db);
+      dataProvider = new DbCorporateDataProvider(db);
     });
-    db = drizzle(pool, { schema }) as DbClient;
 
-    // マイグレーション適用（0000, 0001, 0002, 0003）
-    const migrationsFolder = path.resolve(__dirname, '../../drizzle');
-    await migrate(db as unknown as NodePgDatabase<Record<string, unknown>>, { migrationsFolder });
+    afterAll(async () => {
+      if (pool) {
+        await pool.end();
+      }
+    });
 
-    importer = new DatasetImporter(db);
-    dataProvider = new DbCorporateDataProvider(db);
-  });
-
-  afterAll(async () => {
-    if (pool) {
-      await pool.end();
-    }
-  });
-
-  beforeEach(async () => {
-    // テーブル状態のリセット
-    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
-    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
-    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_new;`);
-    await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
-    await db.execute(
-      sql`TRUNCATE TABLE corporate_numbers, invoice_issuers, dataset_versions CASCADE;`,
-    );
-  });
-
-  it('初回取り込み成功 → 2回目取り込み途中で失敗しても前世代の版とデータで検索可能 → 2回目再試行で全件入れ替えが成功する', async () => {
-    // ==========================================
-    // 1. 初回取り込み（v1: 2026-09-01 時点）
-    // ==========================================
-    const initialDataset = [
-      '1,"1000000000001","01","1","2026-09-01","2026-09-01","株式会社テスト第一","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"',
-      '2,"1000000000002","01","1","2026-09-01","2026-09-01","株式会社テスト第二","","301","東京都","中央区","日本橋一丁目","","13","102","1030001","","","","","","","","1","","","","","","0"',
-    ];
-
-    const v1Metrics = await importer.importCorporateDataset(initialDataset, '2026-09-01', 10);
-    expect(v1Metrics.status).toBe('active');
-    expect(v1Metrics.count).toBe(2);
-    expect(v1Metrics.datasetVersionId).toBeGreaterThan(0);
-    const v1Id = v1Metrics.datasetVersionId;
-
-    // v1 時点での検索確認
-    // 単独検索
-    const lookup1 = await dataProvider.lookupByNumber('1000000000001');
-    expect(lookup1.ok).toBe(true);
-    if (lookup1.ok) {
-      expect(lookup1.value.data_as_of).toBe('2026-09-01');
-      expect(lookup1.value.corporation.name).toBe('株式会社テスト第一');
-    }
-
-    // 名前検索（GIN 索引 + pg_trgm が動作していることを検証）
-    const search1 = await dataProvider.searchByName('株式会社テスト第一');
-    expect(search1.ok).toBe(true);
-    if (search1.ok) {
-      expect(search1.value.data_as_of).toBe('2026-09-01');
-      expect(search1.value.results.length).toBeGreaterThan(0);
-      expect(search1.value.results[0]?.corporate_number).toBe('1000000000001');
-    }
-
-    // ==========================================
-    // 2. 2回目の取り込み（v2: 2026-10-01 時点）で障害発生・ロールバック
-    // ==========================================
-    // DB 列長制約（kind は varchar(3)）を超える不正データにより、バッチ挿入時に DB エラーを発生させる
-    const brokenDataset = [
-      '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（更新版）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
-      '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（異常値）","","TOOLONG_KIND_EXCEEDS_LIMIT","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
-    ];
-
-    await expect(
-      importer.importCorporateDataset(brokenDataset, '2026-10-01', 10),
-    ).rejects.toThrow();
-
-    // v2 は failed にマークされていること
-    const [failedVersion] = await db
-      .select()
-      .from(datasetVersions)
-      .where(
-        and(
-          eq(datasetVersions.sourceType, 'nta_corporate_download'),
-          eq(datasetVersions.status, 'failed'),
-        ),
+    beforeEach(async () => {
+      // テーブル状態のリセット
+      await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_old;`);
+      await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_new;`);
+      await db.execute(sql`DROP TABLE IF EXISTS invoice_issuers_old;`);
+      await db.execute(
+        sql`TRUNCATE TABLE corporate_numbers, invoice_issuers, dataset_versions CASCADE;`,
       );
-    expect(failedVersion).toBeDefined();
-    expect(failedVersion?.status).toBe('failed');
-
-    // 一時テーブル corporate_numbers_new がクリーンアップされていること
-    const newTableCheck = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_new';`,
-    );
-    expect(newTableCheck.rows.length).toBe(0);
-
-    // 【最重要完了条件】
-    // 障害発生後も、前世代（v1）の active 版と data_as_of（2026-09-01）で継続して検索できること
-    const lookupAfterFail = await dataProvider.lookupByNumber('1000000000001');
-    expect(lookupAfterFail.ok).toBe(true);
-    if (lookupAfterFail.ok) {
-      expect(lookupAfterFail.value.data_as_of).toBe('2026-09-01');
-      expect(lookupAfterFail.value.corporation.name).toBe('株式会社テスト第一');
-    }
-
-    const searchAfterFail = await dataProvider.searchByName('株式会社テスト第一');
-    expect(searchAfterFail.ok).toBe(true);
-    if (searchAfterFail.ok) {
-      expect(searchAfterFail.value.data_as_of).toBe('2026-09-01');
-      expect(searchAfterFail.value.results[0]?.corporate_number).toBe('1000000000001');
-    }
-
-    // ==========================================
-    // 3. 2回目の再試行（v3: 2026-10-01 時点）で全件入れ替えが成功
-    // ==========================================
-    const retryDataset = [
-      '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（新本店）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
-      '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（新設）","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
-    ];
-
-    const v3Metrics = await importer.importCorporateDataset(retryDataset, '2026-10-01', 10);
-    expect(v3Metrics.status).toBe('active');
-    expect(v3Metrics.count).toBe(2);
-    expect(v3Metrics.datasetVersionId).toBeGreaterThan(v1Id);
-
-    // v1 は superseded になっていること
-    const [v1Record] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1Id));
-    expect(v1Record?.status).toBe('superseded');
-
-    // corporate_numbers_old が削除されていること（CASCADE なし）
-    const oldTableCheck = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
-    );
-    expect(oldTableCheck.rows.length).toBe(0);
-
-    // 最新の v3 (data_as_of: 2026-10-01) で検索できること
-    const lookupAfterSwap = await dataProvider.lookupByNumber('1000000000001');
-    expect(lookupAfterSwap.ok).toBe(true);
-    if (lookupAfterSwap.ok) {
-      expect(lookupAfterSwap.value.data_as_of).toBe('2026-10-01');
-      expect(lookupAfterSwap.value.corporation.name).toBe('株式会社テスト第一（新本店）');
-    }
-
-    const searchAfterSwap = await dataProvider.searchByName('株式会社テスト');
-    expect(searchAfterSwap.ok).toBe(true);
-    if (searchAfterSwap.ok) {
-      expect(searchAfterSwap.value.data_as_of).toBe('2026-10-01');
-      const nums = searchAfterSwap.value.results.map((r) => r.corporate_number);
-      expect(nums).toContain('1000000000001');
-      expect(nums).toContain('1000000000003');
-      // 全件入れ替え（RENAME Swap）により、v1 にあった 1000000000002 は削除されていること
-      expect(nums).not.toContain('1000000000002');
-    }
-
-    // 索引名が正規名に復元されていることを検証
-    const indexCheck = await db.execute(
-      sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'corporate_numbers';`,
-    );
-    const indexNames = (indexCheck.rows as Array<{ indexname: string }>).map((r) => r.indexname);
-    expect(indexNames).toContain('idx_corporate_numbers_number');
-    expect(indexNames).toContain('idx_corporate_numbers_name');
-    expect(indexNames).toContain('idx_corporate_numbers_name_pattern');
-    expect(indexNames).toContain('idx_corporate_numbers_name_trgm');
-    expect(indexNames).toContain('idx_corporate_numbers_prefecture');
-    expect(indexNames).toContain('idx_corporate_numbers_version');
-    // _new や _old の索引名が残っていないこと
-    expect(indexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
-  });
-
-  it('swapCorporateTable: トランザクション内でエラーが発生した場合、テーブル状態およびバージョン状態が巻き戻される', async () => {
-    // 1. 初期 active 版を設定
-    const [v1] = await db
-      .insert(datasetVersions)
-      .values({
-        sourceType: 'nta_corporate_download',
-        dataAsOf: '2026-09-01',
-        status: 'active',
-        recordCount: 10,
-      })
-      .returning({ id: datasetVersions.id });
-
-    // 2. 新規 staging 版を作成
-    const [v2] = await db
-      .insert(datasetVersions)
-      .values({
-        sourceType: 'nta_corporate_download',
-        dataAsOf: '2026-10-01',
-        status: 'staging',
-        recordCount: 12,
-      })
-      .returning({ id: datasetVersions.id });
-
-    expect(v1).toBeDefined();
-    expect(v2).toBeDefined();
-    if (!v1 || !v2) {
-      throw new Error('Failed to create test versions');
-    }
-
-    // corporate_numbers_new が存在しない状態で swapCorporateTable を呼ぶと、
-    // RENAME 処理のトランザクション内で失敗する
-    await expect(importer.swapCorporateTable(v2.id, 12, '2026-10-01')).rejects.toThrow();
-
-    // トランザクションがロールバックされ、v1 は依然として active であること
-    const [v1After] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1.id));
-    expect(v1After?.status).toBe('active');
-
-    // v2 は active に昇格せず staging のままであること
-    const [v2After] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v2.id));
-    expect(v2After?.status).toBe('staging');
-  });
-
-  it('swapCorporateTable: 正常にテーブルとインデックス・制約がスワップされ、旧表が削除される', async () => {
-    // 1. 初期 active 版とデータ
-    const [v1] = await db
-      .insert(datasetVersions)
-      .values({
-        sourceType: 'nta_corporate_download',
-        dataAsOf: '2026-09-01',
-        status: 'active',
-        recordCount: 1,
-      })
-      .returning({ id: datasetVersions.id });
-
-    // 2. 新規 staging 版
-    const [v2] = await db
-      .insert(datasetVersions)
-      .values({
-        sourceType: 'nta_corporate_download',
-        dataAsOf: '2026-10-01',
-        status: 'staging',
-        recordCount: 1,
-      })
-      .returning({ id: datasetVersions.id });
-
-    expect(v1).toBeDefined();
-    expect(v2).toBeDefined();
-    if (!v1 || !v2) {
-      throw new Error('Failed to create test versions');
-    }
-
-    await db.insert(corporateNumbers).values({
-      corporateNumber: '1111111111111',
-      name: '旧テスト株式会社',
-      kind: '301',
-      updateDate: '2026-09-01',
-      datasetVersionId: v1.id,
     });
 
-    // 3. corporate_numbers_new を構築
-    await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
-    await db.execute(
-      sql`CREATE TABLE corporate_numbers_new (LIKE corporate_numbers INCLUDING DEFAULTS);`,
-    );
-    await db.execute(sql`
+    it('初回取り込み成功 → 2回目取り込み途中で失敗しても前世代の版とデータで検索可能 → 2回目再試行で全件入れ替えが成功する', async () => {
+      // ==========================================
+      // 1. 初回取り込み（v1: 2026-09-01 時点）
+      // ==========================================
+      const initialDataset = [
+        '1,"1000000000001","01","1","2026-09-01","2026-09-01","株式会社テスト第一","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"',
+        '2,"1000000000002","01","1","2026-09-01","2026-09-01","株式会社テスト第二","","301","東京都","中央区","日本橋一丁目","","13","102","1030001","","","","","","","","1","","","","","","0"',
+      ];
+
+      const v1Metrics = await importer.importCorporateDataset(initialDataset, '2026-09-01', 10);
+      expect(v1Metrics.status).toBe('active');
+      expect(v1Metrics.count).toBe(2);
+      expect(v1Metrics.datasetVersionId).toBeGreaterThan(0);
+      const v1Id = v1Metrics.datasetVersionId;
+
+      // v1 時点での検索確認
+      // 単独検索
+      const lookup1 = await dataProvider.lookupByNumber('1000000000001');
+      expect(lookup1.ok).toBe(true);
+      if (lookup1.ok) {
+        expect(lookup1.value.data_as_of).toBe('2026-09-01');
+        expect(lookup1.value.corporation.name).toBe('株式会社テスト第一');
+      }
+
+      // 名前検索（GIN 索引 + pg_trgm が動作していることを検証）
+      const search1 = await dataProvider.searchByName('株式会社テスト第一');
+      expect(search1.ok).toBe(true);
+      if (search1.ok) {
+        expect(search1.value.data_as_of).toBe('2026-09-01');
+        expect(search1.value.results.length).toBeGreaterThan(0);
+        expect(search1.value.results[0]?.corporate_number).toBe('1000000000001');
+      }
+
+      // ==========================================
+      // 2. 2回目の取り込み（v2: 2026-10-01 時点）で障害発生・ロールバック
+      // ==========================================
+      // DB 列長制約（kind は varchar(3)）を超える不正データにより、バッチ挿入時に DB エラーを発生させる
+      const brokenDataset = [
+        '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（更新版）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
+        '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（異常値）","","TOOLONG_KIND_EXCEEDS_LIMIT","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
+      ];
+
+      await expect(
+        importer.importCorporateDataset(brokenDataset, '2026-10-01', 10),
+      ).rejects.toThrow();
+
+      // v2 は failed にマークされていること
+      const [failedVersion] = await db
+        .select()
+        .from(datasetVersions)
+        .where(
+          and(
+            eq(datasetVersions.sourceType, 'nta_corporate_download'),
+            eq(datasetVersions.status, 'failed'),
+          ),
+        );
+      expect(failedVersion).toBeDefined();
+      expect(failedVersion?.status).toBe('failed');
+
+      // 一時テーブル corporate_numbers_new がクリーンアップされていること
+      const newTableCheck = await db.execute(
+        sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_new';`,
+      );
+      expect(newTableCheck.rows.length).toBe(0);
+
+      // 【最重要完了条件】
+      // 障害発生後も、前世代（v1）の active 版と data_as_of（2026-09-01）で継続して検索できること
+      const lookupAfterFail = await dataProvider.lookupByNumber('1000000000001');
+      expect(lookupAfterFail.ok).toBe(true);
+      if (lookupAfterFail.ok) {
+        expect(lookupAfterFail.value.data_as_of).toBe('2026-09-01');
+        expect(lookupAfterFail.value.corporation.name).toBe('株式会社テスト第一');
+      }
+
+      const searchAfterFail = await dataProvider.searchByName('株式会社テスト第一');
+      expect(searchAfterFail.ok).toBe(true);
+      if (searchAfterFail.ok) {
+        expect(searchAfterFail.value.data_as_of).toBe('2026-09-01');
+        expect(searchAfterFail.value.results[0]?.corporate_number).toBe('1000000000001');
+      }
+
+      // ==========================================
+      // 3. 2回目の再試行（v3: 2026-10-01 時点）で全件入れ替えが成功
+      // ==========================================
+      const retryDataset = [
+        '1,"1000000000001","01","1","2026-10-01","2026-10-01","株式会社テスト第一（新本店）","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
+        '3,"1000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト第三（新設）","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"',
+      ];
+
+      const v3Metrics = await importer.importCorporateDataset(retryDataset, '2026-10-01', 10);
+      expect(v3Metrics.status).toBe('active');
+      expect(v3Metrics.count).toBe(2);
+      expect(v3Metrics.datasetVersionId).toBeGreaterThan(v1Id);
+
+      // v1 は superseded になっていること
+      const [v1Record] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1Id));
+      expect(v1Record?.status).toBe('superseded');
+
+      // corporate_numbers_old が削除されていること（CASCADE なし）
+      const oldTableCheck = await db.execute(
+        sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
+      );
+      expect(oldTableCheck.rows.length).toBe(0);
+
+      // 最新の v3 (data_as_of: 2026-10-01) で検索できること
+      const lookupAfterSwap = await dataProvider.lookupByNumber('1000000000001');
+      expect(lookupAfterSwap.ok).toBe(true);
+      if (lookupAfterSwap.ok) {
+        expect(lookupAfterSwap.value.data_as_of).toBe('2026-10-01');
+        expect(lookupAfterSwap.value.corporation.name).toBe('株式会社テスト第一（新本店）');
+      }
+
+      const searchAfterSwap = await dataProvider.searchByName('株式会社テスト');
+      expect(searchAfterSwap.ok).toBe(true);
+      if (searchAfterSwap.ok) {
+        expect(searchAfterSwap.value.data_as_of).toBe('2026-10-01');
+        const nums = searchAfterSwap.value.results.map((r) => r.corporate_number);
+        expect(nums).toContain('1000000000001');
+        expect(nums).toContain('1000000000003');
+        // 全件入れ替え（RENAME Swap）により、v1 にあった 1000000000002 は削除されていること
+        expect(nums).not.toContain('1000000000002');
+      }
+
+      // 索引名が正規名に復元されていることを検証
+      const indexCheck = await db.execute(
+        sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'corporate_numbers';`,
+      );
+      const indexNames = (indexCheck.rows as Array<{ indexname: string }>).map((r) => r.indexname);
+      expect(indexNames).toContain('idx_corporate_numbers_number');
+      expect(indexNames).toContain('idx_corporate_numbers_name');
+      expect(indexNames).toContain('idx_corporate_numbers_name_pattern');
+      expect(indexNames).toContain('idx_corporate_numbers_name_trgm');
+      expect(indexNames).toContain('idx_corporate_numbers_prefecture');
+      expect(indexNames).toContain('idx_corporate_numbers_version');
+      // _new や _old の索引名が残っていないこと
+      expect(indexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
+    });
+
+    it('swapCorporateTable: トランザクション内でエラーが発生した場合、テーブル状態およびバージョン状態が巻き戻される', async () => {
+      // 1. 初期 active 版を設定
+      const [v1] = await db
+        .insert(datasetVersions)
+        .values({
+          sourceType: 'nta_corporate_download',
+          dataAsOf: '2026-09-01',
+          status: 'active',
+          recordCount: 10,
+        })
+        .returning({ id: datasetVersions.id });
+
+      // 2. 新規 staging 版を作成
+      const [v2] = await db
+        .insert(datasetVersions)
+        .values({
+          sourceType: 'nta_corporate_download',
+          dataAsOf: '2026-10-01',
+          status: 'staging',
+          recordCount: 12,
+        })
+        .returning({ id: datasetVersions.id });
+
+      expect(v1).toBeDefined();
+      expect(v2).toBeDefined();
+      if (!v1 || !v2) {
+        throw new Error('Failed to create test versions');
+      }
+
+      // corporate_numbers_new が存在しない状態で swapCorporateTable を呼ぶと、
+      // RENAME 処理のトランザクション内で失敗する
+      await expect(importer.swapCorporateTable(v2.id, 12, '2026-10-01')).rejects.toThrow();
+
+      // トランザクションがロールバックされ、v1 は依然として active であること
+      const [v1After] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.id));
+      expect(v1After?.status).toBe('active');
+
+      // v2 は active に昇格せず staging のままであること
+      const [v2After] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v2.id));
+      expect(v2After?.status).toBe('staging');
+    });
+
+    it('swapCorporateTable: 正常にテーブルとインデックス・制約がスワップされ、旧表が削除される', async () => {
+      // 1. 初期 active 版とデータ
+      const [v1] = await db
+        .insert(datasetVersions)
+        .values({
+          sourceType: 'nta_corporate_download',
+          dataAsOf: '2026-09-01',
+          status: 'active',
+          recordCount: 1,
+        })
+        .returning({ id: datasetVersions.id });
+
+      // 2. 新規 staging 版
+      const [v2] = await db
+        .insert(datasetVersions)
+        .values({
+          sourceType: 'nta_corporate_download',
+          dataAsOf: '2026-10-01',
+          status: 'staging',
+          recordCount: 1,
+        })
+        .returning({ id: datasetVersions.id });
+
+      expect(v1).toBeDefined();
+      expect(v2).toBeDefined();
+      if (!v1 || !v2) {
+        throw new Error('Failed to create test versions');
+      }
+
+      await db.insert(corporateNumbers).values({
+        corporateNumber: '1111111111111',
+        name: '旧テスト株式会社',
+        kind: '301',
+        updateDate: '2026-09-01',
+        datasetVersionId: v1.id,
+      });
+
+      // 3. corporate_numbers_new を構築
+      await db.execute(sql`DROP TABLE IF EXISTS corporate_numbers_new;`);
+      await db.execute(
+        sql`CREATE TABLE corporate_numbers_new (LIKE corporate_numbers INCLUDING DEFAULTS);`,
+      );
+      await db.execute(sql`
       INSERT INTO corporate_numbers_new (
         corporate_number, name, kind, update_date, dataset_version_id
       ) VALUES (
         '2222222222222', '新テスト株式会社', '301', '2026-10-01', ${v2.id}
       );
     `);
-    // 制約と一時索引を作成
-    await db.execute(sql`
+      // 制約と一時索引を作成
+      await db.execute(sql`
       ALTER TABLE corporate_numbers_new
         ADD CONSTRAINT corporate_numbers_new_pk PRIMARY KEY (corporate_number, dataset_version_id);
       ALTER TABLE corporate_numbers_new
@@ -323,460 +336,468 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
       CREATE INDEX idx_corporate_numbers_version_new ON corporate_numbers_new (dataset_version_id);
     `);
 
-    // 4. swapCorporateTable を実行
-    const swapResult = await importer.swapCorporateTable(v2.id, 1, '2026-10-01');
-    expect(swapResult.durationMs).toBeGreaterThanOrEqual(0);
+      // 4. swapCorporateTable を実行
+      const swapResult = await importer.swapCorporateTable(v2.id, 1, '2026-10-01');
+      expect(swapResult.durationMs).toBeGreaterThanOrEqual(0);
 
-    // v1 は superseded、v2 は active
-    const [v1Final] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v1.id));
-    const [v2Final] = await db.select().from(datasetVersions).where(eq(datasetVersions.id, v2.id));
-    expect(v1Final?.status).toBe('superseded');
-    expect(v2Final?.status).toBe('active');
+      // v1 は superseded、v2 は active
+      const [v1Final] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.id));
+      const [v2Final] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v2.id));
+      expect(v1Final?.status).toBe('superseded');
+      expect(v2Final?.status).toBe('active');
 
-    // corporate_numbers_old は削除されていること
-    const oldTableCheck = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
-    );
-    expect(oldTableCheck.rows.length).toBe(0);
-
-    // 新テーブルの内容が検索できること
-    const lookup = await dataProvider.lookupByNumber('2222222222222');
-    expect(lookup.ok).toBe(true);
-    if (lookup.ok) {
-      expect(lookup.value.corporation.name).toBe('新テスト株式会社');
-    }
-  });
-
-  it('取り込みを2つ同時に起動した場合、アドバイザリーロックにより片方が何もせず終了（skipped）し、もう片方が正常に完了する', async () => {
-    const datasetA = Array.from({ length: 50 }, (_, i) => {
-      const corpNum = String(3000000000001 + i);
-      return `${i + 1},"${corpNum}","01","1","2026-10-01","2026-10-01","同時実行テストA_${i + 1}株式会社","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
-    });
-
-    const datasetB = Array.from({ length: 50 }, (_, i) => {
-      const corpNum = String(4000000000001 + i);
-      return `${i + 1},"${corpNum}","01","1","2026-10-02","2026-10-02","同時実行テストB_${i + 1}株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"`;
-    });
-
-    const outputLogs: string[] = [];
-    const mockStream = {
-      write: (chunk: string) => {
-        outputLogs.push(chunk);
-        return true;
-      },
-    };
-    const { createIngestLogger } = await import('../../src/ingest/logger.js');
-    const customImporter = new DatasetImporter(db, {
-      logger: createIngestLogger(mockStream as unknown as NodeJS.WritableStream),
-    });
-
-    // 2つの取り込みを同時に起動（バッチサイズを小さくして実行時間を重ねる）
-    const [res1, res2] = await Promise.all([
-      customImporter.importCorporateDataset(datasetA, '2026-10-01', 5),
-      customImporter.importCorporateDataset(datasetB, '2026-10-02', 5),
-    ]);
-
-    const statuses = [res1.status, res2.status].sort();
-    // 片方が active（正常完了）、もう片方が skipped（何もせず終了）であること
-    expect(statuses).toEqual(['active', 'skipped']);
-
-    const activeResult = res1.status === 'active' ? res1 : res2;
-    const skippedResult = res1.status === 'skipped' ? res1 : res2;
-
-    expect(activeResult.count).toBe(50);
-    expect(activeResult.datasetVersionId).toBeGreaterThan(0);
-    expect(skippedResult.count).toBe(0);
-    expect(skippedResult.datasetVersionId).toBe(0);
-
-    // スキップされた旨がログに残っていること
-    const parsedLogs = outputLogs.map((l) => JSON.parse(l) as Record<string, unknown>);
-    const skippedLog = parsedLogs.find((l) => l.status === 'skipped');
-    expect(skippedLog).toBeDefined();
-    expect(skippedLog?.msg).toContain('skipped because another import is already running');
-
-    // dataset_versions には active になった1件のみが作られ、不要な staging/failed レコードが作られていないこと
-    const versions = await db.select().from(datasetVersions);
-    expect(versions.length).toBe(1);
-    expect(versions[0]?.status).toBe('active');
-    expect(versions[0]?.recordCount).toBe(50);
-
-    // 完了した側のデータが正常に検索でき、ロックも解放されて次の取り込みが可能であること
-    const targetCorpNum =
-      activeResult.dataAsOf === '2026-10-01' ? '3000000000001' : '4000000000001';
-    const lookup = await dataProvider.lookupByNumber(targetCorpNum);
-    expect(lookup.ok).toBe(true);
-  });
-
-  it('インボイス取り込み（公式24列）: 法人・人格のない社団等・個人・区分不明・履歴複数行を RENAME Swap で取り込み、途中失敗時の旧版保全と同時実行のロック排他が機能する', async () => {
-    // 1. 初回取り込み（v1: 法人履歴2行 + 人格のない社団等 + 個人 + 区分不明）
-    const invoiceV1 = [
-      // 同一登録番号 T1000000000001 の過去履歴（latest=0）と最新履歴（latest=1）
-      '1,"T1000000000001","01","0","2","1","0","2023-10-01","2023-10-01","","","東京都千代田区旧１−１","13","101","","","","テストカブシキガイシャ","テスト株式会社（旧）","","","","",""',
-      '2,"T1000000000001","03","0","2","1","1","2023-10-01","2025-04-01","2025-03-31","2025-04-01","東京都千代田区新２−２","13","101","","","","テストカブシキガイシャ","テスト株式会社（新）","","","","",""',
-      // 人格のない社団等（kind=2, 公表申出所在地）
-      '3,"T7000000000002","01","0","2","1","1","2023-10-01","2026-04-01","","","","","","大阪府大阪市北区１−１","27","127","テストキョウドウクミアイ","テスト協同組合","","","","",""',
-      // 個人（kind=1, 氏名・所在地・屋号・通称が万一入っていても破棄される）
-      '4,"T9999999999999","01","0","1","1","1","2023-10-01","2026-04-01","","","東京都港区１−１","13","103","","","","ヤマダタロウ","山田太郎","","","","山田商店","旧姓山田"',
-      // 区分不明（kind=9, 名称・所在地等は破棄され unknownKindCount に計上される）
-      '5,"T8888888888888","01","0","9","1","1","2023-10-01","2026-04-01","","","東京都新宿区１−１","13","104","","","","フメイ","不明事業者","","","","不明屋号","不明通称"',
-    ];
-
-    const v1Metrics = await importer.importInvoiceDataset(invoiceV1, '2026-09-01', 10);
-    expect(v1Metrics.status).toBe('active');
-    expect(v1Metrics.count).toBe(5);
-    expect(v1Metrics.unknownKindCount).toBe(1);
-    const v1Id = v1Metrics.datasetVersionId;
-
-    // DB に5行すべて保存されていること（同じ登録番号 T1000000000001 の2行が両方存在し、日付が保持されていること）
-    const rowsV1 = await db
-      .select()
-      .from(invoiceIssuers)
-      .where(eq(invoiceIssuers.datasetVersionId, v1Id));
-    expect(rowsV1.length).toBe(5);
-
-    const corpHistory = rowsV1.filter((r) => r.registrationNumber === 'T1000000000001');
-    expect(corpHistory.length).toBe(2);
-    const oldHistoryRow = corpHistory.find((r) => r.latest === '0');
-    const latestHistoryRow = corpHistory.find((r) => r.latest === '1');
-    expect(oldHistoryRow?.sequenceNumber).toBe('1');
-    expect(oldHistoryRow?.legalName).toBe('テスト株式会社（旧）');
-    expect(oldHistoryRow?.registrationDate).toBe('2023-10-01');
-    expect(latestHistoryRow?.sequenceNumber).toBe('2');
-    expect(latestHistoryRow?.legalName).toBe('テスト株式会社（新）');
-    expect(latestHistoryRow?.cancelDate).toBe('2025-03-31');
-    expect(latestHistoryRow?.expireDate).toBe('2025-04-01');
-
-    // 人格のない社団等の公表申出所在地が保持されていること
-    const assocRow = rowsV1.find((r) => r.registrationNumber === 'T7000000000002');
-    expect(assocRow?.declaredAddress).toBe('大阪府大阪市北区１−１');
-    expect(assocRow?.legalName).toBe('テスト協同組合');
-
-    // 個人（kind='1'）および区分不明（kind='9'）の名称・所在地・カナが NULL であること
-    const individualRow = rowsV1.find((r) => r.registrationNumber === 'T9999999999999');
-    expect(individualRow?.legalName).toBeNull();
-    expect(individualRow?.kana).toBeNull();
-    expect(individualRow?.headOfficeAddress).toBeNull();
-
-    const unknownRow = rowsV1.find((r) => r.registrationNumber === 'T8888888888888');
-    expect(unknownRow?.legalName).toBeNull();
-    expect(unknownRow?.kana).toBeNull();
-    expect(unknownRow?.headOfficeAddress).toBeNull();
-
-    // 2. 2回目の取り込み途中で列の並びが違う不正行により失敗 → 旧版（v1）が active のまま保全されること
-    const brokenInvoiceV2 = [
-      '1,"T1000000000001","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区新３−３","13","101","","","","テストカブシキガイシャ","テスト株式会社","","","","",""',
-      '2,"T1000000000001","01","0","2026-10-01","01","テスト株式会社"', // 列数・並び不正
-    ];
-    await expect(
-      importer.importInvoiceDataset(brokenInvoiceV2, '2026-10-01', 10),
-    ).rejects.toThrow();
-
-    const [v1AfterFail] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1Id));
-    expect(v1AfterFail?.status).toBe('active');
-    const rowsAfterFail = await db.select().from(invoiceIssuers);
-    expect(rowsAfterFail.length).toBe(5);
-
-    // 3. 同時実行の排他制御（アドバイザリーロックにより片方が active、もう片方が skipped になること）
-    const concurrentDatasetA = Array.from({ length: 30 }, (_, i) => {
-      const regNum = `T${String(5000000000001 + i)}`;
-      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区１−１","13","101","","","","テスト","同時インボイスA_${i + 1}","","","","",""`;
-    });
-    const concurrentDatasetB = Array.from({ length: 30 }, (_, i) => {
-      const regNum = `T${String(6000000000001 + i)}`;
-      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-02","","","東京都港区１−１","13","103","","","","テスト","同時インボイスB_${i + 1}","","","","",""`;
-    });
-
-    const [invRes1, invRes2] = await Promise.all([
-      importer.importInvoiceDataset(concurrentDatasetA, '2026-10-01', 5),
-      importer.importInvoiceDataset(concurrentDatasetB, '2026-10-02', 5),
-    ]);
-
-    const invStatuses = [invRes1.status, invRes2.status].sort();
-    expect(invStatuses).toEqual(['active', 'skipped']);
-
-    // 索引名が正規名に復元されていることを検証
-    const invIndexCheck = await db.execute(
-      sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'invoice_issuers';`,
-    );
-    const invIndexNames = (invIndexCheck.rows as Array<{ indexname: string }>).map(
-      (r) => r.indexname,
-    );
-    expect(invIndexNames).toContain('idx_invoice_issuers_reg_number');
-    expect(invIndexNames).toContain('idx_invoice_issuers_reg_latest');
-    expect(invIndexNames).toContain('idx_invoice_issuers_version');
-    expect(invIndexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
-  });
-
-  it('法人番号の件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
-    // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
-    const initialCorp10 = Array.from({ length: 10 }, (_, i) => {
-      const corpNum = String(1000000000001 + i);
-      return `${i + 1},"${corpNum}","01","1","2026-09-01","2026-09-01","株式会社初期データ_${i + 1}","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
-    });
-
-    const v1 = await importer.importCorporateDataset(initialCorp10, '2026-09-01', 10);
-    expect(v1.status).toBe('active');
-    expect(v1.count).toBe(10);
-
-    // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
-    await expect(importer.importCorporateDataset([], '2026-10-01', 10)).rejects.toThrow(
-      /below minRecordCount/,
-    );
-    const [v1AfterZero] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterZero?.status).toBe('active');
-    const lookupAfterZero = await dataProvider.lookupByNumber('1000000000001');
-    expect(lookupAfterZero.ok).toBe(true);
-    if (lookupAfterZero.ok) {
-      expect(lookupAfterZero.value.data_as_of).toBe('2026-09-01');
-      expect(lookupAfterZero.value.corporation.name).toBe('株式会社初期データ_1');
-    }
-
-    // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
-    const reducedCorp5 = initialCorp10
-      .slice(0, 5)
-      .map((line) =>
-        line.replaceAll('2026-09-01', '2026-10-01').replaceAll('初期データ', '減少データ'),
+      // corporate_numbers_old は削除されていること
+      const oldTableCheck = await db.execute(
+        sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'corporate_numbers_old';`,
       );
-    await expect(importer.importCorporateDataset(reducedCorp5, '2026-10-01', 10)).rejects.toThrow(
-      /dropped below minRecordCountRatio/,
-    );
-    const [v1AfterDrop] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterDrop?.status).toBe('active');
-    const corpRowsAfterDrop = await db.select().from(corporateNumbers);
-    expect(corpRowsAfterDrop.length).toBe(10);
+      expect(oldTableCheck.rows.length).toBe(0);
 
-    // ケース3: 「形式が変わった」（列の並び・日付形式が変わり解析不能行の割合が maxInvalidRowRatio=0.01 を超える）→ 中止され旧版（v1: 10件）が残る
-    const formatChangedCorp = [
-      // 9行は正常だが1行（10% > 1%）が列ズレ・形式変更によりパース不能
-      ...initialCorp10.slice(0, 9),
-      '10,"INVALID_CORP_NUM","01","1","2026/10/01","2026/10/01","形式変更株式会社","","301","東京都"',
-    ];
-    await expect(
-      importer.importCorporateDataset(formatChangedCorp, '2026-10-01', 10),
-    ).rejects.toThrow(/invalid row ratio/);
-    const [v1AfterFormatChange] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterFormatChange?.status).toBe('active');
-    const lookupAfterFormatChange = await dataProvider.lookupByNumber('1000000000010');
-    expect(lookupAfterFormatChange.ok).toBe(true);
-    if (lookupAfterFormatChange.ok) {
-      expect(lookupAfterFormatChange.value.data_as_of).toBe('2026-09-01');
-    }
-
-    // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
-    const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
-    const v2 = await relaxedImporter.importCorporateDataset(reducedCorp5, '2026-10-01', 10);
-    expect(v2.status).toBe('active');
-    expect(v2.count).toBe(5);
-  });
-
-  it('インボイスの件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
-    // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
-    const initialInvoice10 = Array.from({ length: 10 }, (_, i) => {
-      const regNum = `T${String(1000000000001 + i)}`;
-      return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-09-01","","","東京都千代田区１−１","13","101","","","","テスト","初期インボイス法人_${i + 1}","","","","",""`;
+      // 新テーブルの内容が検索できること
+      const lookup = await dataProvider.lookupByNumber('2222222222222');
+      expect(lookup.ok).toBe(true);
+      if (lookup.ok) {
+        expect(lookup.value.corporation.name).toBe('新テスト株式会社');
+      }
     });
 
-    const v1 = await importer.importInvoiceDataset(initialInvoice10, '2026-09-01', 10);
-    expect(v1.status).toBe('active');
-    expect(v1.count).toBe(10);
+    it('取り込みを2つ同時に起動した場合、アドバイザリーロックにより片方が何もせず終了（skipped）し、もう片方が正常に完了する', async () => {
+      const datasetA = Array.from({ length: 50 }, (_, i) => {
+        const corpNum = String(3000000000001 + i);
+        return `${i + 1},"${corpNum}","01","1","2026-10-01","2026-10-01","同時実行テストA_${i + 1}株式会社","","301","東京都","千代田区","霞が関一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
+      });
 
-    // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
-    await expect(importer.importInvoiceDataset([], '2026-10-01', 10)).rejects.toThrow(
-      /below minRecordCount/,
-    );
-    const [v1AfterZero] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterZero?.status).toBe('active');
-    const rowsAfterZero = await db.select().from(invoiceIssuers);
-    expect(rowsAfterZero.length).toBe(10);
+      const datasetB = Array.from({ length: 50 }, (_, i) => {
+        const corpNum = String(4000000000001 + i);
+        return `${i + 1},"${corpNum}","01","1","2026-10-02","2026-10-02","同時実行テストB_${i + 1}株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060001","","","","","","","","1","","","","","","0"`;
+      });
 
-    // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
-    const reducedInvoice5 = initialInvoice10
-      .slice(0, 5)
-      .map((line) =>
-        line.replaceAll('2026-09-01', '2026-10-01').replaceAll('初期インボイス', '減少インボイス'),
+      const outputLogs: string[] = [];
+      const mockStream = {
+        write: (chunk: string) => {
+          outputLogs.push(chunk);
+          return true;
+        },
+      };
+      const { createIngestLogger } = await import('../../src/ingest/logger.js');
+      const customImporter = new DatasetImporter(db, {
+        logger: createIngestLogger(mockStream as unknown as NodeJS.WritableStream),
+      });
+
+      // 2つの取り込みを同時に起動（バッチサイズを小さくして実行時間を重ねる）
+      const [res1, res2] = await Promise.all([
+        customImporter.importCorporateDataset(datasetA, '2026-10-01', 5),
+        customImporter.importCorporateDataset(datasetB, '2026-10-02', 5),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort();
+      // 片方が active（正常完了）、もう片方が skipped（何もせず終了）であること
+      expect(statuses).toEqual(['active', 'skipped']);
+
+      const activeResult = res1.status === 'active' ? res1 : res2;
+      const skippedResult = res1.status === 'skipped' ? res1 : res2;
+
+      expect(activeResult.count).toBe(50);
+      expect(activeResult.datasetVersionId).toBeGreaterThan(0);
+      expect(skippedResult.count).toBe(0);
+      expect(skippedResult.datasetVersionId).toBe(0);
+
+      // スキップされた旨がログに残っていること
+      const parsedLogs = outputLogs.map((l) => JSON.parse(l) as Record<string, unknown>);
+      const skippedLog = parsedLogs.find((l) => l.status === 'skipped');
+      expect(skippedLog).toBeDefined();
+      expect(skippedLog?.msg).toContain('skipped because another import is already running');
+
+      // dataset_versions には active になった1件のみが作られ、不要な staging/failed レコードが作られていないこと
+      const versions = await db.select().from(datasetVersions);
+      expect(versions.length).toBe(1);
+      expect(versions[0]?.status).toBe('active');
+      expect(versions[0]?.recordCount).toBe(50);
+
+      // 完了した側のデータが正常に検索でき、ロックも解放されて次の取り込みが可能であること
+      const targetCorpNum =
+        activeResult.dataAsOf === '2026-10-01' ? '3000000000001' : '4000000000001';
+      const lookup = await dataProvider.lookupByNumber(targetCorpNum);
+      expect(lookup.ok).toBe(true);
+    });
+
+    it('インボイス取り込み（公式24列）: 法人・人格のない社団等・個人・区分不明・履歴複数行を RENAME Swap で取り込み、途中失敗時の旧版保全と同時実行のロック排他が機能する', async () => {
+      // 1. 初回取り込み（v1: 法人履歴2行 + 人格のない社団等 + 個人 + 区分不明）
+      const invoiceV1 = [
+        // 同一登録番号 T1000000000001 の過去履歴（latest=0）と最新履歴（latest=1）
+        '1,"T1000000000001","01","0","2","1","0","2023-10-01","2023-10-01","","","東京都千代田区旧１−１","13","101","","","","テストカブシキガイシャ","テスト株式会社（旧）","","","","",""',
+        '2,"T1000000000001","03","0","2","1","1","2023-10-01","2025-04-01","2025-03-31","2025-04-01","東京都千代田区新２−２","13","101","","","","テストカブシキガイシャ","テスト株式会社（新）","","","","",""',
+        // 人格のない社団等（kind=2, 公表申出所在地）
+        '3,"T7000000000002","01","0","2","1","1","2023-10-01","2026-04-01","","","","","","大阪府大阪市北区１−１","27","127","テストキョウドウクミアイ","テスト協同組合","","","","",""',
+        // 個人（kind=1, 氏名・所在地・屋号・通称が万一入っていても破棄される）
+        '4,"T9999999999999","01","0","1","1","1","2023-10-01","2026-04-01","","","東京都港区１−１","13","103","","","","ヤマダタロウ","山田太郎","","","","山田商店","旧姓山田"',
+        // 区分不明（kind=9, 名称・所在地等は破棄され unknownKindCount に計上される）
+        '5,"T8888888888888","01","0","9","1","1","2023-10-01","2026-04-01","","","東京都新宿区１−１","13","104","","","","フメイ","不明事業者","","","","不明屋号","不明通称"',
+      ];
+
+      const v1Metrics = await importer.importInvoiceDataset(invoiceV1, '2026-09-01', 10);
+      expect(v1Metrics.status).toBe('active');
+      expect(v1Metrics.count).toBe(5);
+      expect(v1Metrics.unknownKindCount).toBe(1);
+      const v1Id = v1Metrics.datasetVersionId;
+
+      // DB に5行すべて保存されていること（同じ登録番号 T1000000000001 の2行が両方存在し、日付が保持されていること）
+      const rowsV1 = await db
+        .select()
+        .from(invoiceIssuers)
+        .where(eq(invoiceIssuers.datasetVersionId, v1Id));
+      expect(rowsV1.length).toBe(5);
+
+      const corpHistory = rowsV1.filter((r) => r.registrationNumber === 'T1000000000001');
+      expect(corpHistory.length).toBe(2);
+      const oldHistoryRow = corpHistory.find((r) => r.latest === '0');
+      const latestHistoryRow = corpHistory.find((r) => r.latest === '1');
+      expect(oldHistoryRow?.sequenceNumber).toBe('1');
+      expect(oldHistoryRow?.legalName).toBe('テスト株式会社（旧）');
+      expect(oldHistoryRow?.registrationDate).toBe('2023-10-01');
+      expect(latestHistoryRow?.sequenceNumber).toBe('2');
+      expect(latestHistoryRow?.legalName).toBe('テスト株式会社（新）');
+      expect(latestHistoryRow?.cancelDate).toBe('2025-03-31');
+      expect(latestHistoryRow?.expireDate).toBe('2025-04-01');
+
+      // 人格のない社団等の公表申出所在地が保持されていること
+      const assocRow = rowsV1.find((r) => r.registrationNumber === 'T7000000000002');
+      expect(assocRow?.declaredAddress).toBe('大阪府大阪市北区１−１');
+      expect(assocRow?.legalName).toBe('テスト協同組合');
+
+      // 個人（kind='1'）および区分不明（kind='9'）の名称・所在地・カナが NULL であること
+      const individualRow = rowsV1.find((r) => r.registrationNumber === 'T9999999999999');
+      expect(individualRow?.legalName).toBeNull();
+      expect(individualRow?.kana).toBeNull();
+      expect(individualRow?.headOfficeAddress).toBeNull();
+
+      const unknownRow = rowsV1.find((r) => r.registrationNumber === 'T8888888888888');
+      expect(unknownRow?.legalName).toBeNull();
+      expect(unknownRow?.kana).toBeNull();
+      expect(unknownRow?.headOfficeAddress).toBeNull();
+
+      // 2. 2回目の取り込み途中で列の並びが違う不正行により失敗 → 旧版（v1）が active のまま保全されること
+      const brokenInvoiceV2 = [
+        '1,"T1000000000001","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区新３−３","13","101","","","","テストカブシキガイシャ","テスト株式会社","","","","",""',
+        '2,"T1000000000001","01","0","2026-10-01","01","テスト株式会社"', // 列数・並び不正
+      ];
+      await expect(
+        importer.importInvoiceDataset(brokenInvoiceV2, '2026-10-01', 10),
+      ).rejects.toThrow();
+
+      const [v1AfterFail] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1Id));
+      expect(v1AfterFail?.status).toBe('active');
+      const rowsAfterFail = await db.select().from(invoiceIssuers);
+      expect(rowsAfterFail.length).toBe(5);
+
+      // 3. 同時実行の排他制御（アドバイザリーロックにより片方が active、もう片方が skipped になること）
+      const concurrentDatasetA = Array.from({ length: 30 }, (_, i) => {
+        const regNum = `T${String(5000000000001 + i)}`;
+        return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-01","","","東京都千代田区１−１","13","101","","","","テスト","同時インボイスA_${i + 1}","","","","",""`;
+      });
+      const concurrentDatasetB = Array.from({ length: 30 }, (_, i) => {
+        const regNum = `T${String(6000000000001 + i)}`;
+        return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-10-02","","","東京都港区１−１","13","103","","","","テスト","同時インボイスB_${i + 1}","","","","",""`;
+      });
+
+      const [invRes1, invRes2] = await Promise.all([
+        importer.importInvoiceDataset(concurrentDatasetA, '2026-10-01', 5),
+        importer.importInvoiceDataset(concurrentDatasetB, '2026-10-02', 5),
+      ]);
+
+      const invStatuses = [invRes1.status, invRes2.status].sort();
+      expect(invStatuses).toEqual(['active', 'skipped']);
+
+      // 索引名が正規名に復元されていることを検証
+      const invIndexCheck = await db.execute(
+        sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'invoice_issuers';`,
       );
-    await expect(importer.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10)).rejects.toThrow(
-      /dropped below minRecordCountRatio/,
-    );
-    const [v1AfterDrop] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterDrop?.status).toBe('active');
-    const rowsAfterDrop = await db.select().from(invoiceIssuers);
-    expect(rowsAfterDrop.length).toBe(10);
-
-    // ケース3: 「形式が変わった」（列の並び・日付形式が変わった行が含まれる）→ 中止され旧版（v1: 10件）が残る
-    const formatChangedInvoice = [
-      ...initialInvoice10.slice(0, 9),
-      // 登録年月日の形式変更（YYYY/MM/DD）および列ズレを想定
-      '10,"T1000000000010","01","0","2","1","1","2023/10/01","2026/10/01","","","東京都千代田区１−１","13","101","","","","テスト","形式変更インボイス法人","","","","",""',
-    ];
-    await expect(
-      importer.importInvoiceDataset(formatChangedInvoice, '2026-10-01', 10),
-    ).rejects.toThrow(/Invalid invoice CSV line/);
-    const [v1AfterFormatChange] = await db
-      .select()
-      .from(datasetVersions)
-      .where(eq(datasetVersions.id, v1.datasetVersionId));
-    expect(v1AfterFormatChange?.status).toBe('active');
-    const rowsAfterFormatChange = await db.select().from(invoiceIssuers);
-    expect(rowsAfterFormatChange.length).toBe(10);
-    expect(rowsAfterFormatChange.every((r) => r.datasetVersionId === v1.datasetVersionId)).toBe(
-      true,
-    );
-
-    // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
-    const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
-    const v2 = await relaxedImporter.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10);
-    expect(v2.status).toBe('active');
-    expect(v2.count).toBe(5);
-  });
-
-  it('国税庁実データ仕様: 人格区分（kind）が空の行が正常に取り込まれ、lookup_invoice_issuer で business_type: unknown, corporate_name: null, location: null が返ること', async () => {
-    const invoiceDataProvider = new DbInvoiceDataProvider(db);
-    const mcpServer = createServer({
-      invoiceDbProvider: invoiceDataProvider,
-      dataSource: 'db',
-    });
-    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
-
-    // 人格区分（5列目）が空のインボイス公表CSV行（国税庁全件データ実態に準拠）
-    const emptyKindInvoiceData = [
-      '1,"T6000000000005","01","0","","1","1","2023-10-01","2026-10-01","","","東京都千代田区麹町一丁目","13","101","","","","テストカナ","テスト商号","","","","",""',
-    ];
-
-    const metrics = await importer.importInvoiceDataset(emptyKindInvoiceData, '2026-10-01', 10);
-    expect(metrics.status).toBe('active');
-    expect(metrics.count).toBe(1);
-    expect(metrics.unknownKindCount).toBe(1);
-
-    const result = await client.callTool({
-      name: 'lookup_invoice_issuer',
-      arguments: { registration_number: 'T6000000000005' },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
-    expect(sc.status).toBe('registered');
-    expect(sc.business_type).toBe('unknown');
-    expect(sc.corporate_name).toBeNull();
-    expect(sc.location).toBeNull();
-
-    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain('事業者区分: 不明');
-    expect(textContent).not.toContain('テスト商号');
-    expect(textContent).not.toContain('麹町');
-  });
-
-  it('名前検索の1〜2文字前方一致（LIKE prefix%）・3文字以上部分一致（ILIKE %query%）、検索対象除外注記、および EXPLAIN (ANALYZE, BUFFERS) で idx_corporate_numbers_name_pattern 索引が使われること', async () => {
-    const csvRecords = [
-      '1,"7000000000002","01","1","2026-10-01","2026-10-01","テスト物流有限会社","","302","鹿児島県","霧島市","国分中央一丁目","","46","218","8994332","","","","","","","","1","","","","","","1"',
-      '2,"6000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
-      '3,"5000000000004","01","1","2026-10-01","2026-10-01","テス興業株式会社","","301","大阪府","大阪市","梅田一丁目","","27","100","5300001","","","","","","","","1","","","","","","0"',
-      '4,"4000000000005","01","1","2026-10-01","2026-10-01","合同会社テス","","303","神奈川県","横浜市","みなとみらい一丁目","","14","100","2200012","","","","","","","","1","","","","","","0"',
-      '5,"3000000000006","01","1","2026-10-01","2026-10-01","株式会社テ","","301","愛知県","名古屋市","栄一丁目","","23","100","4600008","","","","","","","","1","","","","","","0"',
-      '6,"9340001026142","01","1","2026-10-01","2026-10-01","スグクル株式会社","","301","鹿児島県","霧島市","国分中央１−２−３２","","46","218","8994332","","","","","","","","1","","","","","","0"',
-      '7,"2000000000007","01","1","2026-10-01","2026-10-01","トヨタ自動車株式会社","","301","愛知県","豊田市","トヨタ町１番地","","23","211","4718571","","","","","","","","1","","","","","","0"',
-    ];
-
-    // ダミーレコード 50 件追加
-    for (let i = 1; i <= 50; i++) {
-      const seq = 7 + i;
-      const basis = (1000 + i).toString().padStart(12, '0');
-      const num = `1${basis}`;
-      csvRecords.push(
-        `${seq},"${num}","01","1","2026-10-01","2026-10-01","サンプルダミー事業所${i}株式会社","","301","東京都","千代田区","大手町${i}丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`,
+      const invIndexNames = (invIndexCheck.rows as Array<{ indexname: string }>).map(
+        (r) => r.indexname,
       );
-    }
-
-    // 全件取り込み実行（RENAME Swap + 新索引 idx_corporate_numbers_name_pattern 作成・復元を含む）
-    const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
-    expect(v.status).toBe('active');
-    expect(v.count).toBe(csvRecords.length);
-
-    // 1. 1文字検索（"テ"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
-    const res1 = await dataProvider.searchByName('テ');
-    expect(res1.ok).toBe(true);
-    if (res1.ok) {
-      const names = res1.value.results.map((r) => r.name);
-      expect(names).toContain('テスト物流有限会社');
-      expect(names).toContain('テス興業株式会社');
-      expect(names).not.toContain('株式会社テスト');
-      expect(names).not.toContain('合同会社テス');
-      expect(names).not.toContain('株式会社テ');
-    }
-
-    // 2. 2文字検索（"テス"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
-    const res2 = await dataProvider.searchByName('テス');
-    expect(res2.ok).toBe(true);
-    if (res2.ok) {
-      const names = res2.value.results.map((r) => r.name);
-      expect(names).toContain('テスト物流有限会社');
-      expect(names).toContain('テス興業株式会社');
-      expect(names).not.toContain('株式会社テスト');
-      expect(names).not.toContain('合同会社テス');
-    }
-
-    // 3. 3文字検索（"テスト"）: 部分一致（ILIKE %query%）となり、中間一致も含めてヒット
-    const res3 = await dataProvider.searchByName('テスト');
-    expect(res3.ok).toBe(true);
-    if (res3.ok) {
-      const names = res3.value.results.map((r) => r.name);
-      expect(names).toContain('テスト物流有限会社');
-      expect(names).toContain('株式会社テスト');
-      expect(names).not.toContain('テス興業株式会社');
-    }
-
-    // 4. 検索対象除外（hihyoji="1"）: 結果から除外されず address_may_be_outdated=true と注記が返る
-    const lookupRes = await dataProvider.lookupByNumber('7000000000002');
-    expect(lookupRes.ok).toBe(true);
-    if (lookupRes.ok) {
-      expect(lookupRes.value.corporation.name).toBe('テスト物流有限会社');
-      expect(lookupRes.value.corporation.address_may_be_outdated).toBe(true);
-    }
-
-    const mcpServer = createServer({
-      dbProvider: dataProvider,
-      dataSource: 'db',
+      expect(invIndexNames).toContain('idx_invoice_issuers_reg_number');
+      expect(invIndexNames).toContain('idx_invoice_issuers_reg_latest');
+      expect(invIndexNames).toContain('idx_invoice_issuers_version');
+      expect(invIndexNames.some((n) => n.endsWith('_new') || n.endsWith('_old'))).toBe(false);
     });
-    const client = new Client({ name: 'test-client', version: '1.0.0' });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
 
-    const toolResult = await client.callTool({
-      name: 'search_corporate_by_name',
-      arguments: { name: 'テス' },
+    it('法人番号の件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
+      // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
+      const initialCorp10 = Array.from({ length: 10 }, (_, i) => {
+        const corpNum = String(1000000000001 + i);
+        return `${i + 1},"${corpNum}","01","1","2026-09-01","2026-09-01","株式会社初期データ_${i + 1}","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`;
+      });
+
+      const v1 = await importer.importCorporateDataset(initialCorp10, '2026-09-01', 10);
+      expect(v1.status).toBe('active');
+      expect(v1.count).toBe(10);
+
+      // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
+      await expect(importer.importCorporateDataset([], '2026-10-01', 10)).rejects.toThrow(
+        /below minRecordCount/,
+      );
+      const [v1AfterZero] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterZero?.status).toBe('active');
+      const lookupAfterZero = await dataProvider.lookupByNumber('1000000000001');
+      expect(lookupAfterZero.ok).toBe(true);
+      if (lookupAfterZero.ok) {
+        expect(lookupAfterZero.value.data_as_of).toBe('2026-09-01');
+        expect(lookupAfterZero.value.corporation.name).toBe('株式会社初期データ_1');
+      }
+
+      // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
+      const reducedCorp5 = initialCorp10
+        .slice(0, 5)
+        .map((line) =>
+          line.replaceAll('2026-09-01', '2026-10-01').replaceAll('初期データ', '減少データ'),
+        );
+      await expect(importer.importCorporateDataset(reducedCorp5, '2026-10-01', 10)).rejects.toThrow(
+        /dropped below minRecordCountRatio/,
+      );
+      const [v1AfterDrop] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterDrop?.status).toBe('active');
+      const corpRowsAfterDrop = await db.select().from(corporateNumbers);
+      expect(corpRowsAfterDrop.length).toBe(10);
+
+      // ケース3: 「形式が変わった」（列の並び・日付形式が変わり解析不能行の割合が maxInvalidRowRatio=0.01 を超える）→ 中止され旧版（v1: 10件）が残る
+      const formatChangedCorp = [
+        // 9行は正常だが1行（10% > 1%）が列ズレ・形式変更によりパース不能
+        ...initialCorp10.slice(0, 9),
+        '10,"INVALID_CORP_NUM","01","1","2026/10/01","2026/10/01","形式変更株式会社","","301","東京都"',
+      ];
+      await expect(
+        importer.importCorporateDataset(formatChangedCorp, '2026-10-01', 10),
+      ).rejects.toThrow(/invalid row ratio/);
+      const [v1AfterFormatChange] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterFormatChange?.status).toBe('active');
+      const lookupAfterFormatChange = await dataProvider.lookupByNumber('1000000000010');
+      expect(lookupAfterFormatChange.ok).toBe(true);
+      if (lookupAfterFormatChange.ok) {
+        expect(lookupAfterFormatChange.value.data_as_of).toBe('2026-09-01');
+      }
+
+      // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
+      const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
+      const v2 = await relaxedImporter.importCorporateDataset(reducedCorp5, '2026-10-01', 10);
+      expect(v2.status).toBe('active');
+      expect(v2.count).toBe(5);
     });
-    expect(toolResult.isError).toBeFalsy();
-    const textContent = (toolResult.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain(
-      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
-    );
 
-    // 5. EXPLAIN (ANALYZE, BUFFERS): 1〜2文字の前方一致クエリで idx_corporate_numbers_name_pattern 索引が使用されること
-    const pgClient = await pool.connect();
-    try {
-      await pgClient.query('SET enable_seqscan = off;');
-      const explainQuery = `
+    it('インボイスの件数・形式確認: 「0件」「大きく減った」「形式が変わった」の3ケースで入れ替えを中止して旧版を残し、しきい値を設定で変更できる', async () => {
+      // 初期稼働版（v1: 10件、data_as_of: 2026-09-01）を投入
+      const initialInvoice10 = Array.from({ length: 10 }, (_, i) => {
+        const regNum = `T${String(1000000000001 + i)}`;
+        return `${i + 1},"${regNum}","01","0","2","1","1","2023-10-01","2026-09-01","","","東京都千代田区１−１","13","101","","","","テスト","初期インボイス法人_${i + 1}","","","","",""`;
+      });
+
+      const v1 = await importer.importInvoiceDataset(initialInvoice10, '2026-09-01', 10);
+      expect(v1.status).toBe('active');
+      expect(v1.count).toBe(10);
+
+      // ケース1: 「0件」（空データ）→ 中止され旧版（v1: 10件）が残る
+      await expect(importer.importInvoiceDataset([], '2026-10-01', 10)).rejects.toThrow(
+        /below minRecordCount/,
+      );
+      const [v1AfterZero] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterZero?.status).toBe('active');
+      const rowsAfterZero = await db.select().from(invoiceIssuers);
+      expect(rowsAfterZero.length).toBe(10);
+
+      // ケース2: 「大きく減った」（10件 → 5件、既定しきい値 0.9＝9件未満）→ 中止され旧版（v1: 10件）が残る
+      const reducedInvoice5 = initialInvoice10
+        .slice(0, 5)
+        .map((line) =>
+          line
+            .replaceAll('2026-09-01', '2026-10-01')
+            .replaceAll('初期インボイス', '減少インボイス'),
+        );
+      await expect(
+        importer.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10),
+      ).rejects.toThrow(/dropped below minRecordCountRatio/);
+      const [v1AfterDrop] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterDrop?.status).toBe('active');
+      const rowsAfterDrop = await db.select().from(invoiceIssuers);
+      expect(rowsAfterDrop.length).toBe(10);
+
+      // ケース3: 「形式が変わった」（列の並び・日付形式が変わった行が含まれる）→ 中止され旧版（v1: 10件）が残る
+      const formatChangedInvoice = [
+        ...initialInvoice10.slice(0, 9),
+        // 登録年月日の形式変更（YYYY/MM/DD）および列ズレを想定
+        '10,"T1000000000010","01","0","2","1","1","2023/10/01","2026/10/01","","","東京都千代田区１−１","13","101","","","","テスト","形式変更インボイス法人","","","","",""',
+      ];
+      await expect(
+        importer.importInvoiceDataset(formatChangedInvoice, '2026-10-01', 10),
+      ).rejects.toThrow(/Invalid invoice CSV line/);
+      const [v1AfterFormatChange] = await db
+        .select()
+        .from(datasetVersions)
+        .where(eq(datasetVersions.id, v1.datasetVersionId));
+      expect(v1AfterFormatChange?.status).toBe('active');
+      const rowsAfterFormatChange = await db.select().from(invoiceIssuers);
+      expect(rowsAfterFormatChange.length).toBe(10);
+      expect(rowsAfterFormatChange.every((r) => r.datasetVersionId === v1.datasetVersionId)).toBe(
+        true,
+      );
+
+      // 設定変更の確認: minRecordCountRatio を 0.5 に設定すれば、5件（50%）でも入れ替えが通る
+      const relaxedImporter = new DatasetImporter(db, { minRecordCountRatio: 0.5 });
+      const v2 = await relaxedImporter.importInvoiceDataset(reducedInvoice5, '2026-10-01', 10);
+      expect(v2.status).toBe('active');
+      expect(v2.count).toBe(5);
+    });
+
+    it('国税庁実データ仕様: 人格区分（kind）が空の行が正常に取り込まれ、lookup_invoice_issuer で business_type: unknown, corporate_name: null, location: null が返ること', async () => {
+      const invoiceDataProvider = new DbInvoiceDataProvider(db);
+      const mcpServer = createServer({
+        invoiceDbProvider: invoiceDataProvider,
+        dataSource: 'db',
+      });
+      const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+      // 人格区分（5列目）が空のインボイス公表CSV行（国税庁全件データ実態に準拠）
+      const emptyKindInvoiceData = [
+        '1,"T6000000000005","01","0","","1","1","2023-10-01","2026-10-01","","","東京都千代田区麹町一丁目","13","101","","","","テストカナ","テスト商号","","","","",""',
+      ];
+
+      const metrics = await importer.importInvoiceDataset(emptyKindInvoiceData, '2026-10-01', 10);
+      expect(metrics.status).toBe('active');
+      expect(metrics.count).toBe(1);
+      expect(metrics.unknownKindCount).toBe(1);
+
+      const result = await client.callTool({
+        name: 'lookup_invoice_issuer',
+        arguments: { registration_number: 'T6000000000005' },
+      });
+
+      expect(result.isError).toBeFalsy();
+      const sc = result.structuredContent as Record<string, unknown>;
+      expect(sc).toBeDefined();
+      expect(sc.status).toBe('registered');
+      expect(sc.business_type).toBe('unknown');
+      expect(sc.corporate_name).toBeNull();
+      expect(sc.location).toBeNull();
+
+      const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+      expect(textContent).toContain('事業者区分: 不明');
+      expect(textContent).not.toContain('テスト商号');
+      expect(textContent).not.toContain('麹町');
+    });
+
+    it('名前検索の1〜2文字前方一致（LIKE prefix%）・3文字以上部分一致（ILIKE %query%）、検索対象除外注記、および EXPLAIN (ANALYZE, BUFFERS) で idx_corporate_numbers_name_pattern 索引が使われること', async () => {
+      const csvRecords = [
+        '1,"7000000000002","01","1","2026-10-01","2026-10-01","テスト物流有限会社","","302","鹿児島県","霧島市","国分中央一丁目","","46","218","8994332","","","","","","","","1","","","","","","1"',
+        '2,"6000000000003","01","1","2026-10-01","2026-10-01","株式会社テスト","","301","東京都","千代田区","丸の内一丁目","","13","101","1000005","","","","","","","","1","","","","","","0"',
+        '3,"5000000000004","01","1","2026-10-01","2026-10-01","テス興業株式会社","","301","大阪府","大阪市","梅田一丁目","","27","100","5300001","","","","","","","","1","","","","","","0"',
+        '4,"4000000000005","01","1","2026-10-01","2026-10-01","合同会社テス","","303","神奈川県","横浜市","みなとみらい一丁目","","14","100","2200012","","","","","","","","1","","","","","","0"',
+        '5,"3000000000006","01","1","2026-10-01","2026-10-01","株式会社テ","","301","愛知県","名古屋市","栄一丁目","","23","100","4600008","","","","","","","","1","","","","","","0"',
+        '6,"9340001026142","01","1","2026-10-01","2026-10-01","スグクル株式会社","","301","鹿児島県","霧島市","国分中央１−２−３２","","46","218","8994332","","","","","","","","1","","","","","","0"',
+        '7,"2000000000007","01","1","2026-10-01","2026-10-01","トヨタ自動車株式会社","","301","愛知県","豊田市","トヨタ町１番地","","23","211","4718571","","","","","","","","1","","","","","","0"',
+      ];
+
+      // ダミーレコード 50 件追加
+      for (let i = 1; i <= 50; i++) {
+        const seq = 7 + i;
+        const basis = (1000 + i).toString().padStart(12, '0');
+        const num = `1${basis}`;
+        csvRecords.push(
+          `${seq},"${num}","01","1","2026-10-01","2026-10-01","サンプルダミー事業所${i}株式会社","","301","東京都","千代田区","大手町${i}丁目","","13","101","1000001","","","","","","","","1","","","","","","0"`,
+        );
+      }
+
+      // 全件取り込み実行（RENAME Swap + 新索引 idx_corporate_numbers_name_pattern 作成・復元を含む）
+      const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
+      expect(v.status).toBe('active');
+      expect(v.count).toBe(csvRecords.length);
+
+      // 1. 1文字検索（"テ"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
+      const res1 = await dataProvider.searchByName('テ');
+      expect(res1.ok).toBe(true);
+      if (res1.ok) {
+        const names = res1.value.results.map((r) => r.name);
+        expect(names).toContain('テスト物流有限会社');
+        expect(names).toContain('テス興業株式会社');
+        expect(names).not.toContain('株式会社テスト');
+        expect(names).not.toContain('合同会社テス');
+        expect(names).not.toContain('株式会社テ');
+      }
+
+      // 2. 2文字検索（"テス"）: 前方一致（LIKE prefix%）となり、前方一致のみヒット
+      const res2 = await dataProvider.searchByName('テス');
+      expect(res2.ok).toBe(true);
+      if (res2.ok) {
+        const names = res2.value.results.map((r) => r.name);
+        expect(names).toContain('テスト物流有限会社');
+        expect(names).toContain('テス興業株式会社');
+        expect(names).not.toContain('株式会社テスト');
+        expect(names).not.toContain('合同会社テス');
+      }
+
+      // 3. 3文字検索（"テスト"）: 部分一致（ILIKE %query%）となり、中間一致も含めてヒット
+      const res3 = await dataProvider.searchByName('テスト');
+      expect(res3.ok).toBe(true);
+      if (res3.ok) {
+        const names = res3.value.results.map((r) => r.name);
+        expect(names).toContain('テスト物流有限会社');
+        expect(names).toContain('株式会社テスト');
+        expect(names).not.toContain('テス興業株式会社');
+      }
+
+      // 4. 検索対象除外（hihyoji="1"）: 結果から除外されず address_may_be_outdated=true と注記が返る
+      const lookupRes = await dataProvider.lookupByNumber('7000000000002');
+      expect(lookupRes.ok).toBe(true);
+      if (lookupRes.ok) {
+        expect(lookupRes.value.corporation.name).toBe('テスト物流有限会社');
+        expect(lookupRes.value.corporation.address_may_be_outdated).toBe(true);
+      }
+
+      const mcpServer = createServer({
+        dbProvider: dataProvider,
+        dataSource: 'db',
+      });
+      const client = new Client({ name: 'test-client', version: '1.0.0' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+      const toolResult = await client.callTool({
+        name: 'search_corporate_by_name',
+        arguments: { name: 'テス' },
+      });
+      expect(toolResult.isError).toBeFalsy();
+      const textContent = (toolResult.content as Array<{ type: string; text: string }>)[0]?.text;
+      expect(textContent).toContain(
+        '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
+      );
+
+      // 5. EXPLAIN (ANALYZE, BUFFERS): 1〜2文字の前方一致クエリで idx_corporate_numbers_name_pattern 索引が使用されること
+      const pgClient = await pool.connect();
+      try {
+        await pgClient.query('SET enable_seqscan = off;');
+        const explainQuery = `
         EXPLAIN (ANALYZE, BUFFERS)
         SELECT *
         FROM corporate_numbers
@@ -785,59 +806,60 @@ describe('Ingest Atomic Swap Integration Tests (PostgreSQL 16 実DB・合成テ�
         ORDER BY corporate_number ASC
         LIMIT 11;
       `;
-      const result = await pgClient.query(explainQuery, [v.datasetVersionId, 'テス%']);
-      const planLines = result.rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']);
-      const planText = planLines.join('\n');
+        const result = await pgClient.query(explainQuery, [v.datasetVersionId, 'テス%']);
+        const planLines = result.rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']);
+        const planText = planLines.join('\n');
 
-      console.log('\n================ EXPLAIN (ANALYZE, BUFFERS) [テス%] ================');
-      console.log(planText);
-      console.log('====================================================================\n');
+        console.log('\n================ EXPLAIN (ANALYZE, BUFFERS) [テス%] ================');
+        console.log(planText);
+        console.log('====================================================================\n');
 
-      expect(planText).toContain('idx_corporate_numbers_name_pattern');
-      const usesPatternIndex =
-        planText.includes('Index Scan using idx_corporate_numbers_name_pattern') ||
-        planText.includes('Bitmap Index Scan on idx_corporate_numbers_name_pattern');
-      expect(usesPatternIndex).toBe(true);
-    } finally {
-      await pgClient.query('SET enable_seqscan = on;');
-      pgClient.release();
-    }
-  });
+        expect(planText).toContain('idx_corporate_numbers_name_pattern');
+        const usesPatternIndex =
+          planText.includes('Index Scan using idx_corporate_numbers_name_pattern') ||
+          planText.includes('Bitmap Index Scan on idx_corporate_numbers_name_pattern');
+        expect(usesPatternIndex).toBe(true);
+      } finally {
+        await pgClient.query('SET enable_seqscan = on;');
+        pgClient.release();
+      }
+    });
 
-  it('国税庁実データ仕様: en_city_name が 121 文字を超える行（varchar(600)）が正常に取り込めること', async () => {
-    // 121文字を超える en_city_name（例: 200文字）および en_address_outside（例: 200文字）を持つ合成データ
-    const longEnCity = 'Minato-ku Roppongi '.repeat(15).trim(); // 284文字 (> 121文字)
-    const longEnAddressOutside = '123 Long Foreign Address Boulevard Suite '.repeat(10).trim(); // 409文字 (> 300文字)
-    expect(longEnCity.length).toBeGreaterThan(121);
-    expect(longEnAddressOutside.length).toBeGreaterThan(300);
+    it('国税庁実データ仕様: en_city_name が 121 文字を超える行（varchar(600)）が正常に取り込めること', async () => {
+      // 121文字を超える en_city_name（例: 200文字）および en_address_outside（例: 200文字）を持つ合成データ
+      const longEnCity = 'Minato-ku Roppongi '.repeat(15).trim(); // 284文字 (> 121文字)
+      const longEnAddressOutside = '123 Long Foreign Address Boulevard Suite '.repeat(10).trim(); // 409文字 (> 300文字)
+      expect(longEnCity.length).toBeGreaterThan(121);
+      expect(longEnAddressOutside.length).toBeGreaterThan(300);
 
-    const csvRecords = [
-      `1,"9000000000001","01","1","2026-10-01","2026-10-01","グローバル長文住所株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060032","","","","","","","","1","GLOBAL LONG ADDRESS CORP","TOKYO","${longEnCity}","${longEnAddressOutside}","グローバルチョウブンジュウショカブシキガイシャ","0"`,
-      `2,"9000000000002","01","1","2026-10-01","2026-10-01","通常企業株式会社","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","STANDARD CORP","TOKYO","Chiyoda-ku Otemachi","","ツウジョウキギョウカブシキガイシャ","0"`,
-    ];
+      const csvRecords = [
+        `1,"9000000000001","01","1","2026-10-01","2026-10-01","グローバル長文住所株式会社","","301","東京都","港区","六本木一丁目","","13","103","1060032","","","","","","","","1","GLOBAL LONG ADDRESS CORP","TOKYO","${longEnCity}","${longEnAddressOutside}","グローバルチョウブンジュウショカブシキガイシャ","0"`,
+        `2,"9000000000002","01","1","2026-10-01","2026-10-01","通常企業株式会社","","301","東京都","千代田区","大手町一丁目","","13","101","1000001","","","","","","","","1","STANDARD CORP","TOKYO","Chiyoda-ku Otemachi","","ツウジョウキギョウカブシキガイシャ","0"`,
+      ];
 
-    const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
-    expect(v.status).toBe('active');
-    expect(v.count).toBe(2);
+      const v = await importer.importCorporateDataset(csvRecords, '2026-10-01', csvRecords.length);
+      expect(v.status).toBe('active');
+      expect(v.count).toBe(2);
 
-    const lookupRes = await dataProvider.lookupByNumber('9000000000001');
-    expect(lookupRes.ok).toBe(true);
-    if (lookupRes.ok && lookupRes.value) {
-      expect(lookupRes.value.corporation.name).toBe('グローバル長文住所株式会社');
-    }
+      const lookupRes = await dataProvider.lookupByNumber('9000000000001');
+      expect(lookupRes.ok).toBe(true);
+      if (lookupRes.ok && lookupRes.value) {
+        expect(lookupRes.value.corporation.name).toBe('グローバル長文住所株式会社');
+      }
 
-    // DB から直接 en_city_name と en_address_outside の保存値を確認
-    const rows = await db
-      .select({
-        corporateNumber: corporateNumbers.corporateNumber,
-        enCityName: corporateNumbers.enCityName,
-        enAddressOutside: corporateNumbers.enAddressOutside,
-      })
-      .from(corporateNumbers)
-      .where(eq(corporateNumbers.corporateNumber, '9000000000001'));
+      // DB から直接 en_city_name と en_address_outside の保存値を確認
+      const rows = await db
+        .select({
+          corporateNumber: corporateNumbers.corporateNumber,
+          enCityName: corporateNumbers.enCityName,
+          enAddressOutside: corporateNumbers.enAddressOutside,
+        })
+        .from(corporateNumbers)
+        .where(eq(corporateNumbers.corporateNumber, '9000000000001'));
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.enCityName).toBe(longEnCity);
-    expect(rows[0]?.enAddressOutside).toBe(longEnAddressOutside);
-  });
-});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.enCityName).toBe(longEnCity);
+      expect(rows[0]?.enAddressOutside).toBe(longEnAddressOutside);
+    });
+  },
+);
