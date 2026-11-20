@@ -73,7 +73,7 @@ unset PG_PW ADMIN_PW INGEST_PW READER_PW
 
 ### Step 2: マイグレーションの実行（`houjin_admin`）
 
-`houjin_admin` ロールで Drizzle マイグレーション（`0000` 〜 `0004`）を実行し、初期テーブル（`dataset_versions`, `corporate_numbers`, `invoice_issuers`）を作成します。
+`houjin_admin` ロールで Drizzle マイグレーション（`drizzle/` 配下の全マイグレーション）を実行し、初期テーブル（`dataset_versions`, `corporate_numbers`, `invoice_issuers`）と索引を作成します。
 
 ```bash
 DATABASE_URL="$ADMIN_DATABASE_URL" node dist/db/migrate.js

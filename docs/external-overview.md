@@ -10,14 +10,14 @@
 
 ## 2. 現在できること
 
-- 13桁の法人番号から法人基本情報および変更履歴を取得する（`lookup_corporate_by_number`）。
+- 13桁の法人番号から法人基本情報・閉鎖情報・承継先法人番号を取得する（`lookup_corporate_by_number`）。
 - 会社名・都道府県コードから候補を検索する（`search_corporate_by_name`）。
-- ネットワーク通信なしで法人番号（またはT番号）のチェックデジットを検証する（`validate_corporate_number`）。
-- 表記揺れ（前株・後株、旧字体、全角半角等）を正規化し、最適化された検索語を生成する（`normalize_company_name`）。
-- インボイス登録番号（`T`+13桁）から、適格請求書発行事業者の登録状態と基準日時点の登録有効性を確認する（`lookup_invoice_issuer`）。
-- すべてのツール応答に国税庁所定または公開データ利用の出典表記（`attribution`）を必須同梱する。
+- ネットワーク通信なしで13桁の法人番号のチェックデジットを検証する（`validate_corporate_number`）。
+- 表記揺れ（前株・後株、略称、英語法人格、旧字体、全角半角等）を正規化し、最適化された検索語を生成する（`normalize_company_name`）。
+- インボイス登録番号（`T`+13桁）から、適格請求書発行事業者の登録状態と基準日時点の登録有効性を確認する（`lookup_invoice_issuer`、ホスト版 / `DATA_SOURCE=db` 対応）。
+- すべてのデータ照会応答にデータ基準日（`data_as_of`）および国税庁利用規約準拠の出典表記（`attribution`）を必須同梱する。
 - 取引先マスタ作成（`company-master-record`）、営業リスト補完（`sales-list-enrichment`）、顧客マスタ重複検知（`customer-master-dedup`）の 3 つの MCP Prompts を同梱する。
-- MCP Apps UI（`ui://corporate-card/mcp-app.html`、`ui://search-results/mcp-app.html`）に対応しつつ、UI 非対応クライアントでも `structuredContent` とテキスト要約だけで完結する設計を備える。
+- MCP Apps UI（`ui://corporate-card/mcp-app.html`：法人詳細カード・インボイス確認カード、`ui://search-results/mcp-app.html`：検索結果一覧）に対応しつつ、UI 非対応クライアントでも `structuredContent` とテキスト要約だけで完結する設計を備える。
 
 ## 3. 実務ワークフロー
 
@@ -92,7 +92,7 @@ flowchart LR
 
 - **npm**: `@sugukuru/mcp-houjin-bangou`
 - **GitHub**: `SUGUKURU-CO-LTD/mcp-houjin-bangou`
-- **Release**: `v1.0.0`
+- **Release**: `v1.0.2`
 - **MCP Server Card**: `/.well-known/mcp.json`
 - **ドキュメント**: README、API リファレンス、ADR、セキュリティ文書、利用規約、プライバシーポリシー
 

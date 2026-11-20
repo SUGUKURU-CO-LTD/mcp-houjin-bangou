@@ -45,21 +45,11 @@
     "node": ">=20.19.0"
   },
   "packageManager": "pnpm@10.34.7",
-  "pnpm": {
-    "overrides": {
-      "body-parser@1": "1.20.9",
-      "body-parser@2": "2.4.0",
-      "fast-uri@3": "3.1.9",
-      "qs@6": "6.16.1",
-      "hono@4": "4.13.16",
-      "@hono/node-server@2": "2.1.6"
-    }
-  },
   "scripts": {
     "build": "pnpm build:server && pnpm build:ui && pnpm build:csp",
     "build:server": "tsc -p tsconfig.build.json",
-    "build:ui:card": "UI_ENTRY=corporate-card vite build",
-    "build:ui:results": "UI_ENTRY=search-results vite build",
+    "build:ui:card": "node -e \"process.env.UI_ENTRY='corporate-card';import('vite').then(v=>v.build())\"",
+    "build:ui:results": "node -e \"process.env.UI_ENTRY='search-results';import('vite').then(v=>v.build())\"",
     "build:ui": "pnpm build:ui:card && pnpm build:ui:results",
     "build:csp": "tsx scripts/compute-csp-hashes.ts",
     "dev": "tsx watch src/server.ts",
@@ -69,19 +59,19 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src tests",
-    "lint:fix": "eslint src tests --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "lint": "eslint src tests scripts benchmarks",
+    "lint:fix": "eslint src tests scripts benchmarks --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\" \"benchmarks/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\" \"benchmarks/**/*.ts\"",
     "bench": "tsx benchmarks/run.ts",
-    "prepublishOnly": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
+    "prepublishOnly": "pnpm run typecheck && pnpm run lint && pnpm run build && pnpm run test",
     "health-check": "tsx scripts/api-id-keepalive.ts",
     "smoke": "tsx scripts/mcp-smoke.ts",
     "smoke:live": "tsx scripts/nta-live-smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.5",
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "cors": "^2.8.6",
     "drizzle-orm": "0.45.4",
     "express": "^5.3.0",

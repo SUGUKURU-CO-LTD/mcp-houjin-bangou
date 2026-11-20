@@ -1,1 +1,17 @@
 minimumReleaseAge: 20160
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild
+
+overrides:
+  body-parser@1: 1.20.9
+  body-parser@2: 2.4.0
+  fast-uri@3: 3.1.9
+  qs@6: 6.16.1
+  hono@4: 4.13.16
+  '@hono/node-server@2': 2.1.6
+  esbuild@<=0.24.2: 0.25.12
+  minimatch@>=7.0.0 <11.0.1: 11.0.5

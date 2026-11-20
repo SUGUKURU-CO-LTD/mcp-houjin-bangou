@@ -16,12 +16,13 @@
 
 ## チェックリスト / Checklist
 
-- [ ] `pnpm test` が all green
 - [ ] `pnpm typecheck` が clean
-- [ ] `pnpm lint` が 0 warnings
+- [ ] `pnpm lint` が 0 warnings / 0 errors
+- [ ] `pnpm format:check` が clean
+- [ ] `pnpm build && pnpm test` が all green
 - [ ] `CHANGELOG.md` に変更を追記
-- [ ] コメント・ドキュメントは 3言語 (日/英/ID) で記述
-- [ ] (security に関わる場合) `docs/security/prompt-injection-defense.md` を更新
+- [ ] ユーザー向け変更がある場合、`README.md` (英) / `README.ja.md` (日) および関連 `docs/` を更新
+- [ ] (セキュリティに関わる場合) `docs/security/prompt-injection-defense.md` を更新
 
 ## 関連 Issue
 
