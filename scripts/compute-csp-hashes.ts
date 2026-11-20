@@ -99,9 +99,17 @@ function main(): void {
   }
 
   let count = 0;
+  const sharedHtmlPath = path.join(uiRoot, 'mcp-app.html');
+  if (existsSync(sharedHtmlPath)) {
+    injectCsp(sharedHtmlPath);
+    process.stdout.write(`Injected CSP into ${sharedHtmlPath}\n`);
+    count += 1;
+  }
+
   for (const dir of readdirSync(uiRoot, { withFileTypes: true })) {
     if (!dir.isDirectory()) continue;
     const htmlPath = path.join(uiRoot, dir.name, 'mcp-app.html');
+    if (!existsSync(htmlPath)) continue;
     injectCsp(htmlPath);
     process.stdout.write(`Injected CSP into ${htmlPath}\n`);
     count += 1;

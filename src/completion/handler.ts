@@ -26,6 +26,7 @@ const REGISTERED_PROMPTS = new Set([
   'company-master-record',
   'customer-master-dedup',
   'sales-list-enrichment',
+  'invoice-verification-check',
 ]);
 
 const DOMESTIC_PREFECTURES: ReadonlyArray<{ code: string; name: string }> = Object.entries(
@@ -153,6 +154,10 @@ function completePromptArgument(
 
   if (promptName === 'sales-list-enrichment' && argName === 'company_list_text') {
     return completeCompanyListLastLine(value);
+  }
+
+  if (promptName === 'invoice-verification-check' && argName === 'issuer_name') {
+    return completeCompanyNameCandidates(value);
   }
 
   return EMPTY_COMPLETION;

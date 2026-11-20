@@ -9,6 +9,13 @@
     "source": "github"
   },
   "websiteUrl": "https://sugu-kuru.co.jp/mcp/houjin",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/main/assets/logo.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
@@ -34,6 +41,12 @@
         {
           "name": "NTA_APPLICATION_ID",
           "description": "National Tax Agency Corporate Number Web-API Application ID (required when DATA_SOURCE=web-api).",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "DATABASE_URL",
+          "description": "PostgreSQL 16 connection URL (required when DATA_SOURCE=db).",
           "isRequired": false,
           "isSecret": true
         }

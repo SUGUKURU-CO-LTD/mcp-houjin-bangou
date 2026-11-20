@@ -18,6 +18,9 @@ import {
   toHalfWidthAscii,
   toFullWidthAscii,
   buildAsciiWidthSearchVariants,
+  buildSearchNameVariants,
+  buildPriorityExactNames,
+  MAX_SEARCH_VARIANTS,
 } from '../../src/repository/corporate-repository.js';
 import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
@@ -50,6 +53,62 @@ describe('ASCII 半角・全角検索バリエーション展開', () => {
 
     // 純日本語のみの場合は単一要素のまま余計な OR 条件を増やさない
     expect(buildAsciiWidthSearchVariants('スグクル')).toEqual(['スグクル']);
+
+    // スペースを含む英字商号は全角スペース (U+3000) との組も展開する
+    const spaceVariants = buildAsciiWidthSearchVariants('Apple Japan');
+    expect(spaceVariants).toContain('Apple Japan');
+    expect(spaceVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    expect(spaceVariants).toContain('ＡＰＰＬＥ\u3000ＪＡＰＡＮ');
+  });
+
+  it('buildSearchNameVariants がスペース・旧字/新字・小書きカナ・ひらがな→カタカナを上限8件で展開する', () => {
+    // 1. カタカナ空白（アマゾン ウェブ → 全角空白・中点・空白除去）
+    const amazon = buildSearchNameVariants('アマゾン ウェブ');
+    expect(amazon).toContain('アマゾン ウェブ');
+    expect(amazon).toContain('アマゾン\u3000ウェブ');
+    expect(amazon).toContain('アマゾン・ウェブ');
+    expect(amazon).toContain('アマゾンウェブ');
+
+    // 3文字クエリで空白除去後が2文字未満になる場合（"A B" → "AB"）は pg_trgm 保護のため 2文字候補を出さない
+    const shortSpace = buildSearchNameVariants('A B', false);
+    expect(shortSpace.every((v) => v.length >= 3)).toBe(true);
+
+    // 2. 旧字体 ⇔ 新字体 双方向展開（野村証券 ⇔ 野村證券、高橋 ⇔ 髙橋）
+    expect(buildSearchNameVariants('野村証券')).toContain('野村證券');
+    expect(buildSearchNameVariants('野村證券')).toContain('野村証券');
+    expect(buildSearchNameVariants('高橋商事')).toContain('髙橋商事');
+    expect(buildSearchNameVariants('髙橋商事')).toContain('高橋商事');
+
+    // 3. 小書きカナ ⇔ 大書きカナ 双方向展開（キャノン ⇔ キヤノン、富士フィルム ⇔ 富士フイルム）
+    expect(buildSearchNameVariants('キャノン')).toContain('キヤノン');
+    expect(buildSearchNameVariants('キヤノン')).toContain('キャノン');
+    expect(buildSearchNameVariants('富士フィルム')).toContain('富士フイルム');
+    expect(buildSearchNameVariants('キューピー')).toContain('キユーピー');
+    expect(buildSearchNameVariants('シャチハタ')).toContain('シヤチハタ');
+
+    // 4. ひらがな → カタカナ併記（すぐくる → スグクル、すぐくる株式会社 → スグクル株式会社）
+    expect(buildSearchNameVariants('すぐくる')).toEqual(['すぐくる', 'スグクル']);
+    expect(buildSearchNameVariants('すぐくる株式会社')).toContain('スグクル株式会社');
+
+    // 5. 組合せ爆発の防止（最大 MAX_SEARCH_VARIANTS = 8 件）
+    const manyKanji = buildSearchNameVariants('高橋山崎斎藤横浜大沢広島桜井渡辺鉄工');
+    expect(manyKanji.length).toBeLessThanOrEqual(MAX_SEARCH_VARIANTS);
+    expect(new Set(manyKanji).size).toBe(manyKanji.length);
+  });
+
+  it('buildPriorityExactNames が代表法人格の完全一致候補を生成し、法人格単独語では空配列を返す', () => {
+    const toyotaPriority = buildPriorityExactNames('トヨタ', ['トヨタ']);
+    expect(toyotaPriority).toContain('トヨタ');
+    expect(toyotaPriority).toContain('株式会社トヨタ');
+    expect(toyotaPriority).toContain('トヨタ株式会社');
+    expect(toyotaPriority).toContain('合同会社トヨタ');
+
+    expect(buildPriorityExactNames('株式会社', ['株式会社'])).toEqual([]);
+
+    // 1〜2文字クエリ (isShortQuery=true) では前方一致仕様を守るため前株を除外し後株のみとする
+    const shortPriority = buildPriorityExactNames('楽天', ['楽天'], true);
+    expect(shortPriority).toContain('楽天株式会社');
+    expect(shortPriority).not.toContain('株式会社楽天');
   });
 });
 
@@ -569,6 +628,165 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
       } finally {
         process.stderr.write = origWrite;
       }
+    });
+
+    it('2段階ランキングで完全一致・存続法人を先頭に配置し、複数ページにまたがるカーソル送りで重複・欠落が発生しないこと', async () => {
+      // 若い法人番号に閉鎖法人や部分一致法人が並び、本家の存続「株式会社ソニックス」が大きい法人番号を持つケース
+      const allDataset = [
+        {
+          corporateNumber: '1000000000001',
+          datasetVersionId: 1,
+          process: '01',
+          name: 'ソニックス部品販売有限会社',
+          kind: '302',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '港区',
+          streetNumber: '芝浦一丁目',
+          addressOutside: null,
+          postCode: '1050023',
+          updateDate: '2026-01-10',
+          closeDate: '2020-03-31',
+          closeCause: '01',
+          furigana: 'ソニックスブヒンハンバイ',
+          hihyoji: '0',
+        },
+        {
+          corporateNumber: '1000000000002',
+          datasetVersionId: 1,
+          process: '01',
+          name: '株式会社ソニックス', // 同名の旧閉鎖法人（番号が若い）
+          kind: '301',
+          prefectureCode: '27',
+          prefectureName: '大阪府',
+          cityName: '大阪市北区',
+          streetNumber: '梅田一丁目',
+          addressOutside: null,
+          postCode: '5300001',
+          updateDate: '2021-05-01',
+          closeDate: '2021-04-30',
+          closeCause: '11',
+          furigana: 'カブシキガイシャソニックス',
+          hihyoji: '0',
+        },
+        ...Array.from({ length: 6 }, (_, i) => ({
+          corporateNumber: `200000000000${i + 1}`,
+          datasetVersionId: 1,
+          process: '01',
+          name: `ソニックス開発第${i + 1}株式会社`,
+          kind: '301',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '品川区',
+          streetNumber: '北品川一丁目',
+          addressOutside: null,
+          postCode: '1400001',
+          updateDate: '2026-04-01',
+          closeDate: null,
+          closeCause: null,
+          furigana: 'ソニックスカイハツ',
+          hihyoji: '0',
+        })),
+        {
+          corporateNumber: '8000000000099',
+          datasetVersionId: 1,
+          process: '01',
+          name: '株式会社ソニックス', // 存続中の本家株式会社（法人番号は一番大きい）
+          kind: '301',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '港区',
+          streetNumber: '港南一丁目',
+          addressOutside: null,
+          postCode: '1080075',
+          updateDate: '2026-09-01',
+          closeDate: null,
+          closeCause: null,
+          furigana: 'カブシキガイシャソニックス',
+          hihyoji: '0',
+        },
+      ];
+
+      // Stage 1 (inArray: exact priority names) と Stage 2 (notInArray + ilike) を模擬する DB
+      const prioritySet = new Set(buildPriorityExactNames('ソニックス', ['ソニックス']));
+      let queryCallIndex = 0;
+      const twoStageDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+              const currentCall = queryCallIndex++;
+              const isStage1 = currentCall % 2 === 0;
+              return {
+                orderBy: () => ({
+                  limit: (limitCount: number) => ({
+                    offset: (offsetCount: number) => {
+                      const matched = isStage1
+                        ? allDataset.filter((r) => prioritySet.has(r.name))
+                        : allDataset.filter((r) => !prioritySet.has(r.name));
+                      const sorted = [...matched].sort((a, b) =>
+                        a.corporateNumber.localeCompare(b.corporateNumber),
+                      );
+                      return Promise.resolve(sorted.slice(offsetCount, offsetCount + limitCount));
+                    },
+                  }),
+                }),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(twoStageDb);
+
+      // limit=4 で全9件を3ページにわたり取得
+      const p1 = await provider.searchByName('ソニックス', undefined, undefined, 4);
+      expect(p1.ok).toBe(true);
+      if (!p1.ok) return;
+
+      // 1件目は存続中の「株式会社ソニックス」(8000000000099)、2件目は同名の閉鎖法人 (1000000000002)
+      expect(p1.value.results[0]?.corporate_number).toBe('8000000000099');
+      expect(p1.value.results[0]?.status).toBe('active');
+      expect(p1.value.results[1]?.corporate_number).toBe('1000000000002');
+      expect(p1.value.results[1]?.status).toBe('closed');
+      expect(p1.value.next_cursor).not.toBeNull();
+
+      const p2 = await provider.searchByName(
+        'ソニックス',
+        undefined,
+        p1.value.next_cursor ?? undefined,
+        4,
+      );
+      expect(p2.ok).toBe(true);
+      if (!p2.ok) return;
+      expect(p2.value.results).toHaveLength(4);
+      expect(p2.value.next_cursor).not.toBeNull();
+
+      const p3 = await provider.searchByName(
+        'ソニックス',
+        undefined,
+        p2.value.next_cursor ?? undefined,
+        4,
+      );
+      expect(p3.ok).toBe(true);
+      if (!p3.ok) return;
+      expect(p3.value.results).toHaveLength(1);
+      expect(p3.value.next_cursor).toBeNull();
+      expect(p3.value.total_count).toBe(9);
+
+      const allReturnedNumbers = [
+        ...p1.value.results,
+        ...p2.value.results,
+        ...p3.value.results,
+      ].map((r) => r.corporate_number);
+      expect(allReturnedNumbers).toHaveLength(allDataset.length);
+      expect(new Set(allReturnedNumbers).size).toBe(allDataset.length);
     });
   });
 });

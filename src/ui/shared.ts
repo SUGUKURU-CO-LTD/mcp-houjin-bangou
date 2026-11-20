@@ -248,11 +248,188 @@ export function invoiceStatusBadge(status: InvoiceRegistrationStatus): InvoiceSt
   }
 }
 
+const SIMILAR_SEARCH_LEGAL_TYPES: ReadonlyArray<string> = [
+  '特定非営利活動法人',
+  '社会保険労務士法人',
+  '土地家屋調査士法人',
+  '地方独立行政法人',
+  '有限責任監査法人',
+  '商店街振興組合',
+  '一般社団法人',
+  '一般財団法人',
+  '公益社団法人',
+  '公益財団法人',
+  '医療法人社団',
+  '医療法人財団',
+  '社会医療法人',
+  '社会福祉法人',
+  '更生保護法人',
+  '国立大学法人',
+  '公立大学法人',
+  '独立行政法人',
+  '司法書士法人',
+  '行政書士法人',
+  '特許業務法人',
+  '農業協同組合',
+  '漁業協同組合',
+  '生活協同組合',
+  '事業協同組合',
+  '管理組合法人',
+  '特例有限会社',
+  '弁護士法人',
+  '税理士法人',
+  '弁理士法人',
+  '株式会社',
+  '有限会社',
+  '合同会社',
+  '合名会社',
+  '合資会社',
+  '相互会社',
+  '医療法人',
+  '学校法人',
+  '宗教法人',
+  '監査法人',
+  '信用金庫',
+  '信用組合',
+  '労働金庫',
+  '協同組合',
+  '企業組合',
+  '協業組合',
+  '商工組合',
+  '投資法人',
+  'NPO法人',
+  '（株）',
+  '(株)',
+  '㈱',
+  '㍿',
+  '（有）',
+  '(有)',
+  '㈲',
+  '（同）',
+  '(同)',
+];
+
 /**
  * 「類似商号を検索」ボタンが search_corporate_by_name に渡す引数を生成する。
+ * 先頭・末尾の主要法人格を最長一致で除去し、コア商号で類似法人を広くヒットさせる
+ * （除去後に空文字となる場合のみ元の文字列を維持する）。
  */
 export function buildSearchSimilarArgs(name: string): { name: string } {
-  return { name };
+  const trimmed = name.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+  for (const kw of SIMILAR_SEARCH_LEGAL_TYPES) {
+    if (trimmed.startsWith(kw)) {
+      const stripped = trimmed.slice(kw.length).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+      if (stripped.length > 0) {
+        return { name: stripped };
+      }
+    }
+    if (trimmed.endsWith(kw)) {
+      const stripped = trimmed
+        .slice(0, trimmed.length - kw.length)
+        .replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+      if (stripped.length > 0) {
+        return { name: stripped };
+      }
+    }
+  }
+  return { name: trimmed || name };
+}
+
+/**
+ * 取引先マスタ登録用の一括コピー文字列（タブ区切り TSV 行形式）を生成する。
+ * Excel / スプレッドシート / ERP / kintone 等へそのまま貼り付け可能な構成とする。
+ */
+export function buildCorporateMasterCopyText(
+  vm: CorporateCardViewModel,
+  invVm?: InvoiceCardViewModel | null,
+): string {
+  const lines: string[] = [
+    `商号又は名称\t${vm.name}`,
+    `フリガナ\t${vm.name_kana ?? ''}`,
+    `法人番号\t${vm.corporate_number}`,
+  ];
+  if (invVm) {
+    if (invVm.status === 'not_found') {
+      lines.push(`適格請求書登録番号\t該当なし (${invVm.registration_number} 照会済)`);
+    } else {
+      lines.push(`適格請求書登録番号\t${invVm.registration_number} (${invVm.status_badge.label})`);
+    }
+  }
+  lines.push(
+    `法人種別\t${vm.legal_type}`,
+    `郵便番号\t${vm.post_code_display}`,
+    `本店所在地\t${vm.location}`,
+    `法人状態\t${vm.status_badge.label}`,
+  );
+  if (vm.close_date !== null) {
+    lines.push(`閉鎖年月日\t${vm.close_date}`);
+  }
+  if (vm.successor_corporate_number !== null) {
+    lines.push(`承継先法人番号\t${vm.successor_corporate_number}`);
+  }
+  if (vm.data_as_of !== null) {
+    lines.push(`データ時点\t${vm.data_as_of}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * next_cursor トークン単体から元の検索条件 (queryContext) を復元する。
+ * ホスト再描画等で toolinput を経由せず toolresult のみ届いた場合のページ送りを維持する。
+ */
+export function extractQueryContextFromCursor(
+  cursor: string | null | undefined,
+): SearchQueryContext | null {
+  if (typeof cursor !== 'string' || cursor.trim() === '') {
+    return null;
+  }
+  try {
+    const base64 = cursor.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const decodedJson = new TextDecoder('utf-8').decode(bytes);
+    const parsed = JSON.parse(decodedJson) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed['queryKey'] !== 'string') {
+      return null;
+    }
+    const qk = parsed['queryKey'];
+    const sepIdx = qk.lastIndexOf('|');
+    if (sepIdx <= 0) {
+      return qk.trim() !== '' ? { name: qk.trim() } : null;
+    }
+    const name = qk.slice(0, sepIdx);
+    const prefecture = qk.slice(sepIdx + 1);
+    if (name.trim() === '') return null;
+    return prefecture !== '' ? { name, prefecture } : { name };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * toolresult の要約テキストから検索語（「...」の検索結果）を補助抽出する。
+ */
+export function extractSearchQueryFromContent(
+  content: Array<{ type?: string; text?: string }> | undefined,
+): string | null {
+  const text = content?.find((c) => c.type === 'text' && typeof c.text === 'string')?.text ?? '';
+  const match = /^「([^」]+)」(?:の検索結果|に一致する法人)/.exec(text.trim());
+  return match?.[1] ?? null;
+}
+
+/**
+ * lookup_invoice_issuer の要約テキストから基準日（YYYY-MM-DD）を補助抽出する。
+ */
+export function extractReferenceDateFromContent(
+  content: Array<{ type?: string; text?: string }> | undefined,
+): string {
+  const text = content?.find((c) => c.type === 'text' && typeof c.text === 'string')?.text ?? '';
+  const match = /基準日（([0-9]{4}-[0-9]{2}-[0-9]{2})）/.exec(text);
+  return match?.[1] ?? '';
 }
 
 /**

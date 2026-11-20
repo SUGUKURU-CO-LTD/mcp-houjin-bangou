@@ -3,7 +3,8 @@
  *
  * Registers `ui://corporate-card/mcp-app.html` (shared by `lookup_corporate_by_number`
  * and `lookup_invoice_issuer`) and `ui://search-results/mcp-app.html`
- * (`search_corporate_by_name`) with zero-network CSP and clipboard-write permission.
+ * (`search_corporate_by_name`) backed by a single deduplicated single-file bundle
+ * (`dist/ui/mcp-app.html`) with zero-network CSP and clipboard-write permission.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -25,18 +26,26 @@ export const SHARED_UI_META: McpUiResourceMeta = {
   prefersBorder: false,
 };
 
+const SHARED_DIST_HTML_PATH = fileURLToPath(new URL('../../dist/ui/mcp-app.html', import.meta.url));
+
 const UI_RESOURCES = [
   {
     name: 'Corporate Card UI',
     uri: 'ui://corporate-card/mcp-app.html',
-    distPath: fileURLToPath(new URL('../../dist/ui/corporate-card/mcp-app.html', import.meta.url)),
+    defaultMode: 'corporate-card' as const,
+    legacyDistPath: fileURLToPath(
+      new URL('../../dist/ui/corporate-card/mcp-app.html', import.meta.url),
+    ),
     description:
       '法人番号照会および適格請求書発行事業者照会の結果を単一カードとして表示する UI Resource',
   },
   {
     name: 'Search Results UI',
     uri: 'ui://search-results/mcp-app.html',
-    distPath: fileURLToPath(new URL('../../dist/ui/search-results/mcp-app.html', import.meta.url)),
+    defaultMode: 'search-results' as const,
+    legacyDistPath: fileURLToPath(
+      new URL('../../dist/ui/search-results/mcp-app.html', import.meta.url),
+    ),
     description: '法人名検索結果を一覧表として表示する UI Resource',
   },
 ] as const;
@@ -45,6 +54,29 @@ const htmlCache = new Map<string, string>();
 
 export function clearUiResourceCache(): void {
   htmlCache.clear();
+}
+
+/**
+ * Customize only HTML attributes / `<title>` / initial `<main>` placeholder outside
+ * `<script>` and `<style>` so inline SHA-256 CSP hashes remain strictly intact.
+ */
+function specializeSharedBundleHtml(
+  sharedHtml: string,
+  defaultMode: 'corporate-card' | 'search-results',
+): string {
+  if (defaultMode === 'corporate-card') {
+    return sharedHtml;
+  }
+  return sharedHtml
+    .replace(
+      /<html\s+lang="ja"\s+data-default-mode="corporate-card">/i,
+      '<html lang="ja" data-default-mode="search-results">',
+    )
+    .replace(/<title>Corporate Card<\/title>/i, '<title>Search Results</title>')
+    .replace(
+      /<main id="app" class="card">\s*<p class="empty">[^<]*<\/p>\s*<\/main>/i,
+      '<main id="app"><p class="empty">検索結果の照会を待っています。</p></main>',
+    );
 }
 
 export function registerUiResources(server: McpServer): void {
@@ -64,11 +96,18 @@ export function registerUiResources(server: McpServer): void {
         let html = htmlCache.get(resource.uri);
         if (html === undefined) {
           try {
-            const loaded = await readFile(resource.distPath, 'utf8');
-            htmlCache.set(resource.uri, loaded);
-            html = loaded;
+            const rawShared = await readFile(SHARED_DIST_HTML_PATH, 'utf8');
+            const specialized = specializeSharedBundleHtml(rawShared, resource.defaultMode);
+            htmlCache.set(resource.uri, specialized);
+            html = specialized;
           } catch {
-            html = buildFallbackHtml(resource.name);
+            try {
+              const legacyLoaded = await readFile(resource.legacyDistPath, 'utf8');
+              htmlCache.set(resource.uri, legacyLoaded);
+              html = legacyLoaded;
+            } catch {
+              html = buildFallbackHtml(resource.name);
+            }
           }
         }
         return {
@@ -106,6 +145,7 @@ function buildFallbackHtml(title: string): string {
     '<meta charset="UTF-8" />',
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'" />',
     '<meta name="color-scheme" content="light dark" />',
+    '<meta name="text-scale" content="scale" />',
     `<title>${safeTitle}</title>`,
     '</head>',
     '<body>',

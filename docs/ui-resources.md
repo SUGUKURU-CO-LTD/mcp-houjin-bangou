@@ -56,7 +56,8 @@ UI 内部（`src/ui/views.ts`）では共通の履歴スタック（`← 戻る`
 - **Corporate Card View** (`lookup_corporate_by_number`)
   - 法人情報（`legal_type`, `location`, `post_code`, `name_kana`, `status`, `close_date`, `close_cause`, `successor_corporate_number`, `address_may_be_outdated`）、`data_as_of`、および `attribution` を表示
   - 「法人番号をコピー」 → `navigator.clipboard.writeText` + フォールバック + `role="status"` ライブ通知
-  - 「類似商号を検索」 → `search_corporate_by_name`（`{ name }`）を呼び出し、一覧表ビューへ遷移（`← 法人カードに戻る` 対応）
+  - 「マスタ登録用に一括コピー」 → 正式商号・フリガナ・法人番号・（照会済の場合は適格請求書登録番号）・法人種別・郵便番号・本店所在地・法人状態・データ時点をタブ区切り（Excel / スプレッドシート / ERP 貼り付け対応）で一括コピー
+  - 「類似商号を検索」 → 先頭・末尾の主要法人格を最長一致で除去したコア商号で `search_corporate_by_name`（`{ name }`）を呼び出し、一覧表ビューへ遷移（`← 法人カードに戻る` 対応）
   - 「承継先法人を照会」 → `successor_corporate_number` がある場合、`lookup_corporate_by_number` で承継先カードへ遷移
   - 「インボイス登録を確認 (`T`+13桁)」＋任意の取引基準日指定 → `lookup_invoice_issuer` を呼び出し、カード内で登録状態・基準日有効性・税務免責事項・出典を表示（ローカル `web-api` モードで DB 未接続の場合は案内メッセージを表示）
   - 「国税庁公表サイトで履歴確認 ↗」 → ホストが `openLinks` をサポートする場合に `app.openLink` で変更履歴ページを開く
@@ -86,9 +87,8 @@ pnpm build:ui
 pnpm build:csp
 ```
 
-生成物:
-- `dist/ui/corporate-card/mcp-app.html`
-- `dist/ui/search-results/mcp-app.html`
+生成物（単一共通バンドルから両 URI を配信）:
+- `dist/ui/mcp-app.html`
 
 実機ホスト接続なしの静的プレビューおよび合成データ fixture:
 - `docs/assets/ui-fixtures/corporate-card.json`

@@ -138,6 +138,7 @@ export function registerLookupByNumberTool(server: McpServer, deps: LookupByNumb
           resourceUri: 'ui://corporate-card/mcp-app.html',
           visibility: ['model', 'app'],
         },
+        'openai/outputTemplate': 'ui://corporate-card/mcp-app.html',
       },
       annotations: {
         title: annotations.title,

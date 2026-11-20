@@ -5,7 +5,7 @@
 本 MCP サーバーは **Streamable HTTP トランスポート専用** であり、用途に応じて以下の 3 通りの方法で利用できます。
 
 1. **ホスト版（リモート Streamable HTTP・推奨・セットアップ不要）**:
-   - エンドポイント `https://houjin.mcp.sugu-kuru.co.jp/mcp` をクライアントに設定するだけで、API キー不要で **全 5 ツール（`lookup_invoice_issuer` を含む）** と MCP Apps UI を即座に利用できます。
+   - エンドポイント `https://houjin.mcp.sugu-kuru.co.jp/mcp` をクライアントに設定するだけで、API キー不要で **全 5 ツール（`lookup_invoice_issuer` を含む）**・4 プロンプト・MCP Apps UI を即座に利用できます。
 2. **ローカル Web-API モード（`DATA_SOURCE=web-api`・セルフホスト）**:
    - 国税庁から無料で発行される法人番号システム Web-API アプリケーション ID（`NTA_APPLICATION_ID`）を取得し、手元で HTTP サーバー（既定ポート `3001`）を起動して接続します。
    - ※ **注意**: ローカル `web-api` モードでは法人番号の照会・検索・検証・社名正規化の 4 ツールが動作します。適格請求書発行事業者の照会（`lookup_invoice_issuer`）はデータベース方式専用のため、`web-api` モードでは `DATA_UNAVAILABLE` を返します。
@@ -16,19 +16,44 @@
 
 ## 2. ホスト版ですぐに始める（推奨）
 
-Claude Desktop、Cursor、ChatGPT、Google Antigravity 等の設定ファイルに以下のリモート URL を追加してクライアントを再起動するだけで完了です。
+利用しているクライアントに合わせて以下の手順で追加してください。
 
-### Claude Desktop / 汎用 MCP クライアント
+### Claude Code（CLI）
+
+```bash
+claude mcp add --transport http houjin-bangou https://houjin.mcp.sugu-kuru.co.jp/mcp
+```
+
+設定ファイル（`.mcp.json` または `~/.claude.json`）で記述する場合は必ず `"type": "http"` を指定します：
 
 ```json
 {
   "mcpServers": {
     "houjin-bangou": {
+      "type": "http",
       "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }
 }
 ```
+
+### Claude Desktop / Claude.ai / ChatGPT
+
+1. アプリまたは Web 画面の **「設定（Settings）」→「コネクタ（Connectors）」→「カスタムコネクタを追加」** を開きます。
+2. サーバー URL に `https://houjin.mcp.sugu-kuru.co.jp/mcp` を入力して追加します（認証設定は不要です）。
+
+> [!NOTE]
+> `claude_desktop_config.json` ファイルに直接記述する場合は、`"url"` のみの記述では起動エラーになるため、`mcp-remote` ブリッジを指定してください：
+> ```json
+> {
+>   "mcpServers": {
+>     "houjin-bangou": {
+>       "command": "npx",
+>       "args": ["-y", "mcp-remote", "https://houjin.mcp.sugu-kuru.co.jp/mcp"]
+>     }
+>   }
+> }
+> ```
 
 ### Cursor（`.cursor/mcp.json` または `~/.cursor/mcp.json`）
 
@@ -37,6 +62,19 @@ Claude Desktop、Cursor、ChatGPT、Google Antigravity 等の設定ファイル�
   "mcpServers": {
     "houjin-bangou": {
       "type": "streamable-http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
+### VS Code（`.vscode/mcp.json`）
+
+```json
+{
+  "servers": {
+    "houjin-bangou": {
+      "type": "http",
       "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }
@@ -83,12 +121,13 @@ pnpm start
 ### 3.3 ステップ 2: MCP クライアントから `http://localhost:3001/mcp` に接続する
 
 > [!IMPORTANT]
-> 本パッケージは stdio トランスポートではなく HTTP サーバー（既定ポート `3001`）として起動します。クライアント設定に `"command": "npx"` を直接指定すると応答待ちで停止するため、必ず事前にサーバーを起動したうえで `"url": "http://localhost:3001/mcp"` を指定してください。
+> 本パッケージは stdio トランスポートではなく HTTP サーバー（既定ポート `3001`）として起動します。`@sugukuru/mcp-houjin-bangou` を直接 `"command": "npx"` に指定すると応答待ちで停止するため、必ず事前にサーバーを起動したうえで各クライアントの HTTP 接続設定（Cursor は `"type": "streamable-http"`、Claude Code / VS Code は `"type": "http"`、`claude_desktop_config.json` は `mcp-remote`）を指定してください。
 
 ```json
 {
   "mcpServers": {
     "houjin-bangou-local": {
+      "type": "streamable-http",
       "url": "http://localhost:3001/mcp"
     }
   }

@@ -147,6 +147,7 @@ export function registerLookupInvoiceIssuerTool(
           resourceUri: 'ui://corporate-card/mcp-app.html',
           visibility: ['model', 'app'],
         },
+        'openai/outputTemplate': 'ui://corporate-card/mcp-app.html',
       },
       annotations: {
         title: annotations.title,

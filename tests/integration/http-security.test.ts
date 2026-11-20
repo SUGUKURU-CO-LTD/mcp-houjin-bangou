@@ -110,7 +110,7 @@ describe('SLA2-327 & Streamable HTTP Compliance: Origin・CORS・405 Allow・400
       expect(exposed).toContain('Retry-After');
     });
 
-    it('ALLOWED_ORIGINS に含まれない不正な Origin ヘッダーはすべてのエンドポイントで HTTP 403 を返す', async () => {
+    it('ALLOWED_ORIGINS に含まれない不正な Origin ヘッダーは /mcp で HTTP 403 を返し、公開ディスカバリ・ヘルスチェックは参照可能とする', async () => {
       for (const badOrigin of ['https://evil.example.com', 'http://localhost:9999', 'null']) {
         const mcpRes = await fetch(`${baseUrl}/mcp`, {
           method: 'POST',
@@ -125,11 +125,6 @@ describe('SLA2-327 & Streamable HTTP Compliance: Origin・CORS・405 Allow・400
         const body = (await mcpRes.json()) as { error?: { message?: string } };
         expect(body.error?.message).toContain('Forbidden: Origin not allowed');
 
-        const healthRes = await fetch(`${baseUrl}/health`, {
-          headers: { Origin: badOrigin },
-        });
-        expect(healthRes.status).toBe(403);
-
         const optionsRes = await fetch(`${baseUrl}/mcp`, {
           method: 'OPTIONS',
           headers: {
@@ -138,6 +133,25 @@ describe('SLA2-327 & Streamable HTTP Compliance: Origin・CORS・405 Allow・400
           },
         });
         expect(optionsRes.status).toBe(403);
+
+        // 公開メタデータエンドポイントはブラウザベースのレジストリクローラ・検証ツールから参照可能
+        const healthRes = await fetch(`${baseUrl}/health`, {
+          headers: { Origin: badOrigin },
+        });
+        expect(healthRes.status).toBe(200);
+        expect(healthRes.headers.get('access-control-allow-origin')).toBe('*');
+
+        const cardRes = await fetch(`${baseUrl}/.well-known/mcp.json`, {
+          headers: { Origin: badOrigin },
+        });
+        expect(cardRes.status).toBe(200);
+        expect(cardRes.headers.get('access-control-allow-origin')).toBe('*');
+
+        const catRes = await fetch(`${baseUrl}/.well-known/ai-catalog.json`, {
+          headers: { Origin: badOrigin },
+        });
+        expect(catRes.status).toBe(200);
+        expect(catRes.headers.get('access-control-allow-origin')).toBe('*');
       }
     });
 
@@ -454,6 +468,7 @@ describe('SLA2-327 & Streamable HTTP Compliance: Origin・CORS・405 Allow・400
         'company-master-record',
         'sales-list-enrichment',
         'customer-master-dedup',
+        'invoice-verification-check',
       ]);
       expect(primitives.resource_templates).toEqual([]);
       expect(primitives.resources).toEqual([

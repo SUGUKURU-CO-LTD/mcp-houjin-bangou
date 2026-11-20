@@ -1,10 +1,12 @@
 {
   "mcpServers": {
     "houjin-bangou": {
-      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://houjin.mcp.sugu-kuru.co.jp/mcp"]
     },
     "houjin-bangou-local": {
-      "url": "http://localhost:3001/mcp"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3001/mcp"]
     }
   },
   "_demo_prompts": {
@@ -14,6 +16,6 @@
     "UC-4_normalize_then_search": "「（株）髙橋商事」という会社名から正規化候補を作って検索し、法人番号と本店所在地を教えてください。",
     "UC-5_validate_no_api_call": "法人番号 9340001026142 は有効な番号ですか？チェックデジットだけローカルで確認してください。"
   },
-  "_note_ja": "ホスト版（https://houjin.mcp.sugu-kuru.co.jp/mcp）は API アプリケーション ID 不要で全5ツール（インボイス照会を含む）に即座に接続できます。ローカル HTTP サーバー（http://localhost:3001/mcp）を利用する場合は、事前にターミナルで `NTA_APPLICATION_ID=\"...\" npx @sugukuru/mcp-houjin-bangou` を起動してください（lookup_invoice_issuer はホスト版または DATA_SOURCE=db 専用です）。",
-  "_note_en": "The Hosted Edition (https://houjin.mcp.sugu-kuru.co.jp/mcp) requires no API key and supports all 5 tools including lookup_invoice_issuer. To use the local HTTP server (http://localhost:3001/mcp), start `NTA_APPLICATION_ID=\"...\" npx @sugukuru/mcp-houjin-bangou` in a terminal first (note: lookup_invoice_issuer requires the Hosted Edition or DATA_SOURCE=db)."
+  "_note_ja": "Claude Desktop ではアプリ内の「設定 → コネクタ」から https://houjin.mcp.sugu-kuru.co.jp/mcp を直接登録する方法を推奨します（MCP Apps UI 対応）。claude_desktop_config.json で接続する場合は上記のように mcp-remote ブリッジを使用してください。ローカル HTTP サーバー（http://localhost:3001/mcp）を利用する場合は、事前に別ターミナルで `NTA_APPLICATION_ID=\"...\" npx @sugukuru/mcp-houjin-bangou` を起動してください。",
+  "_note_en": "In Claude Desktop, adding https://houjin.mcp.sugu-kuru.co.jp/mcp via Settings -> Connectors is recommended (supports MCP Apps UI). If using claude_desktop_config.json, bridge via mcp-remote as shown above. For the local HTTP server (http://localhost:3001/mcp), start `NTA_APPLICATION_ID=\"...\" npx @sugukuru/mcp-houjin-bangou` in a separate terminal first."
 }

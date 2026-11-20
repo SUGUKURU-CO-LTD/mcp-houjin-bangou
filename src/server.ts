@@ -34,6 +34,7 @@ import {
   PRODUCT_WEBSITE_URL,
   PUBLIC_BASE_URL,
   REPOSITORY_URL,
+  SERVER_ICONS,
   SUPPORT_EMAIL,
 } from './config/product.js';
 import { getDb, closeDbClient } from './db/client.js';
@@ -101,13 +102,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.set('trust proxy', trustProxyHops === 0 ? false : trustProxyHops);
 
   // ChatGPT domain verification endpoint (Linear SLA2-329)
-  app.get('/.well-known/openai-apps-challenge', (_req, res) => {
-    if (!openaiAppsChallengeToken || openaiAppsChallengeToken.trim() === '') {
-      res.status(404).type('text/plain').send('Not Found');
-      return;
-    }
-    res.status(200).type('text/plain').send(openaiAppsChallengeToken);
-  });
+  app.get(
+    '/.well-known/openai-apps-challenge',
+    cors({ origin: '*', methods: ['GET', 'HEAD', 'OPTIONS'], credentials: false }),
+    (_req, res) => {
+      if (!openaiAppsChallengeToken || openaiAppsChallengeToken.trim() === '') {
+        res.status(404).type('text/plain').send('Not Found');
+        return;
+      }
+      res.status(200).type('text/plain').send(openaiAppsChallengeToken);
+    },
+  );
 
   app.use(
     helmet({
@@ -124,10 +129,17 @@ export function createApp(options: CreateAppOptions = {}): Express {
     }),
   );
 
-  // MCP Streamable HTTP 仕様 MUST: すべての接続で Origin ヘッダーを検証する。
-  app.use(createOriginValidationMiddleware(allowedOriginsSet));
+  // MCP Streamable HTTP 仕様 MUST: /mcp エンドポイントの接続で Origin ヘッダーを検証する。
+  // 公開メタデータ（/.well-known/*, /health）はブラウザベースのレジストリクローラ・検証ツールからも参照可能とする。
+  const publicDiscoveryCors = cors({
+    origin: '*',
+    methods: ['GET', 'HEAD', 'OPTIONS'],
+    credentials: false,
+  });
 
+  app.use('/mcp', createOriginValidationMiddleware(allowedOriginsSet));
   app.use(
+    '/mcp',
     cors({
       origin: (origin, callback) => {
         if (!origin) {
@@ -157,7 +169,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(express.json({ limit: '64kb' }));
 
   // Health check
-  app.get('/health', (_req, res) => {
+  app.options('/health', publicDiscoveryCors);
+  app.get('/health', publicDiscoveryCors, (_req, res) => {
     res.status(200).json({
       status: 'ok',
       version: VERSION,
@@ -167,12 +180,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
   });
 
   // Server Card (SEP-2127 + backwards-compatible discovery)
-  app.get('/.well-known/mcp.json', (_req, res) => {
+  app.options('/.well-known/mcp.json', publicDiscoveryCors);
+  app.get('/.well-known/mcp.json', publicDiscoveryCors, (_req, res) => {
     res.status(200).json(buildServerCard());
   });
 
   // SEP-2127 AI Catalog discovery endpoint
-  app.get('/.well-known/ai-catalog.json', (_req, res) => {
+  app.options('/.well-known/ai-catalog.json', publicDiscoveryCors);
+  app.get('/.well-known/ai-catalog.json', publicDiscoveryCors, (_req, res) => {
     res.status(200).type('application/json').json(buildAiCatalog());
   });
 
@@ -432,6 +447,7 @@ export function buildServerCard(): Record<string, unknown> {
     version: VERSION,
     description: SERVER_DESCRIPTION,
     websiteUrl: PRODUCT_WEBSITE_URL,
+    icons: SERVER_ICONS,
     repository: {
       url: REPOSITORY_URL,
       source: 'github',
@@ -476,7 +492,12 @@ export function buildServerCard(): Record<string, unknown> {
         'validate_corporate_number',
         'normalize_company_name',
       ],
-      prompts: ['company-master-record', 'sales-list-enrichment', 'customer-master-dedup'],
+      prompts: [
+        'company-master-record',
+        'sales-list-enrichment',
+        'customer-master-dedup',
+        'invoice-verification-check',
+      ],
       resource_templates: [],
       resources: ['ui://corporate-card/mcp-app.html', 'ui://search-results/mcp-app.html'],
     },

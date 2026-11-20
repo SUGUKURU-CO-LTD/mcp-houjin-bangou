@@ -1,6 +1,6 @@
 # API Reference
 
-本 MCP サーバー（`@sugukuru/mcp-houjin-bangou` v1.1.0+）が提供する **5 Tools + 3 Prompts + 2 MCP Apps UI Resources + Completion + Error Contract + Environment Variables** のリファレンスです。
+本 MCP サーバー（`@sugukuru/mcp-houjin-bangou` v1.1.0+）が提供する **5 Tools + 4 Prompts + 2 MCP Apps UI Resources + Completion + Error Contract + Environment Variables** のリファレンスです。
 すべての定義値・型・引数・戻り値は `src/` の実装コードに対応しています。
 
 ---
@@ -69,7 +69,7 @@
 #### Input Schema (`additionalProperties: false`)
 ```typescript
 {
-  name: string;         // Corporate name to search (kanji, kana, or romaji, 1-100 characters)
+  name: string;         // Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (1-100 characters)
   prefecture?: string;  // Optional 2-digit JIS X 0401 prefecture code (01-47, regex: /^(0[1-9]|[1-3][0-9]|4[0-7])$/)
   cursor?: string;      // Opaque cursor bound to queryKey and data_as_of from previous search
   limit?: number;       // Number of results to return (default: 10, min: 1, max: 20)
@@ -198,7 +198,7 @@
 
 ---
 
-## Prompts（全3種）
+## Prompts（全4種）
 
 ### 1. `company-master-record`
 - **ソースコード定義**: [`src/prompts/company-master-record.ts`](../src/prompts/company-master-record.ts)
@@ -219,6 +219,14 @@
 - **引数**:
   - `target_company_name`: string (1-500文字, 必須) — 名寄せ対象の会社名
   - `current_address`?: string (最大300文字, 任意) — 照合用の住所
+
+### 4. `invoice-verification-check`
+- **ソースコード定義**: [`src/prompts/invoice-verification-check.ts`](../src/prompts/invoice-verification-check.ts)
+- **説明**: 受領した請求書・領収書の適格請求書発行事業者登録番号（T番号）・取引年月日・発行元法人名をもとに、国税庁公表データ上の登録状態と法人の存続・承継状況を一括照合し、確認記録を生成します。※個人の連絡先情報は入力しないでください。
+- **引数**:
+  - `registration_number`: string (`^T?[0-9]{13}$`, 必須) — 請求書・領収書記載の適格請求書発行事業者登録番号
+  - `transaction_date`?: string (`YYYY-MM-DD`, 任意) — 取引年月日（基準日時点の有効性確認用）
+  - `issuer_name`?: string (最大300文字, 任意) — 発行元法人名（公表名称との突合用）
 
 ---
 

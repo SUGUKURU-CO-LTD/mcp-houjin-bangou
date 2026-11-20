@@ -6,8 +6,10 @@ import { registerAllPrompts } from '../../src/prompts/index.js';
 import { registerCompletionHandler } from '../../src/completion/handler.js';
 import { createMcpLogger } from '../../src/lib/mcp-logger.js';
 import {
+  INVOICE_TAX_DISCLAIMER,
   NTA_CORPORATE_HOST_ATTRIBUTION,
   NTA_CORPORATE_WEB_API_ATTRIBUTION,
+  NTA_INVOICE_HOST_ATTRIBUTION,
 } from '../../src/lib/tool-response.js';
 import type { DataSourceMode } from '../../src/domain/tool-annotations.js';
 
@@ -33,13 +35,14 @@ async function setupClient(dataSource: DataSourceMode = 'web-api'): Promise<Clie
 }
 
 describe('MCP Prompts integration (§2)', () => {
-  it('prompts/list returns 3 prompts', async () => {
+  it('prompts/list returns 4 prompts', async () => {
     const client = await setupClient();
     const result = await client.listPrompts();
     const names = result.prompts.map((p) => p.name).sort();
     expect(names).toEqual([
       'company-master-record',
       'customer-master-dedup',
+      'invoice-verification-check',
       'sales-list-enrichment',
     ]);
   });
@@ -215,6 +218,67 @@ describe('MCP Prompts integration (§2)', () => {
     });
   });
 
+  describe('invoice-verification-check prompt (§2.4)', () => {
+    it('renders verification workflow with T-number, transaction_date, and issuer_name in web-api and db modes', async () => {
+      const client = await setupClient('db');
+      const result = await client.getPrompt({
+        name: 'invoice-verification-check',
+        arguments: {
+          registration_number: 'T9340001026142',
+          transaction_date: '2026-10-01',
+          issuer_name: '（株）スグクル',
+        },
+      });
+
+      const text = (result.messages[0]?.content as { type: string; text: string }).text;
+      expect(text).toContain('T9340001026142');
+      expect(text).toContain('9340001026142');
+      expect(text).toContain('取引年月日（基準日）: 2026-10-01');
+      expect(text).toContain('請求書記載の発行元法人名: （株）スグクル');
+      expect(text).toContain('lookup_invoice_issuer');
+      expect(text).toContain('lookup_corporate_by_number');
+      expect(text).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
+      expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+      expect(text).toContain(INVOICE_TAX_DISCLAIMER);
+      expect(text).not.toContain('名刺');
+      expect(text).not.toContain('登記');
+
+      // Normalizes 13-digit input without leading T
+      const webClient = await setupClient('web-api');
+      const webRes = await webClient.getPrompt({
+        name: 'invoice-verification-check',
+        arguments: {
+          registration_number: '9340001026142',
+        },
+      });
+      const webText = (webRes.messages[0]?.content as { type: string; text: string }).text;
+      expect(webText).toContain('registration_number="T9340001026142"');
+      expect(webText).toContain(NTA_CORPORATE_WEB_API_ATTRIBUTION);
+      expect(webText).not.toContain('名刺');
+      expect(webText).not.toContain('登記');
+    });
+
+    it('rejects malformed registration_number and impossible calendar dates', async () => {
+      const client = await setupClient('db');
+      await expect(
+        client.getPrompt({
+          name: 'invoice-verification-check',
+          arguments: { registration_number: 'T12345' },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.getPrompt({
+          name: 'invoice-verification-check',
+          arguments: {
+            registration_number: 'T9340001026142',
+            transaction_date: '2026-02-31',
+          },
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
   describe('Completion on prompt arguments', () => {
     it('company_name triggers deduplicated normalizer completion', async () => {
       const client = await setupClient();
@@ -227,13 +291,19 @@ describe('MCP Prompts integration (§2)', () => {
       expect(new Set(result.completion.values).size).toBe(result.completion.values.length);
     });
 
-    it('target_company_name triggers normalizer completion', async () => {
+    it('target_company_name and issuer_name trigger normalizer completion', async () => {
       const client = await setupClient();
       const result = await client.complete({
         ref: { type: 'ref/prompt', name: 'customer-master-dedup' },
         argument: { name: 'target_company_name', value: 'スグクル' },
       });
       expect(result.completion.values.length).toBeGreaterThan(0);
+
+      const invComp = await client.complete({
+        ref: { type: 'ref/prompt', name: 'invoice-verification-check' },
+        argument: { name: 'issuer_name', value: '（株）スグクル' },
+      });
+      expect(invComp.completion.values).toContain('株式会社スグクル');
     });
   });
 });

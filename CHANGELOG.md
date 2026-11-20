@@ -13,13 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **フラッグシップ MCP Apps UI（`@modelcontextprotocol/ext-apps` v1.7）の拡張と相互ナビゲーション**:
-  - `lookup_invoice_issuer` に `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`（`registerAppTool`, `visibility: ['model', 'app']`）を接続し、単体およびインラインのインボイス登録確認カード表示に対応。
-  - 法人基本情報カードからのワンクリック・インボイス照合、基準日（`reference_date`）ピッカーによる時点再確認、検索結果テーブル（`ui://search-results/mcp-app.html`）の状態フィルタピル・`next_cursor` インタラクティブページ送り・履歴スタック「戻る」ナビゲーション・`updateModelContext` 同期を実装。
-  - WCAG 2.2 AA ライト/ダーク両対応コントラスト（`color-scheme: light dark`）、`SHARED_UI_META`（`clipboardWrite`, `prefersBorder: false`）、`innerHTML` / `insertAdjacentHTML` / `applyHostFonts` 不使用の DOM 構築、および単一ファイル HTML への SHA-256 CSP ハッシュ厳格注入を整備。
+  - `lookup_invoice_issuer` に `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"`（`registerAppTool`, `visibility: ['model', 'app']`）を接続し、単体およびインラインのインボイス登録確認カード表示に対応。また照会3ツールすべてに ChatGPT 互換の `_meta['openai/outputTemplate']` を併記。
+  - 法人基本情報カードに Excel / スプレッドシート / ERP へそのまま貼り付けられる**「マスタ登録用に一括コピー」**ボタンを追加し、「類似商号を検索」で主要法人格を自動除去してコア商号で検索するよう改善。
+  - 法人基本情報カードからのワンクリック・インボイス照合、基準日（`reference_date`）ピッカーによる時点再確認、検索結果テーブル（`ui://search-results/mcp-app.html`）の状態フィルタピル（0件時リセット維持）・`next_cursor` 単体からの検索条件復元＆インタラクティブページ送り・履歴スタック「戻る」ナビゲーション・`updateModelContext` 同期を実装。
+  - WCAG 2.2 AA ライト/ダーク両対応コントラスト（`color-scheme` 明示）、OS 文字サイズ拡大追従（`<meta name="text-scale" content="scale" />`・`rem`/`em` 化・`75vh` 廃止）、単一共通バンドル化によるパッケージサイズ約 `500 KB` 軽量化、および SHA-256 CSP ハッシュ厳格注入を整備。
+- **経理・購買実務向けプロンプト `invoice-verification-check` の新設**:
+  - 受領した請求書・領収書の `T`+13桁登録番号・取引年月日・発行元法人名から、基準日時点のインボイス登録事実と法人の存続・合併承継・社名一致を一括確認する第4の標準プロンプトを追加。
 - **承継先法人番号（`successor_corporate_number`）の出力と UI ドリルダウン**:
   - 吸収合併等で閉鎖された法人を `lookup_corporate_by_number` で照会した際、公表データに承継先法人番号がある場合は `corporation.successor_corporate_number` および要約テキストで返却し、MCP Apps UI からワンクリックで承継先法人カードへ遷移可能に改善。
-- **ディスカバリエンドポイント・エージェントルール・改行コード統制の追加**:
-  - SEP-2127 Server Card（`/.well-known/mcp.json`）に加え、`/.well-known/ai-catalog.json` エンドポイントを追加し、マニフェスト整合性テスト（`manifest-consistency.test.ts`）を導入。
+- **ディスカバリエンドポイント・アイコン・エージェントルール・改行コード統制の追加**:
+  - SEP-2127 Server Card（`/.well-known/mcp.json`）に加え、`/.well-known/ai-catalog.json` エンドポイントおよび `McpServer` / `server.json` / Server Card への `icons` メタデータを追加し、マニフェスト整合性テスト（`manifest-consistency.test.ts`）を導入。
   - Google Antigravity プラグインローダーが自動認識するプレーン Markdown ルール（`rules/AGENTS.md`）および Windows 環境での `CRLF` 混入を防ぐ `.gitattributes`（`eol=lf`）を追加。
 
 ### Changed
@@ -32,8 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **国税庁仕様準拠・ドメイン正規化・PostgreSQL マイグレーション `0006`**:
   - Drizzle マイグレーション `0006`（`drizzle/0006_nullable_invoice_reg_date.sql`）を追加し、国税庁インボイス公表 CSV 仕様に合わせて `invoice_issuers` / `invoice_issuers_staging` の `registration_date` を NULL 許容化。
   - `lookup_invoice_issuer` で個人事業者の登録番号（`T`+13桁で法人番号モジュラス9に従わない番号）を許容する形式検証、実在しない暦日（`2026-02-31` 等）の厳格検証（`isValidCalendarDate`）、および `reference_date > data_as_of` 時のスナップショット基準日注記を整備。
-  - ホスト版 DB の `search_corporate_by_name` で半角・全角 ASCII 英数字の双方向一致（`NTT` ⇔ `ＮＴＴ` 等）に対応。
-  - `normalize_company_name` で略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、旧字体→新字体変換のコア名・正式名双方への適用、および異体字セレクタ（IVS）・長音符正規化を強化。
+  - ホスト版 DB の `search_corporate_by_name` に完全一致・存続法人優先の2段階ランキングを導入し、半角/全角 ASCII 英数字および半角/全角スペース（`Apple Japan` ⇔ `Ａｐｐｌｅ　Ｊａｐａｎ`）、主要旧字体・小書きカナ双方向（`野村証券` ⇔ `野村證券`、`キャノン` ⇔ `キヤノン`、`富士フィルム` ⇔ `富士フイルム`）、ひらがな→カタカナ併記（`すぐくる` → `スグクル`）に対応。
+  - `normalize_company_name` の旧字体辞書を `normalizer.ts`（全74字）に一本化し、略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、および異体字セレクタ（IVS）・長音符正規化を強化。
+  - npm パッケージ（`package.json` `"files"`）に `"drizzle/*.sql"` と `"drizzle/meta/_journal.json"` を同梱してセルフホスト時の `npm run db:migrate` に対応し、`server.json` に `DATABASE_URL`、`scripts/ops.sh` に `migrate` サブコマンドを追加。また Origin 拒否ミドルウェアを `/mcp` 限定として公開ディスカバリエンドポイントのブラウザ参照性を改善し、`plugin.json` から公的誤認を招く「公式」表記を削除。
 - **依存関係管理・サプライチェーン保護とドキュメント刷新**:
   - `package.json` の非推奨 `pnpm.overrides` を `pnpm-workspace.yaml`（`overrides` / `onlyBuiltDependencies` / `allowBuilds` / `minimumReleaseAge: 20160`）に移行し、`pnpm@10.34.7` で本番・開発依存とも `pnpm audit` 脆弱性 0 件を達成。
   - `server.json`（MCP Registry `2025-12-11`）、`plugin.json`、`mcp_config.json`、`.cursor-plugin/plugin.json` を最新スキーマへ整合し、`prepublishOnly` の実行順序を `build` → `test` に修正、`lint` / `format:check` の対象を `scripts`・`benchmarks` まで拡大、日英 README・`docs/`・`SKILL.md` を全面同期。

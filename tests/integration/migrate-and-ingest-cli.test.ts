@@ -481,6 +481,88 @@ describe.skipIf(!HAS_REAL_DB)(
         expect(logMsg).not.toContain('1234567890123');
         expect(logMsg).not.toContain('secret_company_name');
       });
+
+      it('finds full-width space, old-kanji, small-kana, hiragana queries and ranks active exact matches first on real PostgreSQL 16', async () => {
+        const corpDir = path.join(tempRootDir, 'corporate-search-variants');
+        fs.mkdirSync(corpDir, { recursive: true });
+
+        const rows = [
+          '1,"1000000000010","01","0","2026-09-30","2026-09-30","ラピッド部品閉鎖有限会社","","302","東京都","千代田区","丸の内１丁目","","13","101","1000005","","","2022-03-31","01","","","","1","","","","","ラピッドブヒン","0"',
+          '2,"1000000000011","01","0","2026-09-30","2026-09-30","株式会社ラピッド","","301","大阪府","大阪市北区","梅田１丁目","","27","127","5300001","","","2021-09-30","11","","","","1","","","","","カブシキガイシャラピッド","0"',
+          '3,"8000000000099","01","0","2026-09-30","2026-09-30","株式会社ラピッド","","301","東京都","港区","港南１丁目","","13","103","1080075","","","","","","","","1","","","","","カブシキガイシャラピッド","0"',
+          '4,"6010401095635","01","0","2026-09-30","2026-09-30","Ａｐｐｌｅ　Ｊａｐａｎ合同会社","","305","東京都","港区","六本木６丁目","","13","103","1066140","","","","","","","","1","","","","","アップルジャパンゴウドウガイシャ","0"',
+          '5,"6010001074037","01","0","2026-09-30","2026-09-30","野村證券株式会社","","301","東京都","中央区","日本橋１丁目","","13","102","1038011","","","","","","","","1","","","","","ノムラショウケンカブシキガイシャ","0"',
+          '6,"4010801006306","01","0","2026-09-30","2026-09-30","キヤノン株式会社","","301","東京都","大田区","下丸子３丁目","","13","111","1468501","","","","","","","","1","","","","","キヤノンカブシキガイシャ","0"',
+          '7,"2010401062362","01","0","2026-09-30","2026-09-30","富士フイルム株式会社","","301","東京都","港区","西麻布２丁目","","13","103","1068620","","","","","","","","1","","","","","フジフイルムカブシキガイシャ","0"',
+          '8,"9340001026142","01","0","2026-09-30","2026-09-30","スグクル株式会社","","301","鹿児島県","霧島市","国分中央１丁目","","46","218","8994332","","","","","","","","1","","","","","スグクルカブシキガイシャ","0"',
+        ];
+        fs.writeFileSync(path.join(corpDir, 'part_01.csv'), rows.join('\n') + '\n', 'utf-8');
+
+        const logs = createLogCollector();
+        const code = await runIngestCli(
+          ['--type', 'corporate', '--dir', corpDir, '--data-as-of', '2026-10-31'],
+          { connectionString: TEST_DB_URL, output: logs.stream },
+        );
+        expect(code).toBe(0);
+
+        const provider = new DbCorporateDataProvider(db);
+
+        // 1. 半角英字+半角空白 → 全角英字+全角空白 (U+3000) ヒット
+        const apple = await provider.searchByName('Apple Japan');
+        expect(apple.ok).toBe(true);
+        if (apple.ok) {
+          expect(apple.value.results[0]?.name).toBe('Ａｐｐｌｅ　Ｊａｐａｎ合同会社');
+        }
+
+        // 2. 新字体 → 旧字体 双方向ヒット
+        const nomura = await provider.searchByName('野村証券');
+        expect(nomura.ok).toBe(true);
+        if (nomura.ok) {
+          expect(nomura.value.results[0]?.name).toBe('野村證券株式会社');
+        }
+
+        // 3. 小書きカナ → 大書きカナ 双方向ヒット
+        const canon = await provider.searchByName('キャノン');
+        expect(canon.ok).toBe(true);
+        if (canon.ok) {
+          expect(canon.value.results[0]?.name).toBe('キヤノン株式会社');
+        }
+        const fuji = await provider.searchByName('富士フィルム');
+        expect(fuji.ok).toBe(true);
+        if (fuji.ok) {
+          expect(fuji.value.results[0]?.name).toBe('富士フイルム株式会社');
+        }
+
+        // 4. ひらがな → カタカナ併記ヒット
+        const sugukuru = await provider.searchByName('すぐくる');
+        expect(sugukuru.ok).toBe(true);
+        if (sugukuru.ok) {
+          expect(sugukuru.value.results[0]?.corporate_number).toBe('9340001026142');
+        }
+
+        // 5. 2段階ランキング（存続中の完全一致株式会社が先頭、次に閉鎖完全一致、次に部分一致）＋カーソルページング
+        const rapidP1 = await provider.searchByName('ラピッド', undefined, undefined, 2);
+        expect(rapidP1.ok).toBe(true);
+        if (rapidP1.ok) {
+          expect(rapidP1.value.results.map((r) => r.corporate_number)).toEqual([
+            '8000000000099',
+            '1000000000011',
+          ]);
+          expect(rapidP1.value.next_cursor).not.toBeNull();
+          const rapidP2 = await provider.searchByName(
+            'ラピッド',
+            undefined,
+            rapidP1.value.next_cursor ?? undefined,
+            2,
+          );
+          expect(rapidP2.ok).toBe(true);
+          if (rapidP2.ok) {
+            expect(rapidP2.value.results.map((r) => r.corporate_number)).toEqual(['1000000000010']);
+            expect(rapidP2.value.next_cursor).toBeNull();
+            expect(rapidP2.value.total_count).toBe(3);
+          }
+        }
+      });
     });
   },
 );

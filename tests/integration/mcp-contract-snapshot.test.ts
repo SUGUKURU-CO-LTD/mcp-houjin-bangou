@@ -63,21 +63,36 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
       expect(normalizeTool?.annotations?.openWorldHint).toBe(false);
 
       const numberMeta = numberTool?._meta as
-        | { ui?: { resourceUri?: string; visibility?: string[] }; 'ui/resourceUri'?: string }
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
         | undefined;
       const searchMeta = searchTool?._meta as
-        | { ui?: { resourceUri?: string; visibility?: string[] }; 'ui/resourceUri'?: string }
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
         | undefined;
       const invoiceMeta = invoiceTool?._meta as
-        | { ui?: { resourceUri?: string; visibility?: string[] }; 'ui/resourceUri'?: string }
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
         | undefined;
 
       expect(numberMeta?.ui?.resourceUri).toBe('ui://corporate-card/mcp-app.html');
       expect(numberMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(numberMeta?.['openai/outputTemplate']).toBe('ui://corporate-card/mcp-app.html');
       expect(searchMeta?.ui?.resourceUri).toBe('ui://search-results/mcp-app.html');
       expect(searchMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(searchMeta?.['openai/outputTemplate']).toBe('ui://search-results/mcp-app.html');
       expect(invoiceMeta?.ui?.resourceUri).toBe('ui://corporate-card/mcp-app.html');
       expect(invoiceMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(invoiceMeta?.['openai/outputTemplate']).toBe('ui://corporate-card/mcp-app.html');
       expect(validateTool?._meta).toBeUndefined();
       expect(normalizeTool?._meta).toBeUndefined();
     });
@@ -109,11 +124,12 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
 
       expect(response).toMatchSnapshot();
 
-      expect(response.prompts).toHaveLength(3);
+      expect(response.prompts).toHaveLength(4);
       const promptNames = response.prompts.map((p) => p.name).sort();
       expect(promptNames).toEqual([
         'company-master-record',
         'customer-master-dedup',
+        'invoice-verification-check',
         'sales-list-enrichment',
       ]);
 

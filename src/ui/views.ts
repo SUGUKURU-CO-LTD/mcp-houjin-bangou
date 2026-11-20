@@ -15,6 +15,7 @@ import {
 } from '@modelcontextprotocol/ext-apps';
 import {
   buildCorporateCardViewModel,
+  buildCorporateMasterCopyText,
   buildInvoiceCardViewModel,
   buildLookupByNumberArgs,
   buildLookupInvoiceArgs,
@@ -22,6 +23,9 @@ import {
   buildPaginatedSearchArgs,
   buildSearchResultsViewModel,
   buildSearchSimilarArgs,
+  extractQueryContextFromCursor,
+  extractReferenceDateFromContent,
+  extractSearchQueryFromContent,
   extractToolErrorViewModel,
   isInvoiceOutput,
   type CorporateCardViewModel,
@@ -467,10 +471,11 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
   }
 
   async function executeSimilarSearch(name: string): Promise<void> {
+    const args = buildSearchSimilarArgs(name);
+    const queryName = args.name;
     const signal = nextAbortSignal();
-    renderLoadingSkeleton(`「${name}」の類似商号を検索しています...`);
+    renderLoadingSkeleton(`「${queryName}」の類似商号を検索しています...`);
     try {
-      const args = buildSearchSimilarArgs(name);
       const res = await app.callServerTool(
         {
           name: 'search_corporate_by_name',
@@ -494,7 +499,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         {
           kind: 'search-results',
           output,
-          queryContext: { name },
+          queryContext: { name: queryName },
           pageHistory: [],
           filter: 'all',
         },
@@ -502,8 +507,8 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         '#search-similar',
       );
       const searchVm = buildSearchResultsViewModel(output);
-      void syncModelContext(`ユーザーが類似商号「${name}」を検索: ${searchVm.summary_text}`, {
-        search_query: name,
+      void syncModelContext(`ユーザーが類似商号「${queryName}」を検索: ${searchVm.summary_text}`, {
+        search_query: queryName,
         returned_count: searchVm.returned_count,
         total_count: searchVm.total_count,
       });
@@ -798,12 +803,25 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
       actions.appendChild(searchBtn);
     }
 
+    const inlineInvVm = state.inlineInvoice?.output
+      ? buildInvoiceCardViewModel(state.inlineInvoice.output)
+      : null;
+
     actions.appendChild(
       createCopyControl(
         'copy-number',
         '法人番号をコピー',
         vm.corporate_number,
         `法人番号 ${vm.corporate_number} をコピー`,
+      ),
+    );
+
+    actions.appendChild(
+      createCopyControl(
+        'copy-master-record',
+        'マスタ登録用に一括コピー',
+        buildCorporateMasterCopyText(vm, inlineInvVm),
+        `${vm.name} の取引先マスタ登録用情報を一括コピー`,
       ),
     );
 
@@ -1262,7 +1280,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     const activeCount = vm.results.filter((r) => r.status === 'active').length;
     const closedCount = vm.results.filter((r) => r.status === 'closed').length;
 
-    if (activeCount > 0 && closedCount > 0) {
+    if ((activeCount > 0 && closedCount > 0) || state.filter !== 'all') {
       const filterBar = document.createElement('div');
       filterBar.className = 'filter-bar';
       filterBar.setAttribute('role', 'group');
@@ -1319,6 +1337,16 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     thead.appendChild(headerRow);
 
     const tbody = document.createElement('tbody');
+    if (filteredRows.length === 0) {
+      const emptyTr = document.createElement('tr');
+      const emptyTd = document.createElement('td');
+      emptyTd.colSpan = colTitles.length;
+      emptyTd.className = 'empty';
+      emptyTd.textContent =
+        'このページには選択中の状態に該当する法人がありません（「すべて」を選択すると全件表示します）。';
+      emptyTr.appendChild(emptyTd);
+      tbody.appendChild(emptyTr);
+    }
     for (const item of filteredRows) {
       const tr = document.createElement('tr');
       tr.className = 'result-row';
@@ -1600,6 +1628,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     structuredContent?: Record<string, unknown>;
     content?: Array<{ type?: string; text?: string }>;
   }): void {
+    abortInFlight();
     hasReceivedResult = true;
     historyStack = [];
 
@@ -1613,9 +1642,10 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     const sc = (params.structuredContent ?? {}) as Record<string, unknown>;
     if (isInvoiceOutput(sc)) {
       const refDate =
-        typeof lastToolCall?.arguments['reference_date'] === 'string'
+        typeof lastToolCall?.arguments['reference_date'] === 'string' &&
+        lastToolCall.arguments['reference_date'] !== ''
           ? lastToolCall.arguments['reference_date']
-          : '';
+          : extractReferenceDateFromContent(params.content);
       currentState = {
         kind: 'invoice-card',
         output: sc,
@@ -1629,10 +1659,18 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
       options.defaultMode === 'search-results' ||
       (Array.isArray(sc['results']) && sc['corporation'] === undefined)
     ) {
+      const searchOut = sc as SearchCorporateOutput;
+      const recoveredContext =
+        initialSearchContext ??
+        extractQueryContextFromCursor(searchOut.next_cursor) ??
+        (() => {
+          const fromText = extractSearchQueryFromContent(params.content);
+          return fromText !== null ? { name: fromText } : null;
+        })();
       currentState = {
         kind: 'search-results',
-        output: sc as SearchCorporateOutput,
-        queryContext: initialSearchContext,
+        output: searchOut,
+        queryContext: recoveredContext,
         pageHistory: [],
         filter: 'all',
       };
@@ -1690,6 +1728,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
   });
 
   app.addEventListener('toolcancelled', (params) => {
+    abortInFlight();
     hasReceivedResult = true;
     historyStack = [];
     currentState = {

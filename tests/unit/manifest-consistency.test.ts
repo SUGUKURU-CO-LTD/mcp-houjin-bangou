@@ -8,6 +8,8 @@ import {
   PRODUCT_WEBSITE_URL,
   PUBLIC_BASE_URL,
   REPOSITORY_URL,
+  SERVER_ICONS,
+  SERVER_ICON_URL,
   SUPPORT_EMAIL,
 } from '../../src/config/product.js';
 import { buildServerCard, buildAiCatalog } from '../../src/server.js';
@@ -22,6 +24,7 @@ describe('Manifest & Metadata Consistency', () => {
     name: string;
     mcpName: string;
     version: string;
+    files: string[];
   }>('package.json');
   const serverJson = readJson<{
     $schema: string;
@@ -29,6 +32,7 @@ describe('Manifest & Metadata Consistency', () => {
     title: string;
     version: string;
     websiteUrl: string;
+    icons: Array<{ src: string; mimeType?: string; sizes?: string[] }>;
     repository: { url: string };
     remotes: Array<{ type: string; url: string }>;
     packages: Array<{
@@ -78,9 +82,20 @@ describe('Manifest & Metadata Consistency', () => {
     expect(serverJson.packages[0]?.identifier).toBe(SERVER_NAME);
     expect(pkg.name).toBe(SERVER_NAME);
 
-    const envDescriptions = JSON.stringify(serverJson.packages[0]?.environmentVariables ?? []);
+    const envVars = serverJson.packages[0]?.environmentVariables ?? [];
+    const envNames = envVars.map((e) => e.name);
+    expect(envNames).toContain('DATA_SOURCE');
+    expect(envNames).toContain('NTA_APPLICATION_ID');
+    expect(envNames).toContain('DATABASE_URL');
+
+    const envDescriptions = JSON.stringify(envVars);
     expect(envDescriptions).not.toContain('nta_api');
     expect(envDescriptions).toContain('web-api');
+
+    expect(serverJson.icons).toEqual(SERVER_ICONS);
+    expect(serverJson.icons[0]?.src).toBe(SERVER_ICON_URL);
+    expect(pkg.files).toContain('drizzle/*.sql');
+    expect(pkg.files).toContain('drizzle/meta/_journal.json');
   });
 
   it('ensures .well-known/mcp.json matches buildServerCard() and SEP-2127 fields + AI Catalog', () => {
@@ -92,6 +107,7 @@ describe('Manifest & Metadata Consistency', () => {
     expect(serverCardFile.name).toBe(MCP_SERVER_ID);
     expect(serverCardFile.title).toBe(PRODUCT_NAME_EN);
     expect(serverCardFile.websiteUrl).toBe(PRODUCT_WEBSITE_URL);
+    expect(serverCardFile.icons).toEqual(SERVER_ICONS);
 
     const maintainer = serverCardFile.maintainer as { email: string };
     expect(maintainer.email).toBe(SUPPORT_EMAIL);
@@ -123,6 +139,7 @@ describe('Manifest & Metadata Consistency', () => {
     }
     const author = pluginJson.author as Record<string, unknown>;
     expect(author.email).toBeUndefined();
+    expect(String(pluginJson.description ?? '')).not.toContain('公式');
 
     const agyEntry = agyMcpConfig.mcpServers['houjin-bangou'];
     expect(agyEntry?.url).toBe(`${PUBLIC_BASE_URL}/mcp`);

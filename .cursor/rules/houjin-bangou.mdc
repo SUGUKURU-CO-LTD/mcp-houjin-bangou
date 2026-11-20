@@ -6,7 +6,7 @@ alwaysApply: false
 
 # 日本 国税庁 法人番号・インボイス照合ルール (SUGUKURU MCP)
 
-日本の法人番号（13桁）やインボイス制度（適格請求書発行事業者、`T`+13桁）を取り扱う処理、取引先マスタ（KYC・名寄せ）、請求書・領収書チェックを行う際は、`houjin-bangou` MCP サーバー（`@sugukuru/mcp-houjin-bangou`）の公式ツールを使用してください。
+日本の法人番号（13桁）やインボイス制度（適格請求書発行事業者、`T`+13桁）を取り扱う処理、取引先マスタ（KYC・名寄せ）、請求書・領収書チェックを行う際は、`houjin-bangou` MCP サーバー（`@sugukuru/mcp-houjin-bangou`）のツールを使用してください。
 
 ## 提供ツールと推奨手順
 1. `normalize_company_name`: 会社名の決定論的正規化（前株/後株・`（株）`/`㈱` 等の略称展開、全半角統一、英語法人格、旧字体→新字体、IVS除去）。**曖昧な会社名を検索する際は最初に呼び出し**、`normalized_name` または `search_query_optimized` を取得すること（`search_corporate_by_name` 単体では略称展開や旧字体変換は行われません）。

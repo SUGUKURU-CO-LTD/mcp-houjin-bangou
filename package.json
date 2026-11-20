@@ -36,6 +36,8 @@
   },
   "files": [
     "dist",
+    "drizzle/*.sql",
+    "drizzle/meta/_journal.json",
     "README.md",
     "README.ja.md",
     "LICENSE",
@@ -48,9 +50,7 @@
   "scripts": {
     "build": "pnpm build:server && pnpm build:ui && pnpm build:csp",
     "build:server": "tsc -p tsconfig.build.json",
-    "build:ui:card": "node -e \"process.env.UI_ENTRY='corporate-card';import('vite').then(v=>v.build())\"",
-    "build:ui:results": "node -e \"process.env.UI_ENTRY='search-results';import('vite').then(v=>v.build())\"",
-    "build:ui": "pnpm build:ui:card && pnpm build:ui:results",
+    "build:ui": "vite build",
     "build:csp": "tsx scripts/compute-csp-hashes.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",

@@ -10,6 +10,7 @@ import { registerAllPrompts } from './prompts/index.js';
 import { registerCompletionHandler } from './completion/handler.js';
 import { createMcpLogger } from './lib/mcp-logger.js';
 import { SERVER_NAME, VERSION } from './version.js';
+import { PRODUCT_NAME_EN, PRODUCT_WEBSITE_URL, SERVER_ICONS } from './config/product.js';
 
 import type { DbCorporateDataProvider } from './repository/corporate-repository.js';
 import type { DbInvoiceDataProvider } from './repository/invoice-repository.js';
@@ -30,7 +31,10 @@ export function createServer(deps: ServerDeps): McpServer {
   const mcpServer = new McpServer(
     {
       name: SERVER_NAME,
+      title: PRODUCT_NAME_EN,
       version: VERSION,
+      websiteUrl: PRODUCT_WEBSITE_URL,
+      icons: SERVER_ICONS,
     },
     {
       capabilities: {

@@ -41,12 +41,17 @@
 
 ### 1. ホスト版（リモート Streamable HTTP）を利用する場合（推奨）
 
-事前の API キー取得やローカルプロセス起動は不要で、全 5 ツール（`lookup_invoice_issuer` を含む）を利用できます。各クライアントの設定ファイルに以下を追加して再起動してください。
+事前の API キー取得やローカルプロセス起動は不要で、全 5 ツール（`lookup_invoice_issuer` を含む）を利用できます。
+
+- **Claude Desktop / ChatGPT**: アプリ内の「設定 → コネクタ」から `https://houjin.mcp.sugu-kuru.co.jp/mcp` をカスタムコネクタとして追加してください（`claude_desktop_config.json` で設定する場合は [`claude-desktop-config.json`](claude-desktop-config.json) の `mcp-remote` 設定を使用します）。
+- **Claude Code**: `claude mcp add --transport http houjin-bangou https://houjin.mcp.sugu-kuru.co.jp/mcp`
+- **Cursor**:
 
 ```json
 {
   "mcpServers": {
     "houjin-bangou": {
+      "type": "streamable-http",
       "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }
@@ -62,11 +67,12 @@
    NTA_APPLICATION_ID="<あなたのアプリケーションID>" npx @sugukuru/mcp-houjin-bangou
    ```
    ※ `DATA_SOURCE=web-api`（既定）では UC-1, UC-2, UC-4, UC-5 が利用可能です（UC-3 のインボイス照会はホスト版または `DATA_SOURCE=db` が必要です）。
-3. クライアント設定（`claude-desktop-config.json` や `cursor-mcp.json`）で以下を設定して再起動します:
+3. クライアント設定（`cursor-mcp.json` や `claude-desktop-config.json`）で以下を設定して再起動します:
    ```json
    {
      "mcpServers": {
        "houjin-bangou-local": {
+         "type": "streamable-http",
          "url": "http://localhost:3001/mcp"
        }
      }

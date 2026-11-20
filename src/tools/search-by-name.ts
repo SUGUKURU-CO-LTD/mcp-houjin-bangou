@@ -40,7 +40,9 @@ const InputSchema = z
       .string()
       .min(1, '検索する法人名を指定してください')
       .max(100, '法人名は100文字以内で指定してください')
-      .describe("Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')"),
+      .describe(
+        "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
+      ),
     prefecture: z
       .string()
       .regex(/^(0[1-9]|[1-3][0-9]|4[0-7])$/, '都道府県コードは01〜47の2桁で指定してください')
@@ -129,6 +131,7 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
           resourceUri: 'ui://search-results/mcp-app.html',
           visibility: ['model', 'app'],
         },
+        'openai/outputTemplate': 'ui://search-results/mcp-app.html',
       },
       annotations: {
         title: annotations.title,

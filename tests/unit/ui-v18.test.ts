@@ -24,6 +24,7 @@ import {
   INDIVIDUAL_PRIVACY_NOTICE,
   INVOICE_NOT_FOUND_NOTICE,
   buildCorporateCardViewModel,
+  buildCorporateMasterCopyText,
   buildInvoiceCardViewModel,
   buildLookupByNumberArgs,
   buildLookupInvoiceArgs,
@@ -31,6 +32,9 @@ import {
   buildPaginatedSearchArgs,
   buildSearchResultsViewModel,
   buildSearchSimilarArgs,
+  extractQueryContextFromCursor,
+  extractReferenceDateFromContent,
+  extractSearchQueryFromContent,
   extractToolErrorViewModel,
   formatPostalCodeDisplay,
   isInvoiceOutput,
@@ -208,11 +212,33 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
     expect(typeof structured.attribution).toBe('string');
     expect(vm.attribution).toBe(structured.attribution);
 
-    expect(vm.search_similar_args).toEqual({ name: '株式会社検索対象除外' });
+    expect(vm.search_similar_args).toEqual({ name: '検索対象除外' });
     expect(Object.keys(vm.search_similar_args)).toEqual(['name']);
     expect(buildSearchSimilarArgs('株式会社検索対象除外')).toEqual({
-      name: '株式会社検索対象除外',
+      name: '検索対象除外',
     });
+    expect(buildSearchSimilarArgs('スグクル株式会社')).toEqual({
+      name: 'スグクル',
+    });
+    expect(buildSearchSimilarArgs('医療法人社団葵会')).toEqual({
+      name: '葵会',
+    });
+    expect(buildSearchSimilarArgs('Ａｐｐｌｅ\u3000Ｊａｐａｎ合同会社')).toEqual({
+      name: 'Ａｐｐｌｅ\u3000Ｊａｐａｎ',
+    });
+    // 法人格単独の場合は空文字にせず元の文字列を維持する
+    expect(buildSearchSimilarArgs('株式会社')).toEqual({
+      name: '株式会社',
+    });
+
+    // 取引先マスタ登録用・一括コピー文字列（TSV）の検証
+    const masterCopy = buildCorporateMasterCopyText(vm);
+    expect(masterCopy).toContain('商号又は名称\t株式会社検索対象除外');
+    expect(masterCopy).toContain('フリガナ\tカブシキガイシャケンサクタイショウジョガイ');
+    expect(masterCopy).toContain('法人番号\t5111101000006');
+    expect(masterCopy).toContain('郵便番号\t100-0000');
+    expect(masterCopy).toContain('本店所在地\t東京都千代田区神田小川町');
+    expect(masterCopy).toContain('データ時点\t2019-04-05');
   });
 
   it('builds corporate-card view model from lookup_corporate_by_number output (closed corporation & successor_corporate_number)', async () => {
@@ -330,6 +356,32 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
       limit: 10,
       cursor: pagedVm.next_cursor,
     });
+
+    // toolinput 無しで toolresult 単体が届いた場合の next_cursor / content からの復元検証
+    expect(extractQueryContextFromCursor(pagedVm.next_cursor)).toEqual({
+      name: '多数件',
+    });
+    const prefRes = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '多数件', prefecture: '46', limit: 5 },
+    });
+    const prefSc = prefRes.structuredContent as SearchCorporateOutput;
+    expect(extractQueryContextFromCursor(prefSc.next_cursor)).toEqual({
+      name: '多数件',
+      prefecture: '46',
+    });
+    expect(extractQueryContextFromCursor('not-valid-base64-json')).toBeNull();
+    expect(extractQueryContextFromCursor(null)).toBeNull();
+    expect(
+      extractSearchQueryFromContent([
+        { type: 'text', text: '「スグクル」の検索結果です（全 1 件中 1 件を表示）。' },
+      ]),
+    ).toBe('スグクル');
+    expect(
+      extractReferenceDateFromContent([
+        { type: 'text', text: '基準日（2026-10-01）時点で有効な登録事業者でした。' },
+      ]),
+    ).toBe('2026-10-01');
   });
 
   it('builds invoice-card view model across corporation, individual (PII-protected), cancelled, and not_found states', () => {
@@ -479,6 +531,7 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
     const uiFiles = [
       path.join(REPO_ROOT, 'src/ui/shared.ts'),
       path.join(REPO_ROOT, 'src/ui/views.ts'),
+      path.join(REPO_ROOT, 'src/ui/main.ts'),
       path.join(REPO_ROOT, 'src/ui/corporate-card/main.ts'),
       path.join(REPO_ROOT, 'src/ui/search-results/main.ts'),
     ];
@@ -488,6 +541,7 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
       expect(code).not.toContain('insertAdjacentHTML');
     }
 
+    const sharedMain = fs.readFileSync(path.join(REPO_ROOT, 'src/ui/main.ts'), 'utf-8');
     const cardMain = fs.readFileSync(
       path.join(REPO_ROOT, 'src/ui/corporate-card/main.ts'),
       'utf-8',
@@ -496,8 +550,16 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
       path.join(REPO_ROOT, 'src/ui/search-results/main.ts'),
       'utf-8',
     );
+    expect(sharedMain).toContain('version: VERSION');
     expect(cardMain).toContain('version: VERSION');
     expect(searchMain).toContain('version: VERSION');
+
+    const stylesCss = fs.readFileSync(path.join(REPO_ROOT, 'src/ui/styles.css'), 'utf-8');
+    expect(stylesCss).not.toContain('75vh');
+    expect(stylesCss).not.toContain('78vh');
+    expect(stylesCss).toContain(":root[data-theme='light']");
+    expect(stylesCss).toContain('color-scheme: light;');
+    expect(stylesCss).toContain('color-scheme: dark;');
   });
 
   it('computes exact SHA-256 CSP hashes and keeps <meta charset> first in <head>', () => {
@@ -533,10 +595,12 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
   });
 
   it('loads UI HTML resources via import.meta.url even when process.cwd() is a different directory', async () => {
-    const hasBuiltCard = fs.existsSync(path.join(REPO_ROOT, 'dist/ui/corporate-card/mcp-app.html'));
-    const hasBuiltSearch = fs.existsSync(
-      path.join(REPO_ROOT, 'dist/ui/search-results/mcp-app.html'),
-    );
+    const sharedDistPath = path.join(REPO_ROOT, 'dist/ui/mcp-app.html');
+    const hasBuiltShared = fs.existsSync(sharedDistPath);
+    if (hasBuiltShared) {
+      const stat = fs.statSync(sharedDistPath);
+      expect(stat.size).toBeLessThan(600_000);
+    }
 
     const originalCwd = process.cwd();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'houjin-ui-cwd-test-'));
@@ -548,16 +612,20 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
       const cardText = (cardRes.contents[0] as { text?: string })?.text ?? '';
       expect(cardText.toLowerCase()).toContain('<!doctype html>');
       expect(cardText).toContain('http-equiv="Content-Security-Policy"');
-      if (hasBuiltCard) {
+      expect(cardText).toContain('name="text-scale" content="scale"');
+      if (hasBuiltShared) {
         expect(cardText).not.toContain('is not built yet');
+        expect(cardText).toContain('data-default-mode="corporate-card"');
       }
 
       const searchRes = await client.readResource({ uri: 'ui://search-results/mcp-app.html' });
       const searchText = (searchRes.contents[0] as { text?: string })?.text ?? '';
       expect(searchText.toLowerCase()).toContain('<!doctype html>');
       expect(searchText).toContain('http-equiv="Content-Security-Policy"');
-      if (hasBuiltSearch) {
+      expect(searchText).toContain('name="text-scale" content="scale"');
+      if (hasBuiltShared) {
         expect(searchText).not.toContain('is not built yet');
+        expect(searchText).toContain('data-default-mode="search-results"');
       }
     } finally {
       process.chdir(originalCwd);

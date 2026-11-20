@@ -49,6 +49,28 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > prompts/list snapshots and inv
       "name": "customer-master-dedup",
       "title": "Customer master dedup via NTA corporate number",
     },
+    {
+      "arguments": [
+        {
+          "description": "請求書・領収書に記載された適格請求書発行事業者登録番号（例: T9340001026142） / Invoice registration number on the invoice (e.g., 'T9340001026142')",
+          "name": "registration_number",
+          "required": true,
+        },
+        {
+          "description": "請求書・領収書の取引年月日（YYYY-MM-DD形式、任意） / Optional transaction date in YYYY-MM-DD format",
+          "name": "transaction_date",
+          "required": false,
+        },
+        {
+          "description": "請求書に記載された発行元法人名（商号の一致確認用、任意。個人氏名は入力しないでください） / Optional corporate issuer name on the invoice for cross-checking",
+          "name": "issuer_name",
+          "required": false,
+        },
+      ],
+      "description": "受領した請求書・領収書の適格請求書発行事業者登録番号（T番号）・取引年月日・発行元法人名をもとに、国税庁公表データ上の登録状態と法人の存続・承継状況を一括照合し、確認記録を生成します。※個人の連絡先情報は入力しないでください。",
+      "name": "invoice-verification-check",
+      "title": "Invoice & corporate verification check for received invoices",
+    },
   ],
 }
 `;
@@ -75,6 +97,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
   "tools": [
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
           "visibility": [
@@ -221,6 +244,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://search-results/mcp-app.html",
         "ui": {
           "resourceUri": "ui://search-results/mcp-app.html",
           "visibility": [
@@ -257,7 +281,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "integer",
           },
           "name": {
-            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "description": "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
             "maxLength": 100,
             "minLength": 1,
             "type": "string",
@@ -370,6 +394,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
           "visibility": [
@@ -638,6 +663,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
   "tools": [
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
           "visibility": [
@@ -784,6 +810,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://search-results/mcp-app.html",
         "ui": {
           "resourceUri": "ui://search-results/mcp-app.html",
           "visibility": [
@@ -820,7 +847,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "integer",
           },
           "name": {
-            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "description": "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
             "maxLength": 100,
             "minLength": 1,
             "type": "string",
@@ -933,6 +960,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
           "visibility": [

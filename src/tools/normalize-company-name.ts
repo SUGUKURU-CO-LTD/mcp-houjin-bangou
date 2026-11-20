@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { normalizeCompanyName, type KindHint } from '../domain/normalizer.js';
+import { applyOldToNew, normalizeCompanyName, type KindHint } from '../domain/normalizer.js';
 import { getToolAnnotations } from '../domain/tool-annotations.js';
 import { createSuccessResponse } from '../lib/tool-response.js';
 
@@ -69,74 +69,6 @@ const EXPANDABLE_CORPORATE_KIND_HINTS = new Set<KindHint>([
   'npo_hojin',
 ]);
 
-const OLD_TO_NEW_KANJI: Readonly<Record<string, string>> = {
-  髙: '高',
-  﨑: '崎',
-  齋: '斎',
-  齊: '斉',
-  濵: '浜',
-  濱: '浜',
-  德: '徳',
-  眞: '真',
-  曻: '昇',
-  晄: '晃',
-  淸: '清',
-  廣: '広',
-  禮: '礼',
-  藪: '薮',
-  邉: '辺',
-  邊: '辺',
-  澤: '沢',
-  國: '国',
-  團: '団',
-  寳: '宝',
-  寶: '宝',
-  應: '応',
-  靑: '青',
-  權: '権',
-  氣: '気',
-  專: '専',
-  單: '単',
-  學: '学',
-  樂: '楽',
-  劍: '剣',
-  續: '続',
-  圖: '図',
-  鐵: '鉄',
-  齒: '歯',
-  歷: '歴',
-  藝: '芸',
-  戰: '戦',
-  驛: '駅',
-  檢: '検',
-  營: '営',
-  舊: '旧',
-  醫: '医',
-  號: '号',
-  獨: '独',
-  讀: '読',
-  變: '変',
-  體: '体',
-  會: '会',
-  社: '社',
-  櫻: '桜',
-  栁: '柳',
-  壽: '寿',
-  榮: '栄',
-  實: '実',
-  總: '総',
-};
-
-function applyOldToNewKanji(text: string): string {
-  let out = text;
-  for (const [oldChar, newChar] of Object.entries(OLD_TO_NEW_KANJI)) {
-    if (out.includes(oldChar)) {
-      out = out.split(oldChar).join(newChar);
-    }
-  }
-  return out;
-}
-
 export function registerNormalizeCompanyNameTool(server: McpServer): void {
   const annotations = getToolAnnotations('normalize_company_name', 'web-api');
 
@@ -162,7 +94,7 @@ export function registerNormalizeCompanyNameTool(server: McpServer): void {
       const topCandidate = result.normalized_candidates[0];
       const legalType = topCandidate ? (KIND_HINT_TO_LABEL[topCandidate.kind_hint] ?? null) : null;
       const rawCoreName = result.extracted_core_name || raw_name.trim().normalize('NFKC');
-      const searchQueryOptimized = applyOldToNewKanji(rawCoreName);
+      const searchQueryOptimized = applyOldToNew(rawCoreName);
 
       // (株) などの略称を正式名称に展開した商号を生成（汎用区分ラベルは上書きしない）
       let normalizedName = topCandidate?.name ?? searchQueryOptimized;

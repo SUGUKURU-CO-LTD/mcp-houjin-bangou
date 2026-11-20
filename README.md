@@ -2,6 +2,8 @@
 
 > **Model Context Protocol (MCP) server for looking up and verifying Japanese Corporate Numbers (法人番号) and Qualified Invoice Issuers (適格請求書発行事業者) published by the National Tax Agency of Japan.**
 
+[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-111111?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=houjin-bangou&config=eyJ1cmwiOiJodHRwczovL2hvdWppbi5tY3Auc3VndS1rdXJ1LmNvLmpwL21jcCJ9)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=houjin-bangou&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fhoujin.mcp.sugu-kuru.co.jp%2Fmcp%22%7D)
 [![npm version](https://img.shields.io/npm/v/@sugukuru/mcp-houjin-bangou.svg)](https://www.npmjs.com/package/@sugukuru/mcp-houjin-bangou)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml/badge.svg)](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/actions/workflows/ci.yml)
@@ -10,15 +12,36 @@
 🇯🇵 日本語版 README: [README.ja.md](README.ja.md)  
 🔗 Official Product Pages: [Product Overview](https://sugu-kuru.co.jp/mcp/houjin) | [Terms of Service](https://sugu-kuru.co.jp/mcp/houjin/terms) | [Privacy Policy](https://sugu-kuru.co.jp/mcp/houjin/privacy)
 
+![MCP Apps Interactive UI Preview](assets/ui-showcase.svg)
+
+## Quick Connect (Zero API Key — Hosted Edition)
+
+Connect immediately to **`https://houjin.mcp.sugu-kuru.co.jp/mcp`** (all 5 tools + 4 prompts + interactive MCP Apps UI):
+
+- **Claude Code (1 command)**:
+  ```bash
+  claude mcp add --transport http houjin-bangou https://houjin.mcp.sugu-kuru.co.jp/mcp
+  ```
+- **Google Antigravity (AGY)**:
+  ```bash
+  agy plugin install https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
+  ```
+- **Claude Desktop / Claude.ai / ChatGPT (Web & Desktop UI)**:
+  1. Open **Settings** → **Connectors** (or **Apps & Connectors**) → **Add Custom Connector**.
+  2. Enter Server URL: `https://houjin.mcp.sugu-kuru.co.jp/mcp` (no authentication required).
+  3. Start asking about any Japanese company name, 13-digit corporate number, or `T`+13-digit invoice number!
+
+---
+
 ## Overview
 
 An MCP server that enables Claude, ChatGPT, Cursor, Google Antigravity, VS Code Copilot, and any MCP-compatible client to:
 
 1. **Look up a Japanese corporation** by its 13-digit National Corporate Number (`lookup_corporate_by_number`), returning published name, furigana, head-office address, postal code, legal type, closure status/cause, successor corporate number (`successor_corporate_number`), and outdated-address flag (`address_may_be_outdated`).
-2. **Search corporations by name** (`search_corporate_by_name`) with optional 2-digit JIS prefecture filter (`01`–`47`), cursor-based pagination, and half-width/full-width ASCII matching in Hosted DB mode (use `normalize_company_name` first to canonicalize abbreviated or variant company names).
+2. **Search corporations by name** (`search_corporate_by_name`) with optional 2-digit JIS prefecture filter (`01`–`47`), cursor-based pagination, 2-stage exact/active-first ranking, and automatic expansion across half/full-width ASCII & spaces (`Apple Japan` ⇔ `Ａｐｐｌｅ　Ｊａｐａｎ`), old/new kanji (`野村証券` ⇔ `野村證券`, `高橋` ⇔ `髙橋`), small/large katakana (`キャノン` ⇔ `キヤノン`, `富士フィルム` ⇔ `富士フイルム`), and hiragana-to-katakana (`すぐくる` → `スグクル`) in Hosted DB mode.
 3. **Verify a Qualified Invoice Issuer** by registration number (`lookup_invoice_issuer`, `T` + 13 digits), with optional factual registration check as of a specified reference date (`reference_date` → `was_registered_on_reference_date`).
 4. **Validate check digits locally** (`validate_corporate_number`) with zero external network calls.
-5. **Normalize fuzzy company names** (`normalize_company_name`) deterministically across Japanese corporate-name patterns (expansion and position swaps of `(株)` / `㈱` / `株式会社` and other legal entities, English-to-Japanese suffixes such as `K.K.` / `Co., Ltd.` / `LLC`, NFKC, old-to-new kanji variants like `髙→高` / `﨑→崎`, IVS stripping, and whitespace canonicalization).
+5. **Normalize fuzzy company names** (`normalize_company_name`) deterministically across Japanese corporate-name patterns (expansion and position swaps of `(株)` / `㈱` / `株式会社` and other legal entities, English-to-Japanese suffixes such as `K.K.` / `Co., Ltd.` / `LLC`, NFKC, 74 old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
 
 ---
 
@@ -28,13 +51,13 @@ An MCP server that enables Claude, ChatGPT, Cursor, Google Antigravity, VS Code 
 
 - Serves all 5 tools (including `lookup_invoice_issuer`) from a PostgreSQL 16 (`pg_trgm`) database populated monthly from the National Tax Agency's public bulk download datasets (all-records CSVs for Corporate Numbers and Qualified Invoice Issuers).
 - Requires zero API keys for end users and does not use an NTA Web-API Application ID at runtime.
-- Enforces `Origin` header allowlist verification, per-IP rate limiting (`Retry-After`), and 3-role database privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`).
+- Enforces `/mcp` `Origin` header allowlist verification, per-IP rate limiting (`Retry-After`), and 3-role database privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`).
 
 ### 2. Local / Self-Hosted Mode (HTTP)
 
 - Runs locally as a Streamable HTTP server (default port `3001`) using either:
   - **NTA Web-API mode (`DATA_SOURCE=web-api`, default)**: Uses your own NTA Web-API Application ID (`NTA_APPLICATION_ID`) for corporate number lookups and searches. Note that `lookup_invoice_issuer` is not available in `web-api` mode (returns `DATA_UNAVAILABLE`) and requires `DATA_SOURCE=db` or the Hosted Edition.
-  - **Local PostgreSQL mode (`DATA_SOURCE=db`)**: Connects to your own PostgreSQL 16 database (`DATABASE_URL`) populated via the bundled ingestion CLI (`src/ingest/cli.ts`), enabling all 5 tools locally.
+  - **Local PostgreSQL mode (`DATA_SOURCE=db`)**: Connects to your own PostgreSQL 16 database (`DATABASE_URL`) migrated via `npx @sugukuru/mcp-houjin-bangou` (`npm run db:migrate`) and populated via the bundled ingestion CLI (`src/ingest/cli.ts`), enabling all 5 tools locally.
 
 ```bash
 # Run in local NTA Web-API mode (default port: 3001)
@@ -43,28 +66,7 @@ NTA_APPLICATION_ID="YOUR_NTA_APPLICATION_ID" npx @sugukuru/mcp-houjin-bangou
 
 #### MCP Client Configuration Examples
 
-##### Hosted Edition (Remote Streamable HTTP — Recommended)
-```json
-{
-  "mcpServers": {
-    "houjin-bangou": {
-      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
-    }
-  }
-}
-```
-
-##### Google Antigravity (AGY) Plugin
-If you use Google Antigravity CLI or IDE, install this repository directly as an AGY plugin:
-```bash
-# Install with 1 command
-agy plugin install https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
-```
-Alternatively, place it in your local Antigravity plugins directory (`~/.gemini/config/plugins/`). It automatically loads `skills/lookup-japan-corporate/SKILL.md`, `rules/AGENTS.md`, and the hosted endpoint configured in `mcp_config.json`.
-
-##### Cursor IDE / Composer
-This repository includes `.cursor/mcp.json` and `.cursor/rules/houjin-bangou.mdc` out of the box.
-To use in your own projects, add the following to `.cursor/mcp.json` (or `~/.cursor/mcp.json`):
+##### Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`)
 ```json
 {
   "mcpServers": {
@@ -76,19 +78,45 @@ To use in your own projects, add the following to `.cursor/mcp.json` (or `~/.cur
 }
 ```
 
-##### Local HTTP Mode (Self-Hosted)
-After starting the local HTTP server in a terminal with the command above, point your MCP client to `http://localhost:3001/mcp` (do not configure `"command": "npx"` as a stdio transport):
+##### Claude Code (`.mcp.json` or `~/.claude.json`)
 ```json
 {
   "mcpServers": {
-    "houjin-bangou-local": {
-      "url": "http://localhost:3001/mcp"
+    "houjin-bangou": {
+      "type": "http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }
 }
 ```
 
-See [`examples/`](examples/) for Claude Desktop and Cursor configurations.
+##### VS Code (`.vscode/mcp.json`)
+```json
+{
+  "servers": {
+    "houjin-bangou": {
+      "type": "http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
+    }
+  }
+}
+```
+
+##### Claude Desktop (`claude_desktop_config.json` fallback)
+Prefer adding `https://houjin.mcp.sugu-kuru.co.jp/mcp` via **Settings → Connectors** in Claude Desktop. If your environment requires `claude_desktop_config.json` (which expects a local `command` entry rather than a bare `url`), bridge via `mcp-remote`:
+```json
+{
+  "mcpServers": {
+    "houjin-bangou": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://houjin.mcp.sugu-kuru.co.jp/mcp"]
+    }
+  }
+}
+```
+
+##### Local HTTP Mode (Self-Hosted)
+After starting the local HTTP server in a terminal (`http://localhost:3001/mcp`), connect using `"type": "streamable-http"` (Cursor) or `"type": "http"` (Claude Code / VS Code), or `"args": ["-y", "mcp-remote", "http://localhost:3001/mcp"]` in `claude_desktop_config.json` (do not pass `@sugukuru/mcp-houjin-bangou` directly as a stdio `"command"`). See [`examples/`](examples/) for complete sample files.
 
 ---
 
@@ -109,15 +137,16 @@ See [`examples/`](examples/) for Claude Desktop and Cursor configurations.
 
 ---
 
-## Prompts (3) & MCP Apps UI Resources (2)
+## Prompts (4) & MCP Apps UI Resources (2)
 
 - **Prompts**:
+  - `invoice-verification-check`: Verify a received invoice's `T`+13-digit registration number, transaction date (`reference_date`), and corporate existence/merger succession in one step, producing a factual accounting verification record (no tax advice; no personal contact fields).
   - `company-master-record`: Normalize a company name, search NTA records, and format a clean corporate master entry (strictly corporate data only; no personal contact fields).
   - `sales-list-enrichment`: Enrich a list of company names (up to 20 per request) with 13-digit corporate numbers and published head-office addresses.
   - `customer-master-dedup`: Detect duplicate customer master records caused by notation variants, mergers, or relocations.
-- **MCP Apps UI Resources (`@modelcontextprotocol/ext-apps` v1.7)**:
-  - `ui://corporate-card/mcp-app.html`: Interactive card view for both `lookup_corporate_by_number` (Corporate Card with copy button, similar-name search, successor drill-down, and one-click Qualified Invoice cross-check + reference-date picker) and `lookup_invoice_issuer` (Invoice Verification Card with corporate profile link).
-  - `ui://search-results/mcp-app.html`: Responsive table/card view for `search_corporate_by_name` with status filter pills, interactive `next_cursor` pagination, view-history back navigation, and `updateModelContext` synchronization.
+- **MCP Apps UI Resources (`@modelcontextprotocol/ext-apps` v1.7 + ChatGPT `openai/outputTemplate`)**:
+  - `ui://corporate-card/mcp-app.html`: Interactive card view for both `lookup_corporate_by_number` (Corporate Card with corporate-number copy, **one-click TSV Vendor Master bulk copy** for Excel/ERP/kintone, core-name similar-company search, successor drill-down, and one-click Qualified Invoice cross-check + reference-date picker) and `lookup_invoice_issuer` (Invoice Verification Card with corporate profile link).
+  - `ui://search-results/mcp-app.html`: Responsive table/card view for `search_corporate_by_name` with status filter pills, interactive `next_cursor` pagination, view-history back navigation, OS text-scale adaptation, and `updateModelContext` synchronization.
   - Every tool also returns complete human-readable text (`content`) and machine-readable `structuredContent`, so headless CLI or non-UI clients fulfill all workflows without loss of information.
 
 ---

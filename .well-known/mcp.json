@@ -5,6 +5,15 @@
   "version": "1.1.0",
   "description": "MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.",
   "websiteUrl": "https://sugu-kuru.co.jp/mcp/houjin",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/main/assets/logo.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
   "repository": {
     "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
     "source": "github"
@@ -81,7 +90,8 @@
     "prompts": [
       "company-master-record",
       "sales-list-enrichment",
-      "customer-master-dedup"
+      "customer-master-dedup",
+      "invoice-verification-check"
     ],
     "resource_templates": [],
     "resources": [

@@ -3,6 +3,7 @@ import type { DataSourceMode } from '../domain/tool-annotations.js';
 import { registerCompanyMasterRecordPrompt } from './company-master-record.js';
 import { registerSalesListEnrichmentPrompt } from './sales-list-enrichment.js';
 import { registerCustomerMasterDedupPrompt } from './customer-master-dedup.js';
+import { registerInvoiceVerificationCheckPrompt } from './invoice-verification-check.js';
 
 export interface PromptDeps {
   dataSource?: DataSourceMode;
@@ -13,4 +14,5 @@ export function registerAllPrompts(server: McpServer, deps?: PromptDeps): void {
   registerCompanyMasterRecordPrompt(server, { dataSource });
   registerSalesListEnrichmentPrompt(server, { dataSource });
   registerCustomerMasterDedupPrompt(server, { dataSource });
+  registerInvoiceVerificationCheckPrompt(server, { dataSource });
 }

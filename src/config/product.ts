@@ -29,3 +29,16 @@ export const REPOSITORY_URL = 'https://github.com/SUGUKURU-CO-LTD/mcp-houjin-ban
 
 /** サポート連絡先（決定済み） */
 export const SUPPORT_EMAIL = 'info@sugu-kuru.co.jp';
+
+/** サーバーアイコンURL（HTTPS 固定・512x512 PNG） */
+export const SERVER_ICON_URL =
+  'https://raw.githubusercontent.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/main/assets/logo.png';
+
+/** MCP Implementation / Registry / Server Card 共通アイコン定義 */
+export const SERVER_ICONS = [
+  {
+    src: SERVER_ICON_URL,
+    mimeType: 'image/png',
+    sizes: ['512x512'],
+  },
+];

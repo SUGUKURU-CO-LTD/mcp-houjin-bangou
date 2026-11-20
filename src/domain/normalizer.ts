@@ -119,6 +119,7 @@ const OLD_TO_NEW: Record<string, string> = {
   變: '変',
   體: '体',
   會: '会',
+  社: '社',
   證: '証',
   栁: '柳',
   櫻: '桜',
@@ -131,6 +132,7 @@ const OLD_TO_NEW: Record<string, string> = {
   榮: '栄',
   實: '実',
   壽: '寿',
+  總: '総',
   澁: '渋',
   澀: '渋',
   關: '関',
@@ -678,6 +680,8 @@ function detectEnglishKind(text: string): EnglishDetection {
   return { hint: null, stripped: text, matchedSuffix: null };
 }
 
+export const OLD_TO_NEW_KANJI: Readonly<Record<string, string>> = OLD_TO_NEW;
+
 export function applyOldToNew(text: string): string {
   let result = text;
   for (const [oldChar, newChar] of Object.entries(OLD_TO_NEW)) {
@@ -686,4 +690,33 @@ export function applyOldToNew(text: string): string {
     }
   }
   return result;
+}
+
+/**
+ * ひらがな (U+3041..U+3096) をカタカナ (U+30A1..U+30F6) に変換する
+ */
+export function hiraganaToKatakana(text: string): string {
+  return text.replace(/[\u3041-\u3096]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+}
+
+/**
+ * 先頭・末尾の法人格（略称・旧字体を含む）を最長一致で除去し、コア商号と法人格有無を返す
+ */
+export function stripCorporateKind(raw: string): { core: string; hadKind: boolean } {
+  const normalized = raw.trim().normalize('NFKC');
+  if (normalized.length === 0) {
+    return { core: '', hadKind: false };
+  }
+  const direct = detectKind(normalized);
+  if (direct.entry !== null && direct.rawPosition !== 'none') {
+    return { core: stripKindFromName(normalized, direct), hadKind: true };
+  }
+  const newForm = applyOldToNew(normalized);
+  if (newForm !== normalized) {
+    const onNew = detectKind(newForm);
+    if (onNew.entry !== null && onNew.rawPosition !== 'none') {
+      return { core: stripKindFromName(newForm, onNew), hadKind: true };
+    }
+  }
+  return { core: raw.trim(), hadKind: false };
 }
