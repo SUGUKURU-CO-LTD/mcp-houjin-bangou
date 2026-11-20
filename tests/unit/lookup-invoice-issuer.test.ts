@@ -16,6 +16,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerLookupInvoiceIssuerTool } from '../../src/tools/lookup-invoice-issuer.js';
+import { normalizeAndValidateCorporateNumber } from '../../src/domain/check-digit.js';
+import { normalizeAndValidateInvoiceNumber } from '../../src/domain/invoice-number.js';
 import type {
   DbInvoiceDataProvider,
   LookupInvoiceIssuerResult,
@@ -359,6 +361,67 @@ describe('lookup_invoice_issuer tool unit tests', () => {
       expect(summaryText).toContain('事業者区分: 個人事業者');
       expect(summaryText).not.toContain('所在地:');
       expect(summaryText).toContain(INVOICE_TAX_DISCLAIMER);
+    });
+
+    it('個人事業者 (T直後が0始まり・法人番号モジュラス9不一致の T0123456789012 / T1234567890123): normalizeAndValidateInvoiceNumber と lookup_invoice_issuer が一貫して受理すること', async () => {
+      for (const solePropNumber of ['T0123456789012', 'T1234567890123']) {
+        const digitsPart = solePropNumber.slice(1);
+        // 法人番号としては不正（先頭0 または モジュラス9不一致）であることを前提確認
+        expect(normalizeAndValidateCorporateNumber(digitsPart).isValid).toBe(false);
+        // インボイス登録番号としては既定 (^T\d{13}$) で有効であること
+        const domainCheck = normalizeAndValidateInvoiceNumber(solePropNumber);
+        expect(domainCheck).toEqual({
+          isValid: true,
+          normalized: solePropNumber,
+          corporateNumberPart: digitsPart,
+        });
+
+        const mockResult: LookupInvoiceIssuerResult = {
+          registration_number: solePropNumber,
+          status: 'registered',
+          business_type: 'individual',
+          registration_date: '2023-10-01',
+          cancellation_date: null,
+          expiration_date: null,
+          corporate_name: null,
+          location: null,
+          was_registered_on_reference_date: true,
+          data_as_of: '2026-10-01',
+          attribution: NTA_INVOICE_HOST_ATTRIBUTION,
+          tax_disclaimer: INVOICE_TAX_DISCLAIMER,
+        };
+
+        const mockProvider: DbInvoiceDataProvider = {
+          mode: 'db',
+          lookupByRegistrationNumber: vi.fn().mockResolvedValue(Result.ok(mockResult)),
+        } as unknown as DbInvoiceDataProvider;
+
+        const client = await createTestClient({ invoiceDbProvider: mockProvider });
+        const result = await client.callTool({
+          name: 'lookup_invoice_issuer',
+          arguments: {
+            registration_number: solePropNumber,
+            reference_date: '2025-04-01',
+          },
+        });
+
+        expect(result.isError).toBeFalsy();
+        const sc = result.structuredContent as Record<string, unknown>;
+        expect(sc.registration_number).toBe(solePropNumber);
+        expect(sc.status).toBe('registered');
+        expect(sc.business_type).toBe('individual');
+        expect(sc.corporate_name).toBeNull();
+        expect(sc.location).toBeNull();
+        expect(sc.was_registered_on_reference_date).toBe(true);
+
+        const summaryText = (result.content as Array<{ text: string }>)[0]?.text;
+        expect(summaryText).toContain(`登録番号: ${solePropNumber}`);
+        expect(summaryText).toContain('事業者区分: 個人事業者');
+        expect(summaryText).not.toContain('所在地:');
+
+        const logString = JSON.stringify(loggedPayloads);
+        expect(logString).not.toContain(digitsPart);
+      }
     });
 
     it('取消 (cancelled): status: cancelled と取消日を返却すること', async () => {

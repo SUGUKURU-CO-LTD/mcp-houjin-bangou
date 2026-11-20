@@ -43,8 +43,7 @@ const rows = bench.tasks.map((task) => {
   const latency = result?.latency;
   return {
     task: task.name,
-    'ops/sec':
-      throughput === undefined ? 'n/a' : Math.round(throughput.mean).toLocaleString(),
+    'ops/sec': throughput === undefined ? 'n/a' : Math.round(throughput.mean).toLocaleString(),
     'mean (us)': latency === undefined ? 'n/a' : (latency.mean * 1000).toFixed(3),
     'p99 (us)': latency === undefined ? 'n/a' : (latency.p99 * 1000).toFixed(3),
   };

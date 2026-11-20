@@ -17,6 +17,7 @@ import {
   NTA_INVOICE_HOST_ATTRIBUTION,
   INVOICE_TAX_DISCLAIMER,
 } from '../../src/lib/tool-response.js';
+import { buildCorporateCardViewModel, type LookupCorporateOutput } from '../../src/ui/shared.js';
 import type { DbClient } from '../../src/db/client.js';
 import { invoiceIssuers } from '../../src/db/schema.js';
 
@@ -61,6 +62,25 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       successorCorporateNumber: null,
       furigana: 'テストブツリュウユウゲンガイシャ',
       hihyoji: '1',
+    },
+    {
+      corporateNumber: '6000000000003',
+      datasetVersionId: 1,
+      name: '旧テスト合併消滅株式会社',
+      kind: '301',
+      prefectureCode: '46',
+      cityCode: '218',
+      prefectureName: '鹿児島県',
+      cityName: '霧島市',
+      streetNumber: '国分中央二丁目',
+      addressOutside: null,
+      postCode: '8994332',
+      updateDate: '2026-04-01',
+      closeDate: '2026-03-31',
+      closeCause: '01',
+      successorCorporateNumber: '9340001026142',
+      furigana: 'キュウテストガッペイショウメツカブシキガイシャ',
+      hihyoji: '0',
     },
   ];
 
@@ -376,6 +396,35 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(textContent).toContain(
       '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
     );
+  });
+
+  it('successor_corporate_number end-to-end: CorporateRecord.successorCorporateNumber から lookup_corporate_by_number (strict OutputSchema) と buildCorporateCardViewModel へ連携すること', async () => {
+    const repoProvider = new DbCorporateDataProvider(createMockDb());
+    const repoRes = await repoProvider.lookupByNumber('6000000000003');
+    expect(repoRes.ok).toBe(true);
+    if (repoRes.ok) {
+      expect(repoRes.value.corporation.successorCorporateNumber).toBe('9340001026142');
+      expect(repoRes.value.corporation.successor_corporate_number).toBe('9340001026142');
+      expect(Object.keys(repoRes.value.corporation)).not.toContain('successorCorporateNumber');
+    }
+
+    const { client } = await setupHostClient();
+    const result = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '6000000000003' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as LookupCorporateOutput;
+    expect(sc.corporation?.status).toBe('closed');
+    expect(sc.corporation?.successor_corporate_number).toBe('9340001026142');
+
+    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
+    expect(textContent).toContain('承継先法人番号: 9340001026142');
+
+    const vm = buildCorporateCardViewModel(sc);
+    expect(vm?.status).toBe('closed');
+    expect(vm?.successor_corporate_number).toBe('9340001026142');
   });
 
   it('search_corporate_by_name: DBから部分一致検索し、next_cursor の queryKey 不一致を拒否すること', async () => {

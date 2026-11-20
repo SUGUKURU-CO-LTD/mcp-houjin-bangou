@@ -23,6 +23,8 @@ import {
   encodeNameSearchCursor,
   decodeNameSearchCursor,
   validateNameSearchCursor,
+  MAX_CURSOR_OFFSET,
+  MAX_CURSOR_DIVIDE,
 } from '../lib/pagination.js';
 import {
   createSuccessResponse,
@@ -31,8 +33,6 @@ import {
   formatAttributionLine,
 } from '../lib/tool-response.js';
 import { Result } from '../lib/result.js';
-
-const MAX_CURSOR_OFFSET = 10_000;
 
 const InputSchema = z
   .object({
@@ -156,7 +156,9 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
           decoded.offset < 0 ||
           decoded.offset > MAX_CURSOR_OFFSET ||
           (decoded.divide !== undefined &&
-            (!Number.isSafeInteger(decoded.divide) || decoded.divide < 1 || decoded.divide > 99999))
+            (!Number.isSafeInteger(decoded.divide) ||
+              decoded.divide < 1 ||
+              decoded.divide > MAX_CURSOR_DIVIDE))
         ) {
           deps.logger.warn('tool_access', {
             tool: 'search_corporate_by_name',
@@ -343,31 +345,23 @@ export function registerSearchByNameTool(server: McpServer, deps: SearchByNameDe
       const parsed = apiResult.value;
       const dataAsOf = parsed.header.lastUpdateDate;
 
-      // カーソルの data_as_of 検証 (データ更新後の古いカーソルは INVALID_INPUT で返す)
+      // カーソルの data_as_of・検索条件一致の検証 (データ更新後の古いカーソルや条件不一致は INVALID_INPUT で返す)
       if (cursor !== undefined && cursor !== '') {
-        const validation = validateNameSearchCursor(cursor, dataAsOf);
+        const validation = validateNameSearchCursor(cursor, dataAsOf, queryKey);
         if (!validation.valid) {
           deps.logger.warn('tool_access', {
             tool: 'search_corporate_by_name',
             count: 0,
             duration_ms: Math.round(performance.now() - startTime),
-            error_type: 'stale_cursor',
+            error_type:
+              validation.reason === 'query_mismatch'
+                ? 'cursor_query_mismatch'
+                : validation.reason === 'stale'
+                  ? 'stale_cursor'
+                  : 'invalid_cursor',
             trace_id: trace.traceContext.traceId,
           });
           return createErrorResponse('INVALID_INPUT', validation.message);
-        }
-        if (validation.payload.queryKey !== undefined && validation.payload.queryKey !== queryKey) {
-          deps.logger.warn('tool_access', {
-            tool: 'search_corporate_by_name',
-            count: 0,
-            duration_ms: Math.round(performance.now() - startTime),
-            error_type: 'cursor_query_mismatch',
-            trace_id: trace.traceContext.traceId,
-          });
-          return createErrorResponse(
-            'INVALID_INPUT',
-            '検索条件が変更されたため、カーソルが無効になりました。最初から再検索してください。',
-          );
         }
       }
 

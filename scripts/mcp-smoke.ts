@@ -12,6 +12,7 @@
  *
  *   # Terminal 2
  *   pnpm smoke [http://127.0.0.1:3001]
+ *   MCP_URL=http://127.0.0.1:3001/mcp pnpm smoke
  */
 
 interface JsonRpcRequest {
@@ -28,7 +29,8 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-const endpoint = process.argv[2] ?? 'http://127.0.0.1:3001';
+const rawEndpoint = process.argv[2] ?? process.env['MCP_URL'] ?? 'http://127.0.0.1:3001';
+const endpoint = rawEndpoint.replace(/\/+$/, '').replace(/\/mcp$/, '');
 let failureCount = 0;
 
 async function rpc(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse> {

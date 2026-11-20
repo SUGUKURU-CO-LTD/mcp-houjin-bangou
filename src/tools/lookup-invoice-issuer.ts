@@ -16,6 +16,10 @@ import { registerAppTool } from '@modelcontextprotocol/ext-apps/server';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpLogger } from '../lib/mcp-logger.js';
 import { extractTraceFromMcpExtra } from '../lib/trace-context.js';
+import {
+  isValidCalendarDate,
+  normalizeAndValidateInvoiceNumber,
+} from '../domain/invoice-number.js';
 import { getToolAnnotations, type DataSourceMode } from '../domain/tool-annotations.js';
 import {
   createSuccessResponse,
@@ -25,16 +29,6 @@ import {
   type ToolErrorResponse,
 } from '../lib/tool-response.js';
 import type { DbInvoiceDataProvider } from '../repository/invoice-repository.js';
-
-function isValidCalendarDateString(dateStr: string): boolean {
-  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.exec(dateStr);
-  if (match === null) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const dt = new Date(Date.UTC(year, month - 1, day));
-  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
-}
 
 const InputSchema = z
   .object({
@@ -170,7 +164,22 @@ export function registerLookupInvoiceIssuerTool(
       const trace = extractTraceFromMcpExtra(extra);
       const { registration_number, reference_date } = args;
 
-      if (reference_date !== undefined && !isValidCalendarDateString(reference_date)) {
+      const invoiceValidation = normalizeAndValidateInvoiceNumber(registration_number);
+      if (!invoiceValidation.isValid) {
+        deps.logger.warn('tool_access', {
+          tool: 'lookup_invoice_issuer',
+          count: 0,
+          duration_ms: Math.round(performance.now() - startTime),
+          error_type: invoiceValidation.reason,
+          trace_id: trace.traceContext.traceId,
+        });
+        return createErrorResponse(
+          'INVALID_INPUT',
+          '登録番号は T + 半角数字13桁で指定してください。',
+        );
+      }
+
+      if (reference_date !== undefined && !isValidCalendarDate(reference_date)) {
         deps.logger.warn('tool_access', {
           tool: 'lookup_invoice_issuer',
           count: 0,
@@ -198,7 +207,7 @@ export function registerLookupInvoiceIssuerTool(
       }
 
       const result = await deps.invoiceDbProvider.lookupByRegistrationNumber(
-        registration_number,
+        invoiceValidation.normalized,
         reference_date,
       );
 
