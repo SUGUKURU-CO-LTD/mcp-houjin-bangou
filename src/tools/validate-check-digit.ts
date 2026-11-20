@@ -3,7 +3,7 @@
  * 法人番号のチェックデジットをローカル検証 (外部通信なし)
  *
  * 根拠 / Source:
- *   docs/plan/corp-check-interface-v1.md §1.4, §3.1, §4, §6.2 (v1.4 凍結仕様)
+ *   docs/plan/corp-check-interface-v1.md §1.4, §3.1, §4, §6.2
  *   国税庁仕様書 第二編 §2.1.3 (13桁・半角数字・チェックデジット付き、モジュラス9 ウェイト1-2方式)
  */
 
@@ -11,7 +11,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { normalizeAndValidateCorporateNumber } from '../domain/check-digit.js';
 import { getToolAnnotations } from '../domain/tool-annotations.js';
-import { createSuccessResponse, createErrorResponse } from '../lib/tool-response.js';
+import { createSuccessResponse } from '../lib/tool-response.js';
 
 const InputSchema = z
   .object({
@@ -24,9 +24,14 @@ const InputSchema = z
 
 const OutputSchema = z
   .object({
-    is_valid_format: z.boolean(),
-    is_valid_check_digit: z.boolean(),
-    error_reason: z.string().nullable(),
+    is_valid_format: z.boolean().describe('True if input matches 13 half-width digits'),
+    is_valid_check_digit: z
+      .boolean()
+      .describe('True if Modulus 9 (weight 1-2) check digit matches the first digit'),
+    error_reason: z
+      .string()
+      .nullable()
+      .describe('Validation failure reason code if invalid; null when valid'),
   })
   .strict();
 
@@ -44,8 +49,8 @@ export function registerValidateCheckDigitTool(server: McpServer): void {
     {
       title: annotations.title,
       description: DESCRIPTION_JA,
-      inputSchema: InputSchema.shape,
-      outputSchema: OutputSchema.shape,
+      inputSchema: InputSchema,
+      outputSchema: OutputSchema,
       annotations: {
         title: annotations.title,
         readOnlyHint: annotations.readOnlyHint,
@@ -55,15 +60,7 @@ export function registerValidateCheckDigitTool(server: McpServer): void {
       },
     },
     async (args) => {
-      const parsedArgs = InputSchema.safeParse(args);
-      if (!parsedArgs.success) {
-        return createErrorResponse(
-          'INVALID_INPUT',
-          `法人番号の入力形式が不正です: ${parsedArgs.error.issues.map((e) => e.message).join(', ')}`,
-        );
-      }
-
-      const { corporate_number } = parsedArgs.data;
+      const { corporate_number } = args;
       const result = normalizeAndValidateCorporateNumber(corporate_number);
 
       const isValidFormat = /^[0-9]{13}$/.test(corporate_number);

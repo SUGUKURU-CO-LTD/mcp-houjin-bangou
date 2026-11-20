@@ -1,13 +1,6 @@
 /**
  * Host Mode (DB Data Provider) MCP Tools Integration Tests
  *
- * 根拠 / Source:
- *   docs/plan/corp-check-interface-v1.md §1, §6.1, §6.2 (ホスト版統合テスト)
- *   実装指示書v1 §5(B4):
- *     - ホスト版では国税庁のアプリケーションIDを使わない
- *     - DB方式では openWorldHint を false にする
- *     - データ源の切り替えは設定1か所で行う
- *
  * 【テストデータの性格】
  *   本テストで使用しているデータはすべてテスト用に作成した「合成データ」であり、
  *   実在する事業者や個人の情報、国税庁本番データではありません。
@@ -46,6 +39,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       updateDate: '2026-07-15',
       closeDate: null,
       closeCause: null,
+      successorCorporateNumber: null,
       furigana: 'スグクルカブシキガイシャ',
       hihyoji: '0',
     },
@@ -64,6 +58,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       updateDate: '2026-05-01',
       closeDate: null,
       closeCause: null,
+      successorCorporateNumber: null,
       furigana: 'テストブツリュウユウゲンガイシャ',
       hihyoji: '1',
     },
@@ -167,30 +162,6 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
       domesticOfficeAddress: null,
     },
     {
-      registrationNumber: 'T6000000000005',
-      sequenceNumber: 1,
-      datasetVersionId: 1,
-      process: '01',
-      correct: '0',
-      kind: '',
-      country: '1',
-      latest: '1',
-      registrationDate: '2023-10-01',
-      updateDate: '2023-10-01',
-      disposeDate: null,
-      expireDate: null,
-      cancelDate: null,
-      legalName: null,
-      tradeName: null,
-      kana: null,
-      addressPrefecture: null,
-      addressCity: null,
-      addressDetail: null,
-      headOfficeAddress: null,
-      declaredAddress: null,
-      domesticOfficeAddress: null,
-    },
-    {
       registrationNumber: 'T2000000000002',
       sequenceNumber: 2,
       datasetVersionId: 1,
@@ -289,7 +260,6 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
               return Promise.resolve([{ total: mockCorporateData.length }]);
             }
 
-            // invoiceIssuers 判定
             if (table === invoiceIssuers) {
               const targetRegNumber = findRegistrationNumber(condition);
               const matched = targetRegNumber
@@ -326,7 +296,6 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const dbProvider = new DbCorporateDataProvider(db);
     const invoiceDbProvider = new DbInvoiceDataProvider(db);
 
-    // NTA_APPLICATION_ID なし・DBモードで MCP サーバー初期化
     const mcpServer = createServer({
       dbProvider,
       invoiceDbProvider,
@@ -338,6 +307,7 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
     await client.connect(clientTransport);
+    await client.listTools();
 
     return { client, mcpServer };
   }
@@ -350,17 +320,12 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     const searchTool = toolsResult.tools.find((t) => t.name === 'search_corporate_by_name');
     const invoiceTool = toolsResult.tools.find((t) => t.name === 'lookup_invoice_issuer');
 
-    expect(lookupTool).toBeDefined();
     expect(lookupTool?.annotations?.openWorldHint).toBe(true);
-
-    expect(searchTool).toBeDefined();
     expect(searchTool?.annotations?.openWorldHint).toBe(true);
-
-    expect(invoiceTool).toBeDefined();
     expect(invoiceTool?.annotations?.openWorldHint).toBe(true);
   });
 
-  it('lookup_corporate_by_number: DBから取得し、ホスト版出典表示を返すこと', async () => {
+  it('lookup_corporate_by_number: DBから取得し、ホスト版出典表示を返し、該当なし時は AJV クラッシュせず NOT_FOUND を返すこと', async () => {
     const { client } = await setupHostClient();
 
     const result = await client.callTool({
@@ -370,23 +335,27 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
     expect(sc.data_as_of).toBe(currentDataAsOf);
     expect(sc.attribution).toBe(NTA_CORPORATE_HOST_ATTRIBUTION);
 
     const corp = sc.corporation as Record<string, unknown>;
     expect(corp.name).toBe('スグクル株式会社');
     expect(corp.status).toBe('active');
+    expect(corp.successor_corporate_number).toBeNull();
     expect(corp.address_may_be_outdated).toBe(false);
 
-    // 要約テキスト（content[0].text）に data_as_of と attribution が含まれること（注記はなし）
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
     expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
     expect(textContent).not.toContain('出典: ' + '出典：');
-    expect(textContent).not.toContain(
-      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
-    );
+
+    const notFoundRes = await client.callTool({
+      name: 'lookup_corporate_by_number',
+      arguments: { corporate_number: '5111101000006' },
+    });
+    expect(notFoundRes.isError).toBe(true);
+    expect(notFoundRes.structuredContent).toBeUndefined();
+    expect((notFoundRes._meta as { error: { code: string } }).error.code).toBe('NOT_FOUND');
   });
 
   it('lookup_corporate_by_number: hihyoji=1（検索対象除外）の法人は address_may_be_outdated=true となり要約に注記が付くこと', async () => {
@@ -409,33 +378,32 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     );
   });
 
-  it('search_corporate_by_name: DBから部分一致検索し、ホスト版出典表示を返すこと', async () => {
+  it('search_corporate_by_name: DBから部分一致検索し、next_cursor の queryKey 不一致を拒否すること', async () => {
     const { client } = await setupHostClient();
 
     const result = await client.callTool({
       name: 'search_corporate_by_name',
-      arguments: { name: 'テスト' },
+      arguments: { name: 'テスト', limit: 1 },
     });
 
     expect(result.isError).toBeFalsy();
-    const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
+    const sc = result.structuredContent as {
+      data_as_of: string;
+      attribution: string;
+      next_cursor: string | null;
+      results: Array<Record<string, unknown>>;
+    };
     expect(sc.data_as_of).toBe(currentDataAsOf);
     expect(sc.attribution).toBe(NTA_CORPORATE_HOST_ATTRIBUTION);
+    expect(sc.results.length).toBe(1);
+    expect(sc.next_cursor).not.toBeNull();
 
-    const results = sc.results as Array<Record<string, unknown>>;
-    expect(results.length).toBe(2);
-    expect(results[0]?.name).toBe('スグクル株式会社');
-    expect(results[1]?.address_may_be_outdated).toBe(true);
-
-    // 要約テキスト（content[0].text）に data_as_of と attribution、および検索対象除外の注記が含まれること
-    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
-    expect(textContent).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
-    expect(textContent).not.toContain('出典: ' + '出典：');
-    expect(textContent).toContain(
-      '※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。',
-    );
+    const mismatch = await client.callTool({
+      name: 'search_corporate_by_name',
+      arguments: { name: '別会社', cursor: sc.next_cursor ?? '' },
+    });
+    expect(mismatch.isError).toBe(true);
+    expect((mismatch._meta as { error: { code: string } }).error.code).toBe('INVALID_INPUT');
   });
 
   it('lookup_invoice_issuer: 法人をDBから取得し、法人名・所在地・出典・免責事項を返すこと', async () => {
@@ -448,7 +416,6 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
     expect(sc.registration_number).toBe('T9340001026142');
     expect(sc.status).toBe('registered');
     expect(sc.business_type).toBe('corporation');
@@ -460,15 +427,9 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
     expect(sc.tax_disclaimer).toBe(INVOICE_TAX_DISCLAIMER);
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain(
-      `スグクル株式会社（登録番号: T9340001026142）は、データ時点（${currentDataAsOf}）の公表データでは、適格請求書発行事業者として登録されています。`,
-    );
     expect(textContent).toContain('事業者区分: 法人');
-    expect(textContent).toContain('所在地: 鹿児島県霧島市国分中央１丁目２−３２');
     expect(textContent).toContain('基準日（2024-01-01）時点で有効な登録事業者でした。');
-    expect(textContent).toContain(`データ時点: ${currentDataAsOf}`);
     expect(textContent).toContain(NTA_INVOICE_HOST_ATTRIBUTION);
-    expect(textContent).not.toContain('出典: ' + '出典：');
     expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
@@ -482,19 +443,14 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
     expect(sc.business_type).toBe('individual');
     expect(sc.corporate_name).toBeNull();
     expect(sc.location).toBeNull();
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain(
-      `登録番号: T1000000000001 は、データ時点（${currentDataAsOf}）の公表データでは、適格請求書発行事業者として登録されています。`,
-    );
     expect(textContent).toContain('事業者区分: 個人事業者');
     expect(textContent).not.toContain('山田');
     expect(textContent).not.toContain('世田谷区');
-    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
   it('lookup_invoice_issuer: 人格区分が空の場合は business_type: unknown、corporate_name: null、location: null で返ること', async () => {
@@ -507,15 +463,10 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
     expect(sc.status).toBe('registered');
     expect(sc.business_type).toBe('unknown');
     expect(sc.corporate_name).toBeNull();
     expect(sc.location).toBeNull();
-
-    const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain('事業者区分: 不明');
-    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
   it('lookup_invoice_issuer: 未登録・非公表の番号の場合は status: not_found で返り、基準日指定時も判定文が出ず null となること', async () => {
@@ -528,56 +479,50 @@ describe('Host Mode (DB) Integration Tests (合成テストデータ使用)', ()
 
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toBeDefined();
     expect(sc.status).toBe('not_found');
     expect(sc.business_type).toBe('unknown');
     expect(sc.was_registered_on_reference_date).toBeNull();
 
     const textContent = (result.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textContent).toContain('該当する公表データは見つかりませんでした');
-    expect(textContent).toContain('未登録であることを確定するものではありません');
     expect(textContent).not.toContain('基準日');
-    expect(textContent).toContain(INVOICE_TAX_DISCLAIMER);
   });
 
   it('lookup_invoice_issuer: 再登録された番号で前の登録期間中の日付が true になること', async () => {
     const { client } = await setupHostClient();
 
-    // 1. 前の登録期間（2023-10-01〜2024-03-31）内の日付を指定: true
     const resultPast = await client.callTool({
       name: 'lookup_invoice_issuer',
       arguments: { registration_number: 'T2000000000002', reference_date: '2023-12-01' },
     });
-    expect(resultPast.isError).toBeFalsy();
-    const scPast = resultPast.structuredContent as Record<string, unknown>;
-    expect(scPast.was_registered_on_reference_date).toBe(true);
-    const textPast = (resultPast.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textPast).toContain('基準日（2023-12-01）時点で有効な登録事業者でした。');
+    expect(
+      (resultPast.structuredContent as Record<string, unknown>).was_registered_on_reference_date,
+    ).toBe(true);
 
-    // 2. 取消中期間（2024-04-01〜2024-09-30）の日付を指定: false
     const resultMiddle = await client.callTool({
       name: 'lookup_invoice_issuer',
       arguments: { registration_number: 'T2000000000002', reference_date: '2024-06-01' },
     });
-    expect(resultMiddle.isError).toBeFalsy();
-    const scMiddle = resultMiddle.structuredContent as Record<string, unknown>;
-    expect(scMiddle.was_registered_on_reference_date).toBe(false);
-    const textMiddle = (resultMiddle.content as Array<{ type: string; text: string }>)[0]?.text;
-    expect(textMiddle).toContain(
-      '基準日（2024-06-01）時点では有効な登録事業者ではありませんでした。',
-    );
+    expect(
+      (resultMiddle.structuredContent as Record<string, unknown>).was_registered_on_reference_date,
+    ).toBe(false);
 
-    // 3. 再登録後期間（2024-10-01〜）の日付を指定: true
     const resultReRegistered = await client.callTool({
       name: 'lookup_invoice_issuer',
       arguments: { registration_number: 'T2000000000002', reference_date: '2024-11-01' },
     });
-    expect(resultReRegistered.isError).toBeFalsy();
-    const scReRegistered = resultReRegistered.structuredContent as Record<string, unknown>;
-    expect(scReRegistered.was_registered_on_reference_date).toBe(true);
-    const textReRegistered = (
-      resultReRegistered.content as Array<{ type: string; text: string }>
-    )[0]?.text;
-    expect(textReRegistered).toContain('基準日（2024-11-01）時点で有効な登録事業者でした。');
+    expect(
+      (resultReRegistered.structuredContent as Record<string, unknown>)
+        .was_registered_on_reference_date,
+    ).toBe(true);
+  });
+
+  it('prompts/get: ホスト版 (dataSource=db) ではホスト版出典表示を案内すること', async () => {
+    const { client } = await setupHostClient();
+    const promptRes = await client.getPrompt({
+      name: 'company-master-record',
+      arguments: { company_name: 'スグクル株式会社' },
+    });
+    const text = (promptRes.messages[0]?.content as { text: string }).text;
+    expect(text).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
   });
 });

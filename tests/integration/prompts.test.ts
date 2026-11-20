@@ -5,9 +5,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerAllPrompts } from '../../src/prompts/index.js';
 import { registerCompletionHandler } from '../../src/completion/handler.js';
 import { createMcpLogger } from '../../src/lib/mcp-logger.js';
-import { NTA_CORPORATE_WEB_API_ATTRIBUTION } from '../../src/lib/tool-response.js';
+import {
+  NTA_CORPORATE_HOST_ATTRIBUTION,
+  NTA_CORPORATE_WEB_API_ATTRIBUTION,
+} from '../../src/lib/tool-response.js';
+import type { DataSourceMode } from '../../src/domain/tool-annotations.js';
 
-async function setupClient(): Promise<Client> {
+async function setupClient(dataSource: DataSourceMode = 'web-api'): Promise<Client> {
   const server = new McpServer(
     { name: 'test-server', version: '0.0.1' },
     {
@@ -18,7 +22,7 @@ async function setupClient(): Promise<Client> {
     },
   );
   const logger = createMcpLogger(server.server, 'info');
-  registerAllPrompts(server);
+  registerAllPrompts(server, { dataSource });
   registerCompletionHandler(server.server, { logger });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -28,8 +32,8 @@ async function setupClient(): Promise<Client> {
   return client;
 }
 
-describe('MCP Prompts integration (v1.4 §2)', () => {
-  it('prompts/list returns 3 prompts conforming to v1.4 spec', async () => {
+describe('MCP Prompts integration (§2)', () => {
+  it('prompts/list returns 3 prompts', async () => {
     const client = await setupClient();
     const result = await client.listPrompts();
     const names = result.prompts.map((p) => p.name).sort();
@@ -45,17 +49,15 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
     const result = await client.listPrompts();
 
     for (const prompt of result.prompts) {
-      // 説明文に個人の連絡先を入力しないよう求める一文があること
       expect(prompt.description).toContain('※個人の連絡先情報は入力しないでください。');
-      // 「名刺」「登記」の語を使わないこと
       expect(prompt.description).not.toContain('名刺');
       expect(prompt.description).not.toContain('登記');
     }
   });
 
   describe('company-master-record prompt (§2.1)', () => {
-    it('renders with company_name and optional location_hint', async () => {
-      const client = await setupClient();
+    it('renders with company_name and optional location_hint in web-api and db modes', async () => {
+      const client = await setupClient('web-api');
       const result = await client.getPrompt({
         name: 'company-master-record',
         arguments: {
@@ -70,9 +72,21 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
       const text = (first?.content as { type: string; text: string }).text;
       expect(text).toContain('スグクル株式会社');
       expect(text).toContain('所在地の手がかり: 鹿児島県霧島市');
+      expect(text).toContain('search_query_optimized');
       expect(text).toContain(NTA_CORPORATE_WEB_API_ATTRIBUTION);
       expect(text).not.toContain('名刺');
       expect(text).not.toContain('登記');
+
+      const dbClient = await setupClient('db');
+      const dbRes = await dbClient.getPrompt({
+        name: 'company-master-record',
+        arguments: { company_name: 'スグクル株式会社' },
+      });
+      const dbText = (dbRes.messages[0]?.content as { type: string; text: string }).text;
+      expect(dbText).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+      expect(dbText).not.toContain(NTA_CORPORATE_WEB_API_ATTRIBUTION);
+      expect(dbText).not.toContain('名刺');
+      expect(dbText).not.toContain('登記');
     });
 
     it('renders without location_hint', async () => {
@@ -145,8 +159,8 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
   });
 
   describe('sales-list-enrichment prompt (§2.3)', () => {
-    it('renders valid list within 20 companies', async () => {
-      const client = await setupClient();
+    it('renders valid list within 20 companies in web-api and db modes', async () => {
+      const client = await setupClient('web-api');
       const companies = Array.from({ length: 20 }, (_, i) => `テスト株式会社${i + 1}`).join('\n');
       const result = await client.getPrompt({
         name: 'sales-list-enrichment',
@@ -162,6 +176,16 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
       expect(text).toContain(NTA_CORPORATE_WEB_API_ATTRIBUTION);
       expect(text).not.toContain('名刺');
       expect(text).not.toContain('登記');
+
+      const dbClient = await setupClient('db');
+      const dbResult = await dbClient.getPrompt({
+        name: 'sales-list-enrichment',
+        arguments: { company_list_text: 'スグクル株式会社' },
+      });
+      const dbText = (dbResult.messages[0]?.content as { type: string; text: string }).text;
+      expect(dbText).toContain(NTA_CORPORATE_HOST_ATTRIBUTION);
+      expect(dbText).not.toContain('名刺');
+      expect(dbText).not.toContain('登記');
     });
 
     it('rejects more than 20 companies (21 companies) with error', async () => {
@@ -192,7 +216,7 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
   });
 
   describe('Completion on prompt arguments', () => {
-    it('company_name triggers normalizer completion', async () => {
+    it('company_name triggers deduplicated normalizer completion', async () => {
       const client = await setupClient();
       const result = await client.complete({
         ref: { type: 'ref/prompt', name: 'company-master-record' },
@@ -200,6 +224,7 @@ describe('MCP Prompts integration (v1.4 §2)', () => {
       });
       expect(result.completion.values.length).toBeGreaterThan(0);
       expect(result.completion.values).toContain('株式会社スグクル');
+      expect(new Set(result.completion.values).size).toBe(result.completion.values.length);
     });
 
     it('target_company_name triggers normalizer completion', async () => {

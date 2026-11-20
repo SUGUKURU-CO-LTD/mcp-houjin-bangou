@@ -10,16 +10,19 @@
 
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 
-describe('HTTP transport logging to stderr', () => {
+const serverScript = path.resolve(process.cwd(), 'dist/server.js');
+
+describe.skipIf(!fs.existsSync(serverScript))('HTTP transport logging to stderr', () => {
   it('outputs logs to stderr and never logs input parameters', async () => {
     const testPort = '39999';
-    const serverScript = path.resolve(process.cwd(), 'dist/server.js');
     const child = spawn(process.execPath, [serverScript], {
       env: {
         ...process.env,
+        HOST: '127.0.0.1',
         PORT: testPort,
         NTA_APPLICATION_ID: '1234567890123',
         LOG_LEVEL: 'info',
@@ -46,7 +49,6 @@ describe('HTTP transport logging to stderr', () => {
       }
     });
 
-    // 起動待ち（listening ログが stderr に出るのを待機）
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Server start timed out')), 5000);
       const check = () => {
@@ -60,14 +62,15 @@ describe('HTTP transport logging to stderr', () => {
       check();
     });
 
-    // /health への GET リクエスト
-    await fetch(`http://localhost:${testPort}/health`);
+    await fetch(`http://127.0.0.1:${testPort}/health`);
 
-    // /mcp への POST リクエスト（ツール呼び出し）
     const testCorporateNumber = '5111101000006';
-    await fetch(`http://localhost:${testPort}/mcp`, {
+    await fetch(`http://127.0.0.1:${testPort}/mcp`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -82,14 +85,10 @@ describe('HTTP transport logging to stderr', () => {
     child.kill('SIGTERM');
     await new Promise((resolve) => child.on('close', resolve));
 
-    // 検証 A: ログは標準エラー出力（stderr）に出力されていること
     expect(stderrLines.length).toBeGreaterThan(0);
     expect(stderrLines.some((l) => l.includes('listening'))).toBe(true);
-
-    // 検証 B: 標準出力（stdout）にはログ行が出力されないこと
     expect(stdoutLines).toEqual([]);
 
-    // 検証 C: 入力された法人番号が stderr ログに含まれていないこと
     for (const line of stderrLines) {
       expect(line).not.toContain(testCorporateNumber);
     }

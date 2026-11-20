@@ -7,24 +7,12 @@
   "suggestedPrompts": [
     "スグクル株式会社の法人番号とインボイス登録状況を照会して",
     "請求書の適格請求書発行事業者番号「T9340001026142」が有効か確認して",
-    "トヨタ自動車の法人番号と登記所在地を検索して"
+    "トヨタ自動車の法人番号と本店所在地を検索して"
   ],
   "author": {
     "name": "スグクル株式会社 (SUGUKURU CO., LTD.)",
-    "email": "info@sugu-kuru.co.jp",
     "url": "https://sugu-kuru.co.jp"
   },
   "homepage": "https://sugu-kuru.co.jp/mcp/houjin",
-  "repository": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
-  "license": "MIT",
-  "keywords": [
-    "mcp",
-    "japan",
-    "kyc",
-    "invoice",
-    "nta",
-    "corporate-number",
-    "tax",
-    "business"
-  ]
+  "repository": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou"
 }
