@@ -1,90 +1,58 @@
 ---
-description: Sugukuru OSS Lab 共通開発規約 (applies to all packages under @drapt-lab/*)
-globs: src/**, tests/**, docs/**, scripts/**
+description: "@sugukuru/mcp-houjin-bangou 開発規約・アーキテクチャガードレール (v1.x)"
+globs: src/**, tests/**, docs/**, scripts/**, benchmarks/**
 alwaysApply: true
 ---
 
-# Sugukuru OSS Lab — 共通規約
+# `@sugukuru/mcp-houjin-bangou` — 開発規約・ガードレール
 
-## 3言語ルール (必須)
+## 言語・命名規約
 
-コードコメント、ドキュメント、READMEは常に **日本語 → English → Bahasa Indonesia** の順で書く。
-変数名・関数名は英語 (camelCase) のみ。git commit メッセージは日本語で OK。
+- コード変数名・関数名・型名は英語（camelCase / PascalCase）、MCP ツール入出力スキーマのフィールド名は仕様書準拠の `snake_case`。
+- ユーザー向けトップレベル文書は `README.md`（英語）と `README.ja.md`（日本語）の両方を常に同期して更新する。
+- git commit メッセージは Conventional Commits プレフィックス（`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `perf:`）+ 日本語または英語。
 
-## プロジェクト固有のガードレール (v0.1.0 interface freeze)
+## アーキテクチャ・インターフェース規律 (v1.x)
 
 ### Zero Placeholder
 
-- `// TODO: implement` や `// TBD` を残さない
-- 部分実装は `throw new NotImplementedError('feature', 'v0.X.0')` で明示
+- `// TODO: implement` や `// TBD` を残さない。
 
-### Interface Freeze
+### MCP 契約の保全
 
-以下は v0.1.0 freeze、v1.0.0 まで breaking change 禁止:
+- 提供プリミティブ:
+  - **5 Tools**: `lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`, `validate_corporate_number`, `normalize_company_name`
+  - **3 Prompts**: `company-master-record`, `sales-list-enrichment`, `customer-master-dedup`（個人連絡先 PII 引数を含めない）
+  - **2 MCP Apps UI Resources**: `ui://corporate-card/mcp-app.html`（法人カード・インボイス確認カード）、`ui://search-results/mcp-app.html`（検索結果一覧）
+  - **Completion**: `ref/prompt` 引数補完
+- すべての Tool の `inputSchema` は `.strict()`（`"additionalProperties": false`）を維持する。
+- エラー応答（`createErrorResponse`）は `isError: true` とし、`Client.callTool()` の `outputSchema` 検証クラッシュを防ぐため `isError: true` 時は `structuredContent` を含めず `_meta.error` と `content` テキストで返却する。
+- `tools/list` / `prompts/list` / `resources/list` の契約変更時は `tests/integration/mcp-contract-snapshot.test.ts` のスナップショット差分を必ず意図的に検証する。
 
-- `src/domain/corporate-number.ts` の Zod schema (CorporateNumberSchema / CorporationSchema / AttributionSchema)
-- `src/tools/*.ts` の 5 つの Tool input/output schema
-- `src/api/nta-client.ts` の `NtaClient` interface
-- `src/server.ts` の Streamable HTTP endpoint 仕様 (POST /mcp, stateless)
-- `/.well-known/mcp.json` の Server Card 構造
+### 国税庁仕様の正確な準拠
 
-### Anti-Hallucination
+- **2つのデータソースモード**（`DATA_SOURCE=web-api | db`）:
+  - `DATA_SOURCE=db`（ホスト版 / PostgreSQL 16 + `pg_trgm`）: 国税庁公表サイト全件 CSV（法人番号30列・インボイス24列）を月1回アトミック `RENAME` スワップで取り込み。Web-API アプリケーション ID 不使用。
+  - `DATA_SOURCE=web-api`（ローカル Web-API 版）: 国税庁法人番号 Web-API Ver.4.0（`/4/num`, `/4/name`, `type=02` CSV UTF-8, 1件照会 / 前方一致検索）を使用。`lookup_invoice_issuer` は DB モード専用（`web-api` モードでは `DATA_UNAVAILABLE`）。
+- チェックデジット計算式: `P_n` は右から `n` 桁目（または左から定義どおりのウェイト 1・2 交互）のモジュラス9（返り値 1〜9）。`lookup_invoice_issuer` の入力検証は個人事業者を包含するため `^T[0-9]{13}$` 形式照合 + 実在暦日チェックを行う。
 
-- 国税庁 API 仕様 (第一編/第二編/第六編) の値は原典を引用
-  - `type=02` = CSV UTF-8 (JIS 1-4水準)、`type=12` は **XML** であり CSV ではない
-  - 名前検索 `mode=1` 前方一致 / `mode=2` 部分一致
-  - 名前検索 `target=1` JIS 第1/2水準あいまい / `target=2` JIS 1-4水準完全一致 / `target=3` 英語
-  - 名前検索 `change=0/1` 変更履歴、`close=0/1` 登記閉鎖
-  - 最大 10 件カンマ区切り (`/4/num`)、ページング 1-99999 (`/4/diff`, `/4/name`)
-- チェックデジット計算式: `P_n` は **左から n 桁目 (1-indexed)**、奇数位置 Q_n=2 偶数位置 Q_n=1
+## セキュリティ・プライバシー・利用規約遵守
 
-## セキュリティ (プロンプトインジェクション対策)
+- **プロンプトインジェクション防御**:
+  - Tool description は静的定数のみ（ランタイム書換禁止、`no-new-func` / `no-eval` / `no-implied-eval` error、`<IMPORTANT>` 等の隠し命令禁止）。
+  - MCP Apps UI（`src/ui/**`）では `innerHTML` / `insertAdjacentHTML` を一切使用せず、`createElement` + `textContent` のみで DOM を構築し、ビルド後に SHA-256 CSP ハッシュを注入する。
+- **機密情報・入力値の非記録**:
+  - `NTA_APPLICATION_ID` / `DATABASE_URL` は環境変数のみから読み込み、ログ出力時はマスクする。
+  - 利用者が入力した法人番号・インボイス登録番号・検索語や SQL バインドパラメータ（`\nparams:`）をアプリケーションログやクライアント向けエラー文に出力しない。
+- **個人事業者保護と税理士法配慮**:
+  - インボイスデータの個人事業者（`kind='1'`）および人格区分不明行については、氏名・屋号・通称・所在地を DB に保持せず出力もしない。
+  - すべてのデータ照会応答に `data_as_of` とモード別の所定の `attribution`（インボイスは `tax_disclaimer` も）を含め、税務上の控除可否判断は行わない。
 
-- Tool description は静的定数のみ。ランタイム書換禁止 (`no-new-func`, `no-eval` が CI で error)
-- Tool description に `<IMPORTANT>` 等のメタ命令を含めない (CI grep で検知)
-- Application ID は `env.NTA_APPLICATION_ID` 経由のみ、tool 引数経由で受け取らない
-- すべての tool output に `attribution` 必須化 (Zod required)
-- すべてのログ出力で Application ID は `***REDACTED***` にマスク
+## 業務秘密の保護
 
-## NTA 利用規約遵守
+- スグクル社内の顧客企業リスト、派遣スタッフ・個人事業者の実データ、社内固有ドメインロジックをリポジトリやテストデータに持ち込まない（テスト・ベンチマークはすべて合成データまたは公的機関サンプル番号のみを使用）。
 
-- 別添1 第9条第1項三号 (短時間大量アクセス禁止) → 1 RPS + 指数バックオフを維持
-- 別添1 第9条第1項五号 (ID 譲渡禁止) → Hosted 版ではプロキシ設計
-- 別添1 第6条 (指定出典文言) → attribution.service_disclaimer で強制
-- 別添3 公共データ利用規約 第1.0版 → attribution.license で明示
+## 品質ゲート
 
-## Sugukuru 業務秘密の保護
-
-以下は本 OSS に絶対持ち込まない:
-
-- 派遣業の競合分析データ
-- 特定技能ドメインの内部判定ロジック (SuguVisa 固有)
-- 顧客企業リスト
-- 個別農家・派遣スタッフの個人情報
-
-T7 normalizer の lookup table に Sugukuru 顧客データから抽出したパターンを加える際は、
-匿名化済みの「表記揺れパターンのみ」を追加し、具体的な企業名を含めない。
-
-## コミットメッセージ
-
-プレフィックス + 日本語 OK:
-
-- `feat:` 新機能
-- `fix:` バグ修正
-- `docs:` ドキュメント
-- `chore:` その他
-- `refactor:` リファクタリング
-- `test:` テスト追加
-
-## テスト方針
-
-- vitest 使用、coverage 目標 80%
-- 国税庁 API は fixture で mock (`src/api/nta-client.ts` の `fetchImpl` DI seam)
-- 本番 API への `@live` タグ付きテストは CI で skip、週次 cron で実行
-- 新しい表記揺れパターンを追加する際は `tests/unit/normalizer.test.ts` に必ずテストを追加
-
-## ドキュメント
-
-- 大きな設計変更は `docs/adr/XXXX-title.md` に Michael Nygard 形式で記録
-- ユーザー向けは README.md (英) + README.ja.md (日) 両方を常に更新
-- セキュリティ関連変更は `docs/security/prompt-injection-defense.md` も更新
+- 変更後は `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`, `pnpm test`, `pnpm audit` を通過させること。
+- 実 PostgreSQL を要する統合テストは `DATABASE_URL` / `TEST_DATABASE_URL` 未設定時に安全にスキップされる設計を保つこと。

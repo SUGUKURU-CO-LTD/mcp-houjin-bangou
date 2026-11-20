@@ -12,27 +12,29 @@
 
 ## 概要
 
-Claude、ChatGPT、Cursor、VS Code Copilot などの MCP 対応クライアントから、以下の機能を利用できます。
+Claude、ChatGPT、Cursor、Google Antigravity、VS Code Copilot などの MCP 対応クライアントから、以下の機能を利用できます。
 
-1. **法人番号（13桁）による法人照会** (`lookup_corporate_by_number`) — 1件の法人番号から商号・本店所在地・法人種別・登記閉鎖の有無などの公表基本情報を取得できます。
-2. **法人名による検索** (`search_corporate_by_name`) — 表記揺れの自動正規化・都道府県での絞り込み・カーソルページングに対応しています。
-3. **適格請求書発行事業者（T+13桁）の照会** (`lookup_invoice_issuer`) — 登録番号（`T` + 13桁）の登録状態、登録年月日、取消・失効年月日、および指定した取引基準日（`reference_date`）時点での登録有効性の事実確認（`was_registered_on_reference_date`）を行います。
-4. **チェックデジットのローカル検証** (`validate_corporate_number`) — 外部通信を一切行わずに13桁の法人番号の検査用数字（モジュロ9）を検証します。
-5. **会社名の表記揺れ正規化** (`normalize_company_name`) — `(株)` / `株式会社` の前後位置展開、法人種別分離、英語表記（K.K. / Inc. 等）の変換、旧字体→新字体変換（髙→高、﨑→崎 等）、異体字セレクタ除去など、正規化された商号や検索最適化クエリを生成します。
+1. **法人番号（13桁）による法人照会** (`lookup_corporate_by_number`) — 1件の法人番号から商号・フリガナ・本店所在地・郵便番号・法人種別・閉鎖の有無と事由・承継先法人番号（`successor_corporate_number`）・住居表示実施に伴う所在地注記フラグ（`address_may_be_outdated`）を取得できます。
+2. **法人名による検索** (`search_corporate_by_name`) — 都道府県コード（`01`〜`47`）での絞り込み・カーソルページング・ホスト版DBでの半角/全角英数字両対応検索を備えています（略称や旧字体を含む会社名は先に `normalize_company_name` で正規化してから検索します）。
+3. **適格請求書発行事業者（`T`+13桁）の照会** (`lookup_invoice_issuer`) — 登録番号（`T` + 13桁）の登録状態、登録年月日、取消・失効年月日、および指定した取引基準日（`reference_date`）時点での登録有効性の事実確認（`was_registered_on_reference_date`）を行います。
+4. **チェックデジットのローカル検証** (`validate_corporate_number`) — 外部通信を一切行わずに13桁の法人番号の検査用数字（モジュラス9）を検証します。
+5. **会社名の表記揺れ正規化** (`normalize_company_name`) — `(株)` / `㈱` / `株式会社` 等の略称展開・前後位置変換、各種法人種別の分離、英語表記（`K.K.` / `Co., Ltd.` / `LLC` 等）の変換、NFKC、旧字体→新字体変換（`髙→高`、`﨑→崎` 等）、異体字セレクタ（IVS）除去を決定論的に実行し、正規化後商号と検索最適化クエリを生成します。
 
 ---
 
 ## 2つの動作モード
 
-### 1. ホスト版 / PostgreSQL モード（リモート Streamable HTTP）
+### 1. ホスト版 / PostgreSQL モード（`DATA_SOURCE=db` — リモート Streamable HTTP）
 
-- 国税庁の「法人番号公表サイト」および「適格請求書発行事業者公表サイト」の公開ダウンロードデータ（全件 CSV）を月1回取り込んだ PostgreSQL 16（`pg_trgm`）データベースから高速に応答します。
-- 実行時に国税庁 Web-API のアプリケーション ID を使用しません。
-- `Origin` ヘッダ許可リスト検証、接続元 IP アドレス単位のレート制限、およびデータベースの 3 ロール権限分離（`houjin_admin` / `houjin_ingest` / `houjin_reader`）を備えています。
+- 国税庁の「法人番号公表サイト」および「適格請求書発行事業者公表サイト」の公開ダウンロードデータ（全件 CSV）を月1回取り込んだ PostgreSQL 16（`pg_trgm`）データベースから全5ツール（`lookup_invoice_issuer` を含む）に高速応答します。
+- 利用者側での API キー取得は不要であり、実行時に国税庁 Web-API のアプリケーション ID を使用しません。
+- `Origin` ヘッダ許可リスト検証、接続元 IP アドレス単位のレート制限（`Retry-After` 付与）、およびデータベースの 3 ロール権限分離（`houjin_admin` / `houjin_ingest` / `houjin_reader`）を備えています。
 
 ### 2. ローカル実行 / セルフホストモード（HTTP）
 
-- 利用者自身の環境でローカル HTTP サーバー（既定ポート `3001`）を起動し、利用者自身が取得した国税庁 Web-API アプリケーション ID（`NTA_APPLICATION_ID`）または手元の PostgreSQL（`DATABASE_URL`）を使って利用できます。
+- 利用者自身の環境でローカル Streamable HTTP サーバー（既定ポート `3001`）を起動し、以下のいずれかで利用できます：
+  - **国税庁 Web-API モード（`DATA_SOURCE=web-api`、既定）**: 利用者自身が取得した `NTA_APPLICATION_ID` を使って法人番号の照会・検索を行います。※ `lookup_invoice_issuer` はデータベース接続専用のため、`web-api` モードでは `DATA_UNAVAILABLE` を返します（インボイス照会にはホスト版または下記 DB モードをご利用ください）。
+  - **ローカル PostgreSQL モード（`DATA_SOURCE=db`）**: 同梱の取り込み CLI（`src/ingest/cli.ts`）で公表 CSV を投入した手元の PostgreSQL 16（`DATABASE_URL`）に接続し、全5ツールをローカル運用できます。
 
 ```bash
 # 国税庁 Web-API モードで起動（既定ポート: 3001）
@@ -41,7 +43,7 @@ NTA_APPLICATION_ID="あなたのアプリケーションID" npx @sugukuru/mcp-ho
 
 #### MCP クライアントでの設定例
 
-##### ホスト版（リモート Streamable HTTP）
+##### ホスト版（リモート Streamable HTTP・推奨）
 ```json
 {
   "mcpServers": {
@@ -58,7 +60,7 @@ Google Antigravity CLI / IDE をご利用の場合、本リポジトリを直接
 # 1コマンドでインストール
 agy plugin install https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou
 ```
-または、自社・ローカル環境のプラグインディレクトリ（`~/.gemini/config/plugins/` 等）に配置するだけで、同梱のスキル（`skills/lookup-japan-corporate`）およびホスト版 MCP 設定（`mcp_config.json`）が自動認識されます。
+または、ローカルのプラグインディレクトリ（`~/.gemini/config/plugins/` 等）に配置するだけで、同梱のスキル（`skills/lookup-japan-corporate/SKILL.md`）、エージェントルール（`rules/AGENTS.md`）、およびホスト版 MCP 設定（`mcp_config.json`）が自動認識されます。
 
 ##### Cursor で利用する場合
 Cursor では本リポジトリに `.cursor/mcp.json` および `.cursor/rules/houjin-bangou.mdc` が同梱されているため、クローンするだけで即座に利用可能です。
@@ -75,7 +77,7 @@ Cursor では本リポジトリに `.cursor/mcp.json` および `.cursor/rules/h
 ```
 
 ##### ローカル HTTP モード（セルフホスト）
-手元で上記起動コマンドを実行後、以下のように接続します。
+ターミナルで上記の起動コマンドを実行したうえで、クライアント側には `http://localhost:3001/mcp` を設定します（※ stdio 用の `"command": "npx"` 形式では接続できません）：
 ```json
 {
   "mcpServers": {
@@ -86,7 +88,7 @@ Cursor では本リポジトリに `.cursor/mcp.json` および `.cursor/rules/h
 }
 ```
 
-Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照してください。
+Claude Desktop / Cursor 向けの設定例は [`examples/`](examples/) を参照してください。
 
 ---
 
@@ -94,15 +96,15 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 
 | ツール名 | 用途 | アノテーション (`readOnly` / `destructive` / `idempotent` / `openWorld`※) | 備考 |
 |---|---|---|---|
-| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `true` | UI `ui://corporate-card/mcp-app.html` 対応 |
-| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `true` | 都道府県コード（01〜47）・`limit`（1〜20）・`cursor` 対応。UI `ui://search-results/mcp-app.html` 対応 |
-| `lookup_invoice_issuer` | 適格請求書発行事業者（T+13桁）の照会 | `true` / `false` / `true` / `true` | `reference_date`（`YYYY-MM-DD`）指定で基準日時点の有効性照合（`was_registered_on_reference_date`）に対応。 |
-| `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、共通） |
-| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（正規化後商号・法人種別・検索最適化クエリを出力、外部通信なし、共通） |
+| `lookup_corporate_by_number` | 13桁の法人番号による単一法人照会 | `true` / `false` / `true` / `true` | 基本情報・閉鎖情報・承継先法人番号（`successor_corporate_number`）・所在地注記フラグを返却。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `search_corporate_by_name` | 法人名による検索 | `true` / `false` / `true` / `true` | 都道府県コード（`01`〜`47`）・`limit`（`1`〜`20`）・`cursor` 対応。略称・旧字体は先に `normalize_company_name` を実行。UI `ui://search-results/mcp-app.html` 対応 |
+| `lookup_invoice_issuer` | 適格請求書発行事業者（`T`+13桁）の照会 | `true` / `false` / `true` / `true` | `reference_date`（`YYYY-MM-DD`）で基準日有効性（`was_registered_on_reference_date`）を照合。**ホスト版 / `DATA_SOURCE=db` 専用**。UI `ui://corporate-card/mcp-app.html` 対応 |
+| `validate_corporate_number` | 法人番号チェックデジット検証 | `true` / `false` / `true` / `false` | ローカル純粋関数（外部通信なし、両モード共通） |
+| `normalize_company_name` | 会社名の表記揺れ正規化 | `true` / `false` / `true` / `false` | ローカル純粋関数（`normalized_name`・`legal_type`・`search_query_optimized` を出力、両モード共通） |
 
 ※ **`openWorld` アノテーションに関する注記**:
 `openWorldHint` はサーバーがツールごとに宣言する注釈（メタデータ）であり、クライアントから送信されるものではありません。
-- ChatGPT ディレクトリ等の掲載基準（公開実体エンティティを扱うツールは true、仕様書 v1.8）に基づき、照会ツール3種（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）はホスト版・ローカル版ともに `openWorldHint: true` となります。
+- ディレクトリ掲載基準（公開実体エンティティを扱うツールは `true`、仕様書 v1.8+）に基づき、照会ツール3種（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）はホスト版・ローカル版ともに `openWorldHint: true` となります。
 - 純粋関数ツール2種（`validate_corporate_number`, `normalize_company_name`）は外部通信を行わずローカル計算のみで完結するため、両モードで `openWorldHint: false` です。
 
 ---
@@ -110,35 +112,39 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 ## プロンプト（3種）と MCP Apps UI リソース（2種）
 
 - **Prompts**:
-  - `company-master-record`: 会社名や住所メモから表記揺れを正規化し、法人番号・正式商号・本店所在地を照会して取引先マスタ登録用レコードを作成します（個人名や連絡先等の個人情報は扱いません）。
-  - `sales-list-enrichment`: 複数社のリストに対して法人番号・正式名称・所在地を一括付与します。
+  - `company-master-record`: 会社名や所在地の手がかりから表記揺れを正規化し、法人番号・正式商号・本店所在地を照会して取引先マスタ登録用レコードを作成します（個人名や連絡先等の個人情報は扱いません）。
+  - `sales-list-enrichment`: 複数社のリスト（1回最大20社）に対して法人番号・正式名称・所在地を一括付与します。
   - `customer-master-dedup`: 顧客マスタ内の表記揺れ・移転・合併による重複候補を検出します。
 - **MCP Apps UI リソース（`@modelcontextprotocol/ext-apps` v1.7）**:
-  - `ui://corporate-card/mcp-app.html`: 法人情報およびインボイス登録状態のカード表示。
-  - `ui://search-results/mcp-app.html`: 法人名検索結果の一覧表表示（詳細照会へのドリルダウン対応）。
-  - UI を表示しないクライアントでも、`structuredContent` とテキスト出力だけで全ての情報を過不足なく利用できます。
+  - `ui://corporate-card/mcp-app.html`: `lookup_corporate_by_number`（法人番号コピー・類似商号検索・承継先法人ドリルダウン・ワンクリックでのインボイス登録確認＆基準日ピッカー）および `lookup_invoice_issuer`（インボイス登録確認カード・法人基本情報への相互遷移）のインタラクティブ表示。
+  - `ui://search-results/mcp-app.html`: `search_corporate_by_name` のレスポンシブ一覧表示（状態フィルタ・`next_cursor` ページ送り・履歴スタックによる戻るナビゲーション・`updateModelContext` 同期対応）。
+  - UI を描画しない CLI やヘッドレスクライアントでも、`content`（要約テキスト）と `structuredContent`（構造化 JSON）だけで全ての情報を過不足なく利用できます。
 
 ---
 
 ## プライバシー・セキュリティ・データ更新頻度
 
-- **入力値の非記録**: 利用者が入力した法人番号、インボイス登録番号、検索語はアプリケーションのアクセスログに記録しません。
+- **入力値の非記録**: 利用者が入力した法人番号、インボイス登録番号、検索語はアプリケーションログやエラー応答に記録・露出しません。
 - **個人事業者情報の保護**: 適格請求書発行事業者のうち個人事業者のデータについては、氏名・屋号・所在地をデータベースに取り込まず、出力もしません（登録番号 `T`+13桁、人格区分、登録・取消・失効等の日付のみを保持し、完全一致照会のみを提供します）。
 - **月1回のデータ更新**: ホスト版の公表データは月1回（前月末時点の全件データ）で更新されます。月途中の変更・取消・失効や、法人番号の処理区分「99（削除）」・インボイス公表申出の取り下げ等は次回の月次更新まで反映されません。各応答にはデータの基準日（`data_as_of`）が含まれます。
-- **事実照会への限定**: `was_registered_on_reference_date` を含む本サーバーの出力は公表データ上の日付との事実照合結果であり、個別の税務相談・税務判断を提供するものではありません。
+- **事実照会への限定**: `was_registered_on_reference_date` を含む本サーバーの出力は `data_as_of` 時点の公表データ上の日付との事実照合結果であり、個別の税務相談・税務判断を提供するものではありません。
 
 ---
 
 ## ドキュメント
 
-- [API リファレンス](docs/api-reference.md)
 - [はじめに (Getting Started)](docs/getting-started.md)
+- [API リファレンス](docs/api-reference.md)
 - [活用クックブック (Usage Cookbook)](docs/usage-cookbook.md)
+- [アーキテクチャ](docs/architecture.md)
+- [MCP Apps UI リソース](docs/ui-resources.md)
+- [トラブルシューティング](docs/troubleshooting.md)
+- [ホスト版 構築・運用手順書](docs/deployment/hosted.md)
+- [DB ロール設計と権限分離](docs/deployment/db-roles.md)
+- [セルフホストガイド](docs/deployment/self-hosting.md) / [Docker 構成ガイド](docs/deployment/docker.md) / [npx クイックスタート](docs/deployment/npx-quickstart.md)
+- [プロンプトインジェクション防御](docs/security/prompt-injection-defense.md)
 - [プライバシーポリシー](docs/policy/privacy-policy.md) ([英語版](docs/policy/privacy-policy.en.md))
 - [利用規約](docs/policy/terms-of-service.md) ([英語版](docs/policy/terms-of-service.en.md))
-- [DB ロール設計と権限分離](docs/deployment/db-roles.md)
-- [セルフホストガイド](docs/deployment/self-hosting.md)
-- [プロンプトインジェクション防御](docs/security/prompt-injection-defense.md)
 - [設計決定記録 (ADR)](docs/adr/)
 - [SECURITY](SECURITY.md) / [CONTRIBUTING](CONTRIBUTING.md) / [CODE OF CONDUCT](CODE_OF_CONDUCT.md)
 
@@ -147,9 +153,9 @@ Cursor / VS Code 向けの設定例は [`examples/`](examples/) を参照して�
 ## 出典表示
 
 - **法人番号公表データ**: 国税庁法人番号公表サイト（`https://www.houjin-bangou.nta.go.jp/`） — 公共データ利用規約 第1.0版
-- **適格請求書発行事業者公表データ**: 国税庁適格請求書発行事業者公表サイト（`https://www.invoice-kohyo.nta.go.jp/`）
-- **Web-API 免責表示**:
-  > このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。
+- **適格請求書発行事業者公表データ**: 国税庁適格請求書発行事業者公表サイト（`https://www.invoice-kohyo.nta.go.jp/`） — 公共データ利用規約 第1.0版
+- **Web-API 免責表示（ローカル `web-api` モード時）**:
+  > このサービスは、国税庁法人番号システムWeb-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない
 
 ## ライセンス・運営事業者
 

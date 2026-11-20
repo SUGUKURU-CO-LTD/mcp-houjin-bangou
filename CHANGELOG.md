@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **承継先法人番号（`successor_corporate_number`）の出力と UI ドリルダウン**:
+  - 吸収合併等で閉鎖された法人を `lookup_corporate_by_number` で照会した際、公表データに承継先法人番号がある場合は `corporation.successor_corporate_number` および要約テキストで返却し、MCP Apps UI からワンクリックで承継先法人カードへ遷移可能に改善。
+- **インボイス照会ツールの MCP Apps UI 連携と相互ナビゲーション**:
+  - `lookup_invoice_issuer` に `_meta.ui.resourceUri = "ui://corporate-card/mcp-app.html"` を接続し、インボイス登録確認カード表示、基準日（`reference_date`）ピッカーでの再確認、法人カードからのワンクリック・インボイス照合、および検索結果テーブルのカーソルページ送り・状態フィルタ・履歴「戻る」ナビゲーション・`updateModelContext` 同期を追加。
+- **Google Antigravity 向けエージェントルール `rules/AGENTS.md` と `.gitattributes` の追加**:
+  - Antigravity プラグインローダーが自動認識するプレーン Markdown ルール（`rules/AGENTS.md`）を追加。
+  - Windows 環境での `CRLF` 混入による Prettier / シェルスクリプト不整合を防ぐ `.gitattributes`（LF 統一）を追加。
+
+### Changed
+
+- **MCP プロトコル準拠・入力検証・ページネーション強化**:
+  - `isError: true` のツールエラー応答で `structuredContent` を省略し `_meta.error` + `[CODE]` テキストで返すよう修正（公式 SDK `Client.callTool()` における `outputSchema` 検証クラッシュを解消）。
+  - 全 5 ツールの `inputSchema` に `.strict()`（`"additionalProperties": false`）を適用。
+  - `/mcp` の非許可 HTTP メソッド応答（`405`）への `Allow: POST, OPTIONS` ヘッダー付与、不正 JSON（`400`）・64KB 超過ボディ（`413`）の JSON-RPC エラー応答化を実施。
+  - `search_corporate_by_name` のカーソルに検索条件（`queryKey`）をバインドし、安全な整数オフセット範囲検証を追加。
+  - 3 種の MCP Prompts の出典案内をホスト版（DB）・ローカル版（Web-API）の双方に適合するよう改善。
+- **ドメイン正規化・DB 検索・インボイス検証の精度向上**:
+  - ホスト版 DB の `search_corporate_by_name` で半角・全角 ASCII 英数字の双方にマッチするよう改善（`NTT` ⇔ `ＮＴＴ` 等）。
+  - `normalize_company_name` で略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、および旧字体→新字体変換のコア名・正式名双方への適用を強化。
+  - `lookup_invoice_issuer` で実在しない暦日（`2026-02-31` 等）の検証、`reference_date > data_as_of` 時のスナップショット基準日注記、および個人事業者の登録番号を考慮した形式検証を整備。
+- **依存関係管理と品質スクリプトの整備**:
+  - `package.json` の非推奨 `pnpm.overrides` を `pnpm-workspace.yaml` の `overrides` / `allowBuilds` に移行し、開発依存を含む `pnpm audit` 脆弱性 0 件を達成。
+  - `prepublishOnly` の実行順序を `build` → `test` に修正し、`lint` / `format:check` の対象を `scripts`・`benchmarks` まで拡大。
+
+### Security
+
+- DB リポジトリ例外時の SQL 文・バインドパラメータ（`\nparams:` に含まれる法人番号・T番号・検索語）のクライアント応答および標準エラー出力への漏洩を防止し、タイムアウト（PostgreSQL `57014`）を `DATA_UNAVAILABLE` に統一。
+- 法人番号・インボイス公表データの処理区分 `99`（削除）レコードの照会除外および人格区分許可リスト判定を厳格化。
+
 ## [1.0.2] - 2026-11-18
 
 ### Security
@@ -64,18 +97,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - クローラーからの検証リクエストを確実に受けるため、`/mcp` の Origin 検証対象外として実装。
   - Terraform (`infra/terraform/variables.tf`, `infra/terraform/main.tf`) に `openai_apps_challenge_token` 変数および Cloud Run サービス環境変数を追加。`.env.example` にコメント例を追加。
 - **PostgreSQL 16 (`pg_trgm`) backend & monthly bulk CSV ingestion for Hosted Edition**:
-  - Ingestion CLI (`src/ingest/cli.ts`, `src/ingest/corporate.ts`, `src/ingest/invoice.ts`, `src/ingest/runner.ts`) supporting streaming CSV ingestion from directory (`--dir`), atomic staging table swap, row-count threshold guards (`INGEST_MIN_RECORD_COUNT`), and process code `99` (deletion) handling.
+  - Ingestion CLI (`src/ingest/cli.ts`, `src/ingest/importer.ts`, `src/ingest/parser.ts`) supporting streaming CSV ingestion from directory (`--dir`), atomic staging table swap, row-count threshold guards (`INGEST_MIN_RECORD_COUNT`), and process code `99` (deletion) handling.
   - Provider architecture: `DbCorporateDataProvider` and `DbInvoiceDataProvider` for PostgreSQL backend (`DATA_SOURCE=db`), and `createNtaClient` for NTA Web-API backend (`DATA_SOURCE=web-api`).
 - **Infrastructure as Code & Cloud Operations**:
   - Terraform configuration for Hosted Edition (`infra/terraform/`): Cloud Run services (`houjin-bangou-mcp`), Cloud Run Jobs (`houjin-bangou-ingest-corporate`, `houjin-bangou-ingest-invoice`), Cloud SQL for PostgreSQL 16 (`pg_trgm`, `ENTERPRISE` edition), Cloud DNS zone (`mcp.sugu-kuru.co.jp`), Cloud Load Balancing, Cloud Armor rate limiting, and Cloud Monitoring alert policies.
   - Deployment runbook (`docs/deployment/hosted.md`).
 - **HTTP Transport Security & Database Privilege Separation**:
   - `Origin` header allowlist middleware (`ALLOWED_ORIGINS`) with DNS rebinding protection and no-Origin allowance for non-browser CLI/Server-to-Server clients.
-  - Per-IP in-memory rate limiting (`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`, default 60 requests / 60 seconds) for `/mcp`, `/health`, and `/.well-known/mcp.json` with `TRUST_PROXY` support for Cloud Run.
+  - Per-IP in-memory rate limiting (`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`, default 60 requests / 60 seconds) for `/mcp` with `TRUST_PROXY` support for Cloud Run.
   - 3-role PostgreSQL privilege separation (`houjin_admin`, `houjin_ingest`, `houjin_reader`) documented in `docs/deployment/db-roles.sql` and `docs/deployment/db-roles.md`.
 - **MCP Apps UI (`@modelcontextprotocol/ext-apps` v1.7) & Snapshot Tests**:
-  - Interactive UI views (`ui://corporate-card/mcp-app.html` and `ui://search-results/mcp-app.html`) supporting `lookup_corporate_by_number`, `lookup_invoice_issuer`, and `search_corporate_by_name`.
-  - Contract snapshot tests locking `tools/list`, `prompts/list`, and all 5 tools' `structuredContent` outputs (`tests/integration/mcp-contract-snapshot.test.ts`), plus headless fallback tests (`tests/integration/ui-fallback-and-headless.test.ts`).
+  - Interactive UI views (`ui://corporate-card/mcp-app.html` and `ui://search-results/mcp-app.html`) supporting `lookup_corporate_by_number` and `search_corporate_by_name`.
+  - Contract snapshot tests locking `tools/list`, `prompts/list`, and `resources/list` outputs (`tests/integration/mcp-contract-snapshot.test.ts`), plus headless fallback tests (`tests/integration/ui-fallback-and-headless.test.ts`).
 - **MCP Registry Metadata (`server.json`)**:
   - Root `server.json` configured for official MCP Registry submission with `streamable-http` transport and remote endpoint (`https://houjin.mcp.sugu-kuru.co.jp/mcp`).
 
@@ -140,7 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/unit/invoice-number.test.ts`: 18 ケース
 - `docs/adr/0012-invoice-api-integration.md`: 適格請求書発行事業者 Web-API 統合計画 (Ver.1.0 仕様差異マトリクス含む)
 
-## [0.1.0] - 2026-05-22
+## [0.1.0] - 2026-04-29
 
 ### Added
 

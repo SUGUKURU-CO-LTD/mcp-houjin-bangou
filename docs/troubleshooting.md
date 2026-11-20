@@ -1,24 +1,64 @@
 # Troubleshooting / トラブルシューティング
 
-## 起動時エラー
+## 起動・接続時エラー
 
-### `Error: Invalid environment variables: NTA_APPLICATION_ID: Required`
+### クライアント接続時にタイムアウト・ハングする（`"command": "npx"` を設定している）
 
-**原因**: `NTA_APPLICATION_ID` 環境変数が未設定。
+**原因**: 本サーバーは **Streamable HTTP トランスポート専用** であり、stdio トランスポート（標準入出力による JSON-RPC 通信）には対応していません。`claude_desktop_config.json` 等に `"command": "npx", "args": ["-y", "@sugukuru/mcp-houjin-bangou"]` を記述すると、HTTP サーバーがポート `3001` で起動したまま stdio 応答を返し続けずタイムアウトします。
 
 **対処**:
 
-- Claude Desktop: `claude_desktop_config.json` の `env.NTA_APPLICATION_ID` を設定
+- **ホスト版を使う場合（推奨）**: `"url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"` を設定してください。
+- **ローカル実行版を使う場合**: 先に別ターミナルで `NTA_APPLICATION_ID="..." npx @sugukuru/mcp-houjin-bangou` を起動したうえで、クライアント設定には `"url": "http://localhost:3001/mcp"` を指定してください（[Getting Started](getting-started.md) 参照）。
+
+### `Error: Invalid environment variables: NTA_APPLICATION_ID: Required`
+
+**原因**: デフォルトの `DATA_SOURCE=web-api` モードで起動した際に `NTA_APPLICATION_ID` 環境変数が未設定。
+
+**対処**:
+
 - CLI: `NTA_APPLICATION_ID=xxx npx -y @sugukuru/mcp-houjin-bangou`
-- `.env` ファイル: `cp .env.example .env` して値を書く
+- `.env` ファイル: `cp .env.example .env` して `NTA_APPLICATION_ID`（または `DATA_SOURCE=db` と `DATABASE_URL`）を設定
 
 ### `EADDRINUSE: address already in use :::3001`
 
-**原因**: ポート 3001 が既に使用中。
+**原因**: ポート `3001` が既に使用中。
 
-**対処**: `PORT=4000` 等で別ポートを指定。
+**対処**: `PORT=4000` 等で空きポートを指定し、クライアントの接続先 URL も合わせて変更してください。
 
-## API エラー
+---
+
+## ツール実行・HTTP セキュリティエラー
+
+### `lookup_invoice_issuer` が `DATA_UNAVAILABLE` を返す
+
+> `[DATA_UNAVAILABLE] インボイス公表データプロバイダーが初期化されていません...`
+
+**原因**: ローカルの `DATA_SOURCE=web-api` モードで起動している。本サーバーの適格請求書発行事業者照会（`lookup_invoice_issuer`）は公開ダウンロードデータを格納した PostgreSQL データベース（`DATA_SOURCE=db`）専用です。
+
+**対処**:
+
+- ホスト版エンドポイント（`https://houjin.mcp.sugu-kuru.co.jp/mcp`）に接続する、または
+- ローカルで PostgreSQL 16 を用意し、取り込み CLI（`src/ingest/cli.ts`）でインボイス全件 CSV を投入したうえで `DATA_SOURCE=db DATABASE_URL=...` で起動してください。
+
+### `HTTP 403 Forbidden: Origin not allowed`
+
+**原因**: ブラウザベースのクライアントや MCP Inspector から `Origin` ヘッダー付きでアクセスした際、サーバー側の `ALLOWED_ORIGINS` にそのオリジンが含まれていない（`Origin` ヘッダーを持たない CLI / デスクトップ間通信は既定で許可されます）。
+
+**対処**: セルフホスト環境でブラウザクライアントを許可する場合は、`ALLOWED_ORIGINS="https://claude.ai,https://chatgpt.com,http://localhost:5173"` のようにカンマ区切りで設定してください。
+
+### `HTTP 429 Too Many Requests` / `RATE_LIMITED`
+
+**原因**: 接続元 IP アドレスあたりのリクエスト上限（既定: 60秒間に60リクエスト）を超過した、またはリバースプロキシ配下で `TRUST_PROXY` 設定が合っておらず全クライアントが同一プロキシ IP としてカウントされている。
+
+**対処**:
+
+- レスポンスの `Retry-After` 秒数だけ待ってから再試行してください。
+- 自社リバースプロキシ配下でセルフホストしている場合は、プロキシ段数に合わせて `TRUST_PROXY`（直結=`0`、プロキシ1段=`1`）を調整してください。
+
+---
+
+## 国税庁 Web-API エラー（`DATA_SOURCE=web-api` 時）
 
 ### 本番 ID が届いた後の最初の確認
 
@@ -26,115 +66,53 @@
 NTA_APPLICATION_ID=your-id pnpm smoke:live
 ```
 
-このコマンドは ID を出力せず、サンプル法人番号で `/4/num` と `/4/name` を確認します。
-仕様書に掲載されている番号は架空・削除済みの場合があるため、live smoke では本番 API で実在する法人番号 `7000012050002` を使います。
+このコマンドは ID を画面に出力せず、実在する国税庁の法人番号 `7000012050002` で `/4/num` と `/4/name` の疎通を確認します。
 
 ### 国税庁 HTTP 403 (レート制限)
 
-> `NtaApiError: Rate limited by NTA. Backoff 30000ms applied. (別添1 第9条第1項三号)`
+> `NtaApiError: Rate limited by NTA. Backoff 30000ms applied.`
 
-**原因**: 国税庁側で短時間大量アクセスの制限に引っかかった (別添1 第9条第1項三号)。
+**原因**: 国税庁側で短時間大量アクセスの制限に達した（利用規約 第9条第1項第三号）。
 
-**対処**: 本ライブラリは自動的に 30秒 → 1分 → 5分 → 30分 の指数バックオフを適用。しばらく待てば自動復旧。
-
-**根本原因の調査**:
-
-- 複数インスタンスで同じ ID を使用していないか
-- `NTA_RATE_LIMIT_RPS` を下げる (デフォルト 1)
-- アクセス頻度のピーク時間を分散
+**対処**: 内蔵レートリミッターが自動的に 30秒 → 1分 → 5分 → 30分 の指数バックオフを適用します。複数プロセスで同一 `NTA_APPLICATION_ID` を共有していないか確認し、必要に応じて `NTA_RATE_LIMIT_RPS` を下げてください。
 
 ### 国税庁 HTTP 404 (アプリケーション ID 無効)
 
-> `NtaApiError: NTA API responded HTTP 404`
+**原因**: `NTA_APPLICATION_ID` の誤入力、未登録、または 3 年間無利用による停止（第4条第5項）。
 
-**原因** (国税庁仕様書 別紙2):
-
-- アプリケーション ID が未登録
-- アプリケーション ID が失効 (3 年間無利用で停止、別添1 第4条第5項)
-
-**対処**:
-
-1. ID が正しく設定されているか確認
-2. 3 年無利用停止の場合は、適格請求書発行事業者公表サイトのフォームから再申請
-3. 本プロジェクトには週次 keep-alive cron (`.github/workflows/api-health-check.yml`) があるため、GitHub Actions 側で設定すれば自動防止可能
+**対処**: ID の設定値を確認し、失効している場合は再申請してください（週次 keep-alive `.github/workflows/api-health-check.yml` で失効を防止できます）。
 
 ### 国税庁 HTTP 400 (検索結果過多)
 
-> `エラーコード 180: 検索結果件数が多いため結果をお返しできません。`
-
-**原因**: `search_corporate_by_name` で絞り込みが弱く、ヒット件数が国税庁側の内部上限を超えた。
+**原因**: `search_corporate_by_name` で条件が広すぎ、国税庁 Web-API 側の上限を超えた。
 
 **対処**:
 
-- `prefecture` パラメータで都道府県コード（JIS X 0401 2桁 '01'〜'47'）を指定
-- 会社名をより具体的・正式な名称で入力
-- `normalize_company_name` ツールを実行し、得られた `search_query_optimized` を使って検索
+- `prefecture` パラメータで都道府県コード（`'01'`〜`'47'`）を指定する
+- `normalize_company_name` ツールを先に実行し、正規化された商号やコア商号で検索する
 
 ### タイムアウト
 
-> `NtaApiError: NTA API request timed out`
+**対処**: `NTA_TIMEOUT_MS`（既定 `8000` ミリ秒）を増やすか、国税庁側のメンテナンス時間を確認してください。
 
-**原因**: 国税庁サーバの応答がタイムアウト設定値を超過。
+---
 
-**対処**:
-
-- `NTA_TIMEOUT_MS` を増やす (デフォルト 8000ms)
-- 国税庁側のメンテナンス時間を確認 (休祝日・年末年始は更新停止、第一編 §4 表2)
-
-## MCP ホスト連携の問題
+## MCP ホスト連携・表記揺れ正規化
 
 ### Tool が MCP Host に表示されない
 
-1. `claude_desktop_config.json` の JSON 構文エラーがないか確認
-2. Claude Desktop / Cursor を完全に再起動
-3. `curl -sX POST http://localhost:3001/mcp -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` で直接検証
-4. サーバのログを確認 (`LOG_LEVEL=debug` で詳細化)
+1. 設定ファイルの JSON 構文エラーがないか確認し、クライアントを完全に再起動する
+2. `curl -sX POST http://localhost:3001/mcp -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` で直接疎通を確認する
+3. サーバーログを確認する（`LOG_LEVEL=debug` で詳細化。認証情報や入力クエリは自動マスク・非記録されます）
 
-### Completion が効かない
+### 表記揺れが期待通りにヒットしない
 
-`completion/complete` は MCP ホスト側の対応が必要です。現時点 (2026-10) で `Completion` をサポートするホスト:
+1. まず `normalize_company_name`（引数: `raw_name`）を実行し、`normalized_name` と `search_query_optimized` を確認してください（`search_corporate_by_name` 単体では `(株)` 展開や旧字体→新字体変換を行いません）。
+2. ホスト版（`DATA_SOURCE=db`）では英数字の半角・全角（例: `NTT` と `ＮＴＴ`）の双方にマッチしますが、ローカル Web-API 版（`DATA_SOURCE=web-api`）は前方一致検索（`mode=1`, `target=1`）となるため、`normalized_name`（前株/後株を含む正式商号）と `search_query_optimized` の双方を試してください。
 
-- Claude Desktop (0.7.x+)
-- MCP Inspector
-
-サポート状況は日々変化します。
-
-## 表記揺れ正規化の期待値ズレ
-
-### 正規化が期待通りの結果を返さない
-
-1. 入力を `tools/call normalize_company_name`（引数: `raw_name`）で直接試し、`normalized_name` と `search_query_optimized` を確認
-2. 該当パターンが法人格略称（（株）、(株)、㈱ 等）や全角半角の範囲に含まれているか確認
-3. 想定外の挙動であれば [GitHub Issues](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues) で報告してください
-
-### 「この揺れは国税庁側が吸収すべき」と判定された
-
-国税庁 Web-API の商号検索（あいまい検索）は下記を自動で吸収します (第二編 §4.6.2):
-
-- ひらがな → カタカナ
-- 英小文字 → 英大文字
-- 中点 (・)・全角スペース削除
-
-これらはクライアント側での過度な加工を行わず、国税庁側の検索機能または `search_query_optimized` を活用します。
-
-## Node.js バージョン関連
-
-### `ReferenceError: fetch is not defined`
-
-**原因**: Node.js < 18 を使用。
-
-**対処**: Node.js 20.19.0 以上に upgrade (`.nvmrc` 参照)。
-
-## 詳細なログを取りたい
-
-```bash
-LOG_LEVEL=debug NTA_APPLICATION_ID=xxx npx -y @sugukuru/mcp-houjin-bangou
-```
-
-Application ID は自動的にログから redact されます。
+---
 
 ## それでも解決しない場合
 
-1. [SECURITY.md](../SECURITY.md) に該当するセキュリティ問題なら `info@sugu-kuru.co.jp`
-2. それ以外は [GitHub Issues](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues) に `bug_report` テンプレで投稿
-3. 国税庁 API 仕様変化を疑う場合は `api_drift` テンプレで投稿
+1. [SECURITY.md](../SECURITY.md) に該当するセキュリティ上の問題は `info@sugu-kuru.co.jp` または GitHub Private Security Advisory へ
+2. バグ報告・改善要望は [GitHub Issues](https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/issues) へ投稿してください

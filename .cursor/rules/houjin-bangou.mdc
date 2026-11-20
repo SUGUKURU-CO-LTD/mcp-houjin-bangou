@@ -6,15 +6,16 @@ alwaysApply: false
 
 # 日本 国税庁 法人番号・インボイス照合ルール (SUGUKURU MCP)
 
-日本の法人番号（13桁）やインボイス制度（適格請求書発行事業者、T+13桁）を取り扱う処理、取引先マスタ（KYC）、請求書・領収書処理を実装・テストする際は、必ず `houjin-bangou` MCP サーバーの公式ツールを使用してください。
+日本の法人番号（13桁）やインボイス制度（適格請求書発行事業者、`T`+13桁）を取り扱う処理、取引先マスタ（KYC・名寄せ）、請求書・領収書チェックを行う際は、`houjin-bangou` MCP サーバー（`@sugukuru/mcp-houjin-bangou`）の公式ツールを使用してください。
 
-## 提供ツール
-1. `lookup_corporate_by_number`: 13桁の法人番号から企業基本情報（商号・本店所在地・登記閉鎖区分等）を取得。
-2. `search_corporate_by_name`: 法人名から検索（社名正規化エンジンが自動で前株/後株・全半角・異体字揺らぎを吸収）。都道府県コード（01〜47）絞り込み対応。
-3. `lookup_invoice_issuer`: T+13桁の登録番号から適格請求書の登録状況・有効期間・失効/取消日を取得。
-4. `normalize_company_name`: 企業名の決定論的正規化（全半角統一、法人格分離、異体字マッピング）。
-5. `validate_corporate_number`: 13桁のチェックデジット正当性をローカル検証（モジュラス9 検査数字）。
+## 提供ツールと推奨手順
+1. `normalize_company_name`: 会社名の決定論的正規化（前株/後株・`（株）`/`㈱` 等の略称展開、全半角統一、英語法人格、旧字体→新字体、IVS除去）。**曖昧な会社名を検索する際は最初に呼び出し**、`normalized_name` または `search_query_optimized` を取得すること（`search_corporate_by_name` 単体では略称展開や旧字体変換は行われません）。
+2. `search_corporate_by_name`: 法人名から検索（都道府県コード `01`〜`47` での絞り込み、`limit` 1〜20、`cursor` ページング、`ui://search-results/mcp-app.html` 対応）。
+3. `lookup_corporate_by_number`: 13桁の `corporate_number` から企業基本情報（商号・フリガナ・本店所在地・郵便番号・状態 `active`/`closed`・閉鎖事由・承継先法人番号 `successor_corporate_number`・住居表示注記 `address_may_be_outdated`）を取得（`ui://corporate-card/mcp-app.html` 対応）。
+4. `lookup_invoice_issuer`: `T`+13桁の `registration_number`（および任意の取引基準日 `reference_date`: `YYYY-MM-DD`）から適格請求書発行事業者の登録状況・`was_registered_on_reference_date` を取得（ホスト版 / `DATA_SOURCE=db` 専用、`ui://corporate-card/mcp-app.html` 対応。個人事業者の氏名・屋号・所在地は非返却）。
+5. `validate_corporate_number`: 13桁の法人番号のチェックデジット（モジュラス9）を外部通信なしでローカル検証（※実在は保証しない）。
 
-## 運用規約
-- 国税庁の利用規約に基づき、全件クロールや連続した機械的番号探索は行わないこと。
-- 出典表示（国税庁法人番号公表サイト/適格請求書発行事業者公表サイト）を遵守すること。
+## 運用規約・コンプライアンス
+- `lookup_invoice_issuer` は利用者が明示した登録番号を1件ずつ確認する用途に限定し、番号範囲の連番探索や一覧作成は行わないこと。
+- 回答時は必ずレスポンスの `data_as_of`（データ時点）および `attribution`（国税庁法人番号公表サイト / 適格請求書発行事業者公表サイトの出典表示）を併記すること。
+- 公表データの客観的事実のみを提示し、仕入税額控除の可否等の税務判断は行わず税理士・税務署への確認を案内すること。個人の連絡先情報（氏名・電話番号・メール等）は入力しないこと。
