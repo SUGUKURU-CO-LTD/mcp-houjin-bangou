@@ -23,6 +23,10 @@ export interface ServerDeps {
 }
 
 export function createServer(deps: ServerDeps): McpServer {
+  const effectiveDataSource: DataSourceMode =
+    deps.dataSource ??
+    (deps.dbProvider !== undefined && deps.ntaClient === undefined ? 'db' : 'web-api');
+
   const mcpServer = new McpServer(
     {
       name: SERVER_NAME,
@@ -65,11 +69,11 @@ export function createServer(deps: ServerDeps): McpServer {
     ntaClient: deps.ntaClient,
     dbProvider: deps.dbProvider,
     invoiceDbProvider: deps.invoiceDbProvider,
-    dataSource: deps.dataSource,
+    dataSource: effectiveDataSource,
     logger,
   });
   registerAllResources(mcpServer, { ntaClient: deps.ntaClient, logger });
-  registerAllPrompts(mcpServer);
+  registerAllPrompts(mcpServer, { dataSource: effectiveDataSource });
   registerCompletionHandler(mcpServer.server, { logger });
 
   // ステートレス構成では notifications/*/list_changed を送信しないため、

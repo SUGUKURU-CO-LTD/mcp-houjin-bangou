@@ -1,10 +1,13 @@
 /**
  * 全ツール共通のレスポンス形式およびエラーコード定義
  *
- * 根拠 / Source: docs/plan/corp-check-interface-v1.md §3.1, §4, §6.1, §6.2 (v1.4 凍結仕様)
- * - 成功時: 各ツールの出力スキーマに一致する structuredContent と、要約のテキスト1つを返す
- * - 失敗時: isError: true とし、structuredContent に error.code と error.message を格納
- * - 内部メタデータ (requestId, traceId, internal_timestamp) は一切含めない
+ * 根拠 / Source:
+ *   - docs/plan/corp-check-interface-v1.md §3.1, §4, §6.1, §6.2
+ *   - MCP 2025-11-25 Specification (Tools — Output Schema & Error Handling)
+ *   - 成功時: 各ツールの出力スキーマに一致する structuredContent と、要約のテキスト1つを返す
+ *   - 失敗時: isError: true とし、structuredContent は付与せず（Client.callTool の outputSchema 検証クラッシュ防止）、
+ *     content[0].text に "[CODE] message"、_meta.error に { code, message } を格納する
+ *   - 内部メタデータ (requestId, traceId, internal_timestamp) は一切含めない
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -12,15 +15,19 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 export type CommonErrorCode =
   'INVALID_INPUT' | 'NOT_FOUND' | 'DATA_UNAVAILABLE' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
 
+export interface ToolErrorDetail {
+  code: CommonErrorCode;
+  message: string;
+}
+
+export interface ToolErrorMeta extends Record<string, unknown> {
+  error: ToolErrorDetail;
+}
+
 export interface ToolErrorResponse extends CallToolResult {
   isError: true;
   content: [{ type: 'text'; text: string }];
-  structuredContent: {
-    error: {
-      code: CommonErrorCode;
-      message: string;
-    };
-  };
+  _meta: ToolErrorMeta;
 }
 
 export interface ToolSuccessResponse<T extends Record<string, unknown>> extends CallToolResult {
@@ -49,10 +56,10 @@ export function createErrorResponse(code: CommonErrorCode, message: string): Too
     content: [
       {
         type: 'text',
-        text: message,
+        text: `[${code}] ${message}`,
       },
     ],
-    structuredContent: {
+    _meta: {
       error: {
         code,
         message,

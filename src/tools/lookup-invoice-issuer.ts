@@ -3,7 +3,7 @@
  * 適格請求書発行事業者の公表事実（登録状態、名称、所在地等）を照会
  *
  * 根拠 / Source:
- *   docs/plan/corp-check-interface-v1.md §1.3, §3.1, §4, §6.1, §6.2 (v1.6 凍結仕様)
+ *   docs/plan/corp-check-interface-v1.md §1.3, §3.1, §4, §6.1, §6.2
  *   実装指示書v1 §5(B5):
  *     - 個人事業者の場合は氏名・屋号・所在地を返却しない
  *     - not_found はエラーではなく status: not_found の正常レスポンスとして返す
@@ -12,8 +12,10 @@
  */
 
 import { z } from 'zod';
+import { registerAppTool } from '@modelcontextprotocol/ext-apps/server';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpLogger } from '../lib/mcp-logger.js';
+import { extractTraceFromMcpExtra } from '../lib/trace-context.js';
 import { getToolAnnotations, type DataSourceMode } from '../domain/tool-annotations.js';
 import {
   createSuccessResponse,
@@ -23,6 +25,16 @@ import {
   type ToolErrorResponse,
 } from '../lib/tool-response.js';
 import type { DbInvoiceDataProvider } from '../repository/invoice-repository.js';
+
+function isValidCalendarDateString(dateStr: string): boolean {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.exec(dateStr);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+}
 
 const InputSchema = z
   .object({
@@ -52,22 +64,59 @@ export type LookupInvoiceIssuerInput = z.infer<typeof InputSchema>;
 
 const OutputSchema = z
   .object({
-    registration_number: z.string(),
-    status: z.enum(['registered', 'cancelled', 'expired', 'not_found']),
-    business_type: z.enum(['corporation', 'individual', 'other', 'unknown']),
-    registration_date: z.string().nullable(),
-    cancellation_date: z.string().nullable(),
-    expiration_date: z.string().nullable(),
-    corporate_name: z.string().nullable(),
-    location: z.string().nullable(),
-    was_registered_on_reference_date: z.boolean().nullable(),
+    registration_number: z
+      .string()
+      .describe("Queried invoice registration number ('T' followed by 13 digits)"),
+    status: z
+      .enum(['registered', 'cancelled', 'expired', 'not_found'])
+      .describe(
+        "Registration status as of data_as_of. 'not_found' means there is no matching record in the public dataset as of data_as_of (does not establish that the entity is unregistered).",
+      ),
+    business_type: z
+      .enum(['corporation', 'individual', 'other', 'unknown'])
+      .describe(
+        "Classification of issuer. 'unknown' is used when status is 'not_found' or unpublished.",
+      ),
+    registration_date: z.string().nullable().describe('Date of initial registration (YYYY-MM-DD)'),
+    cancellation_date: z
+      .string()
+      .nullable()
+      .describe('Date of cancellation if applicable (YYYY-MM-DD)'),
+    expiration_date: z
+      .string()
+      .nullable()
+      .describe('Date of expiration if applicable (YYYY-MM-DD)'),
+    corporate_name: z
+      .string()
+      .nullable()
+      .describe(
+        'Published name for corporations and other entities (e.g., unincorporated associations). Always null for individuals.',
+      ),
+    location: z
+      .string()
+      .nullable()
+      .describe(
+        'Published location for corporations. For other entities, included only when present in the public dataset. Always null for individuals.',
+      ),
+    was_registered_on_reference_date: z
+      .boolean()
+      .nullable()
+      .describe(
+        'Whether the issuer was registered on the specified reference_date (on or after registration_date, and before cancellation/expiration dates); null if reference_date was not specified or status is not_found',
+      ),
     data_as_of: z
       .string()
       .describe(
         'Date of the public dataset (YYYY-MM-DD; updated monthly with end-of-previous-month snapshot / 月1回、前月末時点の全件データで更新)',
       ),
-    attribution: z.string(),
-    tax_disclaimer: z.string(),
+    attribution: z
+      .string()
+      .describe('Attribution text required by NTA invoice site terms of service'),
+    tax_disclaimer: z
+      .string()
+      .describe(
+        'Notice that this tool provides public facts only and does not provide tax consultation or deduction determination',
+      ),
   })
   .strict();
 
@@ -91,13 +140,20 @@ export function registerLookupInvoiceIssuerTool(
     deps.dataSource ?? (isDb ? 'db' : 'web-api'),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     'lookup_invoice_issuer',
     {
       title: annotations.title,
       description: DESCRIPTION,
-      inputSchema: InputSchema.shape,
-      outputSchema: OutputSchema.shape,
+      inputSchema: InputSchema,
+      outputSchema: OutputSchema,
+      _meta: {
+        ui: {
+          resourceUri: 'ui://corporate-card/mcp-app.html',
+          visibility: ['model', 'app'],
+        },
+      },
       annotations: {
         title: annotations.title,
         readOnlyHint: annotations.readOnlyHint,
@@ -106,35 +162,38 @@ export function registerLookupInvoiceIssuerTool(
         openWorldHint: annotations.openWorldHint,
       },
     },
-    async (args): Promise<ToolSuccessResponse<LookupInvoiceIssuerOutput> | ToolErrorResponse> => {
+    async (
+      args,
+      extra,
+    ): Promise<ToolSuccessResponse<LookupInvoiceIssuerOutput> | ToolErrorResponse> => {
       const startTime = performance.now();
+      const trace = extractTraceFromMcpExtra(extra);
+      const { registration_number, reference_date } = args;
 
-      const parsedArgs = InputSchema.safeParse(args);
-      if (!parsedArgs.success) {
-        // ログに入力された登録番号は含めない（個人情報保護・設計制約）
+      if (reference_date !== undefined && !isValidCalendarDateString(reference_date)) {
         deps.logger.warn('tool_access', {
           tool: 'lookup_invoice_issuer',
           count: 0,
           duration_ms: Math.round(performance.now() - startTime),
-          error_type: 'invalid_input',
+          error_type: 'invalid_reference_date',
+          trace_id: trace.traceContext.traceId,
         });
         return createErrorResponse(
           'INVALID_INPUT',
-          `登録番号の入力形式が不正です: ${parsedArgs.error.issues.map((e) => e.message).join(', ')}`,
+          `基準日に実在しない日付（${reference_date}）が指定されています。有効なカレンダー日付を YYYY-MM-DD 形式で指定してください。`,
         );
       }
-
-      const { registration_number, reference_date } = parsedArgs.data;
 
       if (!deps.invoiceDbProvider) {
         deps.logger.error('tool_access', {
           tool: 'lookup_invoice_issuer',
           duration_ms: Math.round(performance.now() - startTime),
           error_type: 'DATA_UNAVAILABLE',
+          trace_id: trace.traceContext.traceId,
         });
         return createErrorResponse(
           'DATA_UNAVAILABLE',
-          'インボイス公表データプロバイダーが初期化されていません。データベース接続をご確認ください。',
+          'インボイス公表データプロバイダーが初期化されていません。lookup_invoice_issuer の利用には DATA_SOURCE=db（PostgreSQL 公表データ取込済み環境）またはホスト版（https://houjin.mcp.sugu-kuru.co.jp/mcp）をご利用ください（ローカルの DATA_SOURCE=web-api モードでは非対応です）。',
         );
       }
 
@@ -148,6 +207,7 @@ export function registerLookupInvoiceIssuerTool(
           tool: 'lookup_invoice_issuer',
           duration_ms: Math.round(performance.now() - startTime),
           error_type: result.error.code,
+          trace_id: trace.traceContext.traceId,
         });
         return createErrorResponse(result.error.code, result.error.message);
       }
@@ -159,9 +219,9 @@ export function registerLookupInvoiceIssuerTool(
         tool: 'lookup_invoice_issuer',
         count: val.status === 'not_found' ? 0 : 1,
         duration_ms: Math.round(performance.now() - startTime),
+        trace_id: trace.traceContext.traceId,
       });
 
-      // 要約テキスト（summaryText）の生成
       const summaryLines: string[] = [];
 
       const businessTypeLabelMap: Record<LookupInvoiceIssuerOutput['business_type'], string> = {
@@ -214,13 +274,18 @@ export function registerLookupInvoiceIssuerTool(
         );
       }
 
-      // 基準日判定結果の追記
+      // 基準日判定結果およびデータ基準日以降のスナップショット境界注意書き
       if (reference_date !== undefined && val.was_registered_on_reference_date !== null) {
         if (val.was_registered_on_reference_date) {
           summaryLines.push(`基準日（${reference_date}）時点で有効な登録事業者でした。`);
         } else {
           summaryLines.push(
             `基準日（${reference_date}）時点では有効な登録事業者ではありませんでした。`,
+          );
+        }
+        if (reference_date > val.data_as_of) {
+          summaryLines.push(
+            `※基準日（${reference_date}）はデータ基準日（${val.data_as_of}）より後の日付のため、データ基準日以降の登録取消・失効等は反映されていません。`,
           );
         }
       }

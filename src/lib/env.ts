@@ -1,11 +1,15 @@
 /**
  * 環境変数の Zod validation
  * Startup-time environment variable validation with Zod
- * Validasi variabel lingkungan saat startup
  */
 
 import { z } from 'zod';
 import { DATA_SOURCE_MODES } from '../domain/tool-annotations.js';
+
+const OptionalHostSchema = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.string().trim().min(1).optional(),
+);
 
 const EnvSchema = z
   .object({
@@ -18,6 +22,9 @@ const EnvSchema = z
         '国税庁が発行したアプリケーション ID (13桁)。ホスト版(DB)では使わない。第一編 §5.1 参照。',
       ),
     NTA_BASE_URL: z.string().url().default('https://api.houjin-bangou.nta.go.jp/4'),
+    HOST: OptionalHostSchema.describe(
+      'HTTPバインドアドレス。未指定時は DATA_SOURCE=web-api では 127.0.0.1（ローカル露出防止）、DATA_SOURCE=db では 0.0.0.0。',
+    ),
     PORT: z.coerce.number().int().positive().default(3001),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -72,7 +79,11 @@ const EnvSchema = z
         message: 'DATABASE_URL is required when DATA_SOURCE is db',
       });
     }
-  });
+  })
+  .transform((val) => ({
+    ...val,
+    HOST: val.HOST ?? (val.DATA_SOURCE === 'db' ? '0.0.0.0' : '127.0.0.1'),
+  }));
 
 export type Env = z.infer<typeof EnvSchema>;
 

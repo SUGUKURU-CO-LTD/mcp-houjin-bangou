@@ -5,6 +5,8 @@ import {
   generateTraceId,
   generateSpanId,
   deriveChildSpan,
+  sanitizeTracestate,
+  extractTraceFromMcpExtra,
 } from '../../src/lib/trace-context.js';
 
 describe('parseTraceparent', () => {
@@ -22,11 +24,12 @@ describe('parseTraceparent', () => {
     expect(ctx?.traceId).toBe('0af7651916cd43dd8448eb211c80319c');
   });
 
-  it('invalid format returns null', () => {
+  it('invalid format and forbidden version ff return null', () => {
     expect(parseTraceparent('invalid')).toBeNull();
     expect(parseTraceparent('')).toBeNull();
     expect(parseTraceparent(undefined)).toBeNull();
     expect(parseTraceparent('00-short-b7ad6b7169203331-01')).toBeNull();
+    expect(parseTraceparent('ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01')).toBeNull();
   });
 
   it('all-zero IDs are rejected', () => {
@@ -81,5 +84,47 @@ describe('deriveChildSpan', () => {
       expect(child.flags).toBe(parent.flags);
       expect(child.parentId).not.toBe(parent.parentId);
     }
+  });
+});
+
+describe('SEP-414 extractTraceFromMcpExtra & sanitizeTracestate', () => {
+  it('prioritizes extra._meta.traceparent over HTTP headers', () => {
+    const metaTp = '00-11111111111111111111111111111111-2222222222222222-01';
+    const httpTp = '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01';
+    const extracted = extractTraceFromMcpExtra({
+      _meta: { traceparent: metaTp, tracestate: 'vendor=abc' },
+      requestInfo: { headers: { traceparent: httpTp } },
+    });
+
+    expect(extracted.source).toBe('mcp_meta');
+    expect(extracted.traceContext.traceId).toBe('11111111111111111111111111111111');
+    expect(extracted.traceContext.parentId).not.toBe('2222222222222222');
+    expect(extracted.tracestate).toBe('vendor=abc');
+  });
+
+  it('falls back to HTTP requestInfo.headers.traceparent when _meta is absent', () => {
+    const httpTp = '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01';
+    const extracted = extractTraceFromMcpExtra({
+      requestInfo: { headers: { traceparent: httpTp, tracestate: 'congo=t61rcWkgMzE' } },
+    });
+
+    expect(extracted.source).toBe('http_header');
+    expect(extracted.traceContext.traceId).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(extracted.tracestate).toBe('congo=t61rcWkgMzE');
+  });
+
+  it('generates a new trace when neither _meta nor HTTP traceparent is valid', () => {
+    const extracted = extractTraceFromMcpExtra({
+      _meta: { traceparent: 'invalid-header' },
+    });
+    expect(extracted.source).toBe('generated');
+    expect(extracted.traceContext.traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(extracted.tracestate).toBeUndefined();
+  });
+
+  it('rejects control characters and overlong values in sanitizeTracestate', () => {
+    expect(sanitizeTracestate('vendor=1\r\nevil=2')).toBeUndefined();
+    expect(sanitizeTracestate('x'.repeat(600))).toBeUndefined();
+    expect(sanitizeTracestate('  vendor=ok  ')).toBe('vendor=ok');
   });
 });

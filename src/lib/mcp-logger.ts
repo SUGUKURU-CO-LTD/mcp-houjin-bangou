@@ -36,53 +36,89 @@ export interface McpLogger {
   error(logger: string, data?: Record<string, unknown>): void;
 }
 
+const TRACE_SAFE_KEYS = new Set([
+  'trace_id',
+  'traceid',
+  'span_id',
+  'spanid',
+  'traceparent',
+  'tracestate',
+]);
+
+function isExcludedQueryInputKey(lowerKey: string): boolean {
+  return (
+    lowerKey.includes('corporate_number') ||
+    lowerKey.includes('invoice_number') ||
+    lowerKey.includes('registration_number') ||
+    lowerKey === 'name' ||
+    lowerKey === 'raw_name' ||
+    lowerKey === 'company_name' ||
+    lowerKey === 'target_company_name' ||
+    lowerKey === 'company_list_text' ||
+    lowerKey === 'location_hint' ||
+    lowerKey === 'current_address' ||
+    lowerKey === 'query' ||
+    lowerKey === 'search_word' ||
+    lowerKey.includes('keyword') ||
+    lowerKey.includes('address')
+  );
+}
+
+function isSecretKey(lowerKey: string): boolean {
+  if (
+    lowerKey.includes('id') &&
+    (lowerKey.includes('application') || lowerKey.includes('api_key'))
+  ) {
+    return true;
+  }
+  return lowerKey.includes('token') || lowerKey.includes('secret') || lowerKey.includes('password');
+}
+
+function sanitizeStringValue(value: string): string {
+  let masked = value.replace(/id=[^&\s]+/g, 'id=***REDACTED***');
+  masked = masked.replace(/T[0-9]{13}(?![0-9])/g, 'T***REDACTED***');
+  masked = masked.replace(/(?<![0-9])[0-9]{13}(?![0-9])/g, '***REDACTED***');
+  return masked;
+}
+
+function sanitizeAnyValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return sanitizeStringValue(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeAnyValue(item));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return sanitizeLogData(value as Record<string, unknown>);
+  }
+  return value;
+}
+
 /**
  * 入力された法人番号・登録番号・検索語・認証情報等の機密情報をログから除外・マスクする
  * 多層防御（Defense-in-depth）サニタイザー
  */
-function sanitizeLogData(data: Record<string, unknown>): Record<string, unknown> {
+export function sanitizeLogData(data: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(data)) {
     const lowerKey = key.toLowerCase();
 
-    // 法人番号・登録番号・検索語・氏名・住所等の入力値を除外
-    if (
-      lowerKey.includes('corporate_number') ||
-      lowerKey.includes('invoice_number') ||
-      lowerKey.includes('registration_number') ||
-      lowerKey === 'name' ||
-      lowerKey === 'query' ||
-      lowerKey === 'search_word' ||
-      lowerKey.includes('keyword') ||
-      lowerKey.includes('address')
-    ) {
-      // アクセスログ要件に従い記録しない
+    if (isExcludedQueryInputKey(lowerKey)) {
       continue;
     }
 
-    // 認証情報・秘密情報のマスク
-    if (
-      lowerKey.includes('id') &&
-      (lowerKey.includes('application') || lowerKey.includes('api_key'))
-    ) {
+    if (isSecretKey(lowerKey)) {
       sanitized[key] = '***REDACTED***';
-    } else if (
-      lowerKey.includes('token') ||
-      lowerKey.includes('secret') ||
-      lowerKey.includes('password')
-    ) {
-      sanitized[key] = '***REDACTED***';
-    } else if (typeof value === 'string') {
-      // 13桁の法人番号またはT+13桁の登録番号が文字列値に含まれる場合はマスク
-      let masked = value.replace(/id=[^&\s]+/g, 'id=***REDACTED***');
-      masked = masked.replace(/T[0-9]{13}/g, 'T***REDACTED***');
-      sanitized[key] = masked;
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      sanitized[key] = sanitizeLogData(value as Record<string, unknown>);
-    } else {
-      sanitized[key] = value;
+      continue;
     }
+
+    if (TRACE_SAFE_KEYS.has(lowerKey) && typeof value === 'string') {
+      sanitized[key] = value;
+      continue;
+    }
+
+    sanitized[key] = sanitizeAnyValue(value);
   }
 
   return sanitized;
