@@ -109,7 +109,8 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
   let currentState: ViewState | null = null;
   let historyStack: HistoryEntry[] = [];
   let lastToolCall: LastToolCall | null = null;
-  let initialSearchContext: SearchQueryContext | null = null;
+  let pendingToolInput: LastToolCall | null = null;
+  let pendingSearchContext: SearchQueryContext | null = null;
   let currentDisplayMode: McpUiDisplayMode = 'inline';
   let canFullscreen = false;
   let lastAnnouncedCopyMessage = '';
@@ -434,6 +435,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         },
         { signal },
       );
+      if (signal.aborted) return;
       if (res.isError) {
         const errVm = extractToolErrorViewModel(res);
         if (errVm) {
@@ -483,6 +485,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         },
         { signal },
       );
+      if (signal.aborted) return;
       if (res.isError) {
         const errVm = extractToolErrorViewModel(res);
         if (errVm) {
@@ -548,6 +551,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         },
         { signal },
       );
+      if (signal.aborted) return;
       if (res.isError) {
         const errVm = extractToolErrorViewModel(res);
         corpState.inlineInvoice = {
@@ -1114,6 +1118,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
               },
               { signal },
             );
+            if (signal.aborted) return;
             if (res.isError) {
               const errVm = extractToolErrorViewModel(res);
               if (errVm) {
@@ -1188,6 +1193,7 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
         },
         { signal },
       );
+      if (signal.aborted) return;
       if (res.isError) {
         const errVm = extractToolErrorViewModel(res);
         if (errVm) {
@@ -1539,6 +1545,24 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
           renderLoadingSkeleton('再試行しています...');
           try {
             const res = await app.callServerTool(savedCall, { signal });
+            if (signal.aborted) return;
+            pendingToolInput = savedCall;
+            if (
+              typeof savedCall.arguments['name'] === 'string' &&
+              savedCall.arguments['name'].trim() !== ''
+            ) {
+              pendingSearchContext = {
+                name: savedCall.arguments['name'],
+                prefecture:
+                  typeof savedCall.arguments['prefecture'] === 'string'
+                    ? savedCall.arguments['prefecture']
+                    : undefined,
+                limit:
+                  typeof savedCall.arguments['limit'] === 'number'
+                    ? savedCall.arguments['limit']
+                    : undefined,
+              };
+            }
             handleIncomingToolResult(res);
           } catch (err) {
             if (signal.aborted) return;
@@ -1629,6 +1653,14 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     content?: Array<{ type?: string; text?: string }>;
   }): void {
     abortInFlight();
+    clearTimers();
+    const matchedInput = pendingToolInput;
+    const matchedSearchContext = pendingSearchContext;
+    pendingToolInput = null;
+    pendingSearchContext = null;
+    if (matchedInput === null) {
+      lastToolCall = null;
+    }
     hasReceivedResult = true;
     historyStack = [];
 
@@ -1642,10 +1674,16 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     const sc = (params.structuredContent ?? {}) as Record<string, unknown>;
     if (isInvoiceOutput(sc)) {
       const refDate =
-        typeof lastToolCall?.arguments['reference_date'] === 'string' &&
-        lastToolCall.arguments['reference_date'] !== ''
-          ? lastToolCall.arguments['reference_date']
+        typeof matchedInput?.arguments['reference_date'] === 'string' &&
+        matchedInput.arguments['reference_date'] !== ''
+          ? matchedInput.arguments['reference_date']
           : extractReferenceDateFromContent(params.content);
+      if (matchedInput === null && typeof sc['registration_number'] === 'string') {
+        lastToolCall = {
+          name: 'lookup_invoice_issuer',
+          arguments: buildLookupInvoiceArgs(sc['registration_number'], refDate),
+        };
+      }
       currentState = {
         kind: 'invoice-card',
         output: sc,
@@ -1661,12 +1699,18 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     ) {
       const searchOut = sc as SearchCorporateOutput;
       const recoveredContext =
-        initialSearchContext ??
-        extractQueryContextFromCursor(searchOut.next_cursor) ??
+        matchedSearchContext ??
+        extractQueryContextFromCursor(searchOut.next_cursor, searchOut.results?.length) ??
         (() => {
           const fromText = extractSearchQueryFromContent(params.content);
           return fromText !== null ? { name: fromText } : null;
         })();
+      if (matchedInput === null && recoveredContext !== null) {
+        lastToolCall = {
+          name: 'search_corporate_by_name',
+          arguments: buildPaginatedSearchArgs(recoveredContext, null),
+        };
+      }
       currentState = {
         kind: 'search-results',
         output: searchOut,
@@ -1678,9 +1722,16 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
       return;
     }
 
+    const corpOut = sc as LookupCorporateOutput;
+    if (matchedInput === null && typeof corpOut.corporation?.corporate_number === 'string') {
+      lastToolCall = {
+        name: 'lookup_corporate_by_number',
+        arguments: buildLookupByNumberArgs(corpOut.corporation.corporate_number),
+      };
+    }
     currentState = {
       kind: 'corporate-card',
-      output: sc as LookupCorporateOutput,
+      output: corpOut,
     };
     renderCurrentState(false);
   }
@@ -1701,13 +1752,16 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
     const args = params.arguments ?? {};
     const toolName = app.getHostContext()?.toolInfo?.tool.name ?? inferToolNameFromArgs(args);
     lastToolCall = { name: toolName, arguments: args };
+    pendingToolInput = lastToolCall;
 
     if (typeof args['name'] === 'string' && args['name'].trim() !== '') {
-      initialSearchContext = {
+      pendingSearchContext = {
         name: args['name'],
         prefecture: typeof args['prefecture'] === 'string' ? args['prefecture'] : undefined,
         limit: typeof args['limit'] === 'number' ? args['limit'] : undefined,
       };
+    } else {
+      pendingSearchContext = null;
     }
 
     if (!hasReceivedResult) {
@@ -1729,6 +1783,9 @@ export async function bootstrapMcpUiApp(options: McpUiBootstrapOptions): Promise
 
   app.addEventListener('toolcancelled', (params) => {
     abortInFlight();
+    clearTimers();
+    pendingToolInput = null;
+    pendingSearchContext = null;
     hasReceivedResult = true;
     historyStack = [];
     currentState = {

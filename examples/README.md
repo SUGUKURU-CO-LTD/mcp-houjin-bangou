@@ -67,7 +67,7 @@
    NTA_APPLICATION_ID="<あなたのアプリケーションID>" npx @sugukuru/mcp-houjin-bangou
    ```
    ※ `DATA_SOURCE=web-api`（既定）では UC-1, UC-2, UC-4, UC-5 が利用可能です（UC-3 のインボイス照会はホスト版または `DATA_SOURCE=db` が必要です）。
-3. クライアント設定（`cursor-mcp.json` や `claude-desktop-config.json`）で以下を設定して再起動します:
+3. クライアント設定で以下を設定して再起動します（Cursor は `cursor-mcp.json` の `"type": "streamable-http"`、Claude Code は `"type": "http"`、Claude Desktop の `claude_desktop_config.json` は [`claude-desktop-config.json`](claude-desktop-config.json) の `mcp-remote` を使用）:
    ```json
    {
      "mcpServers": {

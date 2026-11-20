@@ -19,7 +19,7 @@ flowchart LR
     subgraph Primitives["MCP Primitives & Discovery"]
       Tools["5 Tools (.strict inputSchema)"]
       Resources["2 MCP Apps UI Resources<br/>corporate-card / search-results"]
-      Prompts["3 Prompts"]
+      Prompts["4 Prompts"]
       Completion["Completion handler"]
       Pagination["Pagination (queryKey + data_as_of cursor)"]
       ServerCard["Server Card<br/>/.well-known/mcp.json"]
@@ -63,7 +63,7 @@ flowchart LR
 |---|---|---|
 | **Transport & HTTP Security** | `src/server.ts`, `src/lib/http-security.ts` | Express 5 + Helmet + Origin 検証 + IP レート制限 + Stateless Streamable HTTP |
 | **MCP Protocol** | `src/mcp.ts` | `McpServer` ファクトリ + capability / `instructions` 宣言 |
-| **Primitives & UI** | `src/tools/`, `src/resources/`, `src/prompts/`, `src/completion/`, `src/ui/` | 5 Tools / 2 MCP Apps UI Resources / 3 Prompts / Completion |
+| **Primitives & UI** | `src/tools/`, `src/resources/`, `src/prompts/`, `src/completion/`, `src/ui/` | 5 Tools / 2 MCP Apps UI Resources / 4 Prompts / Completion |
 | **Domain** | `src/domain/` | 純粋ロジック（チェックデジット、T番号・暦日検証、社名正規化、コード表） |
 | **Repository & API** | `src/repository/`, `src/api/`, `src/db/` | PostgreSQL Drizzle プロバイダ（`db` モード）/ 国税庁 Web-API クライアント（`web-api` モード） |
 | **Ingestion** | `src/ingest/` | 月次全件 CSV ストリーミング取込・閾値検証・単一トランザクション `RENAME` スワップ |

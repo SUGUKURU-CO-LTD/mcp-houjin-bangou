@@ -10,16 +10,45 @@
  *     - DB エラーログに入力値（\nparams:）を残さない
  */
 
-import { eq, and, or, isNull, ne, like, ilike, inArray, notInArray, desc, asc } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  or,
+  isNull,
+  ne,
+  like,
+  ilike,
+  inArray,
+  notInArray,
+  desc,
+  asc,
+  sql,
+} from 'drizzle-orm';
 import type { DbClient } from '../db/client.js';
 import { datasetVersions, corporateNumbers } from '../db/schema.js';
 import { Result } from '../lib/result.js';
 import { formatErrorWithCause } from '../lib/errors.js';
 import { kindLabel } from '../domain/kind-codes.js';
 import { closeCauseLabel } from '../domain/close-cause-codes.js';
-import { applyOldToNew, hiraganaToKatakana, stripCorporateKind } from '../domain/normalizer.js';
+import {
+  applyOldToNew,
+  extractCorporateKindDetails,
+  hiraganaToKatakana,
+} from '../domain/normalizer.js';
 import { encodeNameSearchCursor, validateNameSearchCursor } from '../lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../lib/tool-response.js';
+
+function codePointLength(input: string): number {
+  return Array.from(input).length;
+}
+
+function toAsciiTitleCase(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/(^|[\s\u3000・\-./&()+])([a-z])/g, (_m, sep: string, ch: string) => {
+      return `${sep}${ch.toUpperCase()}`;
+    });
+}
 
 /**
  * PostgreSQL LIKE / ILIKE 検索用ワイルドカード文字のエスケープ
@@ -59,6 +88,7 @@ export function buildAsciiWidthSearchVariants(
   }
 
   const half = toHalfWidthAscii(query).replace(/\u3000/g, ' ');
+  const halfTitle = toAsciiTitleCase(half);
   const halfUpper = half.toUpperCase();
   const halfLower = half.toLowerCase();
   const toFullWithSpace = (s: string): string => toFullWidthAscii(s).replace(/ /g, '\u3000');
@@ -67,9 +97,20 @@ export function buildAsciiWidthSearchVariants(
     query,
     half,
     toFullWithSpace(half),
+    toFullWithSpace(halfTitle),
     toFullWithSpace(halfUpper),
     toFullWithSpace(halfLower),
   ]);
+
+  if (/[ ・]/.test(half)) {
+    const compactHalf = half.replace(/[ ・]+/g, '');
+    if (compactHalf.length > 0) {
+      variants.add(compactHalf);
+      variants.add(toFullWidthAscii(compactHalf));
+      variants.add(toFullWidthAscii(toAsciiTitleCase(half).replace(/[ ・]+/g, '')));
+      variants.add(toFullWidthAscii(halfUpper.replace(/[ ・]+/g, '')));
+    }
+  }
 
   if (half.includes(' ')) {
     variants.add(half.replace(/ /g, '\u3000'));
@@ -77,6 +118,7 @@ export function buildAsciiWidthSearchVariants(
   }
 
   if (includeCaseVariantsForLike) {
+    variants.add(halfTitle);
     variants.add(halfUpper);
     variants.add(halfLower);
   }
@@ -121,6 +163,7 @@ const COMMERCIAL_NEW_TO_OLD_KANJI: ReadonlyArray<readonly [string, readonly stri
   ['証', ['證']],
   ['高', ['髙']],
   ['崎', ['﨑']],
+  ['吉', ['𠮷']],
   ['斎', ['齋']],
   ['斉', ['齊']],
   ['浜', ['濱', '濵']],
@@ -142,17 +185,12 @@ const COMMERCIAL_NEW_TO_OLD_KANJI: ReadonlyArray<readonly [string, readonly stri
   ['真', ['眞']],
 ];
 
-/**
- * DB 商号検索向けに、上限 (maxVariants) 付きで空白・英数全半角・ひらがな→カタカナ・
- * 小書きカナ双方向・旧字体/新字体双方向の検索パターンを展開する。
- * 3文字以上クエリ (!isShortQuery) では pg_trgm GIN 索引を確実に利用するため 3文字未満への縮退を除外する。
- */
-export function buildSearchNameVariants(
-  query: string,
-  isShortQuery = false,
-  maxVariants = MAX_SEARCH_VARIANTS,
+function buildCoreNameVariants(
+  coreQuery: string,
+  isShortQuery: boolean,
+  maxVariants: number,
 ): string[] {
-  const trimmed = query.trim();
+  const trimmed = coreQuery.trim();
   if (trimmed.length === 0) {
     return [];
   }
@@ -161,7 +199,7 @@ export function buildSearchNameVariants(
   const addVariant = (candidate: string): void => {
     if (variants.size >= maxVariants) return;
     if (candidate.length === 0) return;
-    if (!isShortQuery && candidate.length < 3) return;
+    if (!isShortQuery && codePointLength(candidate) < 3) return;
     variants.add(candidate);
   };
 
@@ -171,27 +209,24 @@ export function buildSearchNameVariants(
   const newForm = applyOldToNew(trimmed);
   addVariant(newForm);
 
-  // 2. 英数全半角 & スペース (U+0020 ⇔ U+3000 / 中点 / 空白除去)
+  // 2. 英数全半角 & スペース・中点 (U+0020 ⇔ U+3000 / 中点 / 空白除去)
   for (const base of [trimmed, newForm]) {
     for (const w of buildAsciiWidthSearchVariants(base, isShortQuery)) {
       addVariant(w);
     }
-    if (/[ \u3000]/.test(base)) {
-      addVariant(base.replace(/[ \u3000]+/g, '\u3000'));
-      addVariant(base.replace(/[ \u3000]+/g, ' '));
-      addVariant(base.replace(/[ \u3000]+/g, '・'));
-      addVariant(base.replace(/[ \u3000]+/g, ''));
+    if (/[ \u3000・]/.test(base)) {
+      if (/[ \u3000]/.test(base)) {
+        addVariant(base.replace(/[ \u3000]+/g, '\u3000'));
+        addVariant(base.replace(/[ \u3000]+/g, ' '));
+        addVariant(base.replace(/[ \u3000]+/g, '・'));
+      }
+      addVariant(base.replace(/[ \u3000・]+/g, ''));
     }
   }
 
-  // 3. ひらがなのみのクエリ（または法人格を除いたコア名がひらがなのみ） → カタカナ併記
+  // 3. ひらがなのみのクエリ → カタカナ併記
   if (HIRAGANA_ONLY_PATTERN.test(newForm)) {
     addVariant(hiraganaToKatakana(newForm));
-  } else {
-    const { core, hadKind } = stripCorporateKind(newForm);
-    if (hadKind && core.length > 0 && HIRAGANA_ONLY_PATTERN.test(core)) {
-      addVariant(newForm.replace(core, hiraganaToKatakana(core)));
-    }
   }
 
   // 4. 小書きカナ ⇔ 大書きカナ 双方向展開（キャノン⇔キヤノン、富士フィルム⇔富士フイルム等）
@@ -213,7 +248,7 @@ export function buildSearchNameVariants(
     addVariant(allToSmall);
   }
 
-  // 5. 主要商業旧字体の新字 → 旧字 逆方向展開（野村証券→野村證券、高橋→髙橋等）
+  // 5. 主要商業旧字体の新字 → 旧字 逆方向展開（野村証券→野村證券、高橋→髙橋、吉野家→𠮷野家等）
   let allPrimaryOld = newForm;
   let matchedKanjiGroups = 0;
   for (const [newChar, oldChars] of COMMERCIAL_NEW_TO_OLD_KANJI) {
@@ -237,6 +272,52 @@ export function buildSearchNameVariants(
 }
 
 /**
+ * DB 商号検索向けに、上限 (maxVariants) 付きで法人格略称・前後株・空白・英数全半角・
+ * ひらがな→カタカナ・小書きカナ双方向・旧字体/新字体双方向の検索パターンを展開する。
+ * 3文字以上クエリ (!isShortQuery) では pg_trgm GIN 索引を確実に利用するため 3文字未満への縮退を除外する。
+ */
+export function buildSearchNameVariants(
+  query: string,
+  isShortQuery = codePointLength(query.trim()) <= 2,
+  maxVariants = MAX_SEARCH_VARIANTS,
+): string[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  const kindDetails = extractCorporateKindDetails(trimmed);
+  if (kindDetails.hadKind && kindDetails.core.length > 0 && kindDetails.canonicalKind !== null) {
+    const variants = new Set<string>();
+    const addVariant = (candidate: string): void => {
+      if (variants.size >= maxVariants) return;
+      if (candidate.length === 0) return;
+      if (!isShortQuery && codePointLength(candidate) < 3) return;
+      variants.add(candidate);
+    };
+
+    const canonicalKind = kindDetails.canonicalKind;
+    const coreIsShort = isShortQuery;
+    // コア商号自体が1〜2文字（例: (株)アイ）でも法人格結合後は5文字以上になるため coreIsShort=true で縮退せず保持する
+    const coreVariants = buildCoreNameVariants(kindDetails.core, true, 6);
+    for (const cv of coreVariants) {
+      const samePos =
+        kindDetails.position === 'mae_kabu' ? `${canonicalKind}${cv}` : `${cv}${canonicalKind}`;
+      addVariant(samePos);
+      if (!coreIsShort && kindDetails.invertible) {
+        const invertedPos =
+          kindDetails.position === 'mae_kabu' ? `${cv}${canonicalKind}` : `${canonicalKind}${cv}`;
+        addVariant(invertedPos);
+      }
+    }
+    addVariant(trimmed);
+    return Array.from(variants);
+  }
+
+  return buildCoreNameVariants(trimmed, isShortQuery, maxVariants);
+}
+
+/**
  * B-tree 索引 `idx_corporate_numbers_name` で先行取得する完全一致候補名リストを生成する。
  * 3文字以上の部分一致検索では前後双方の代表法人格を補完し、1〜2文字の前方一致検索 (isShortQuery) では
  * 前方一致仕様（`LIKE 'prefix%'`）を守るため後株・完全一致のみに限定する。
@@ -245,20 +326,32 @@ export function buildSearchNameVariants(
 export function buildPriorityExactNames(
   trimmedName: string,
   variants: string[],
-  isShortQuery = trimmedName.length <= 2,
+  isShortQuery = codePointLength(trimmedName) <= 2,
 ): string[] {
-  const { core, hadKind } = stripCorporateKind(trimmedName);
-  if (core.length === 0) {
+  const kindDetails = extractCorporateKindDetails(trimmedName);
+  if (kindDetails.core.length === 0) {
     return [];
   }
 
   const exactNames = new Set<string>();
-  if (hadKind) {
+  if (kindDetails.hadKind && kindDetails.canonicalKind !== null) {
+    const canonicalKind = kindDetails.canonicalKind;
+    const coreVariants = buildCoreNameVariants(kindDetails.core, true, 8);
+    for (const cv of coreVariants) {
+      const samePos =
+        kindDetails.position === 'mae_kabu' ? `${canonicalKind}${cv}` : `${cv}${canonicalKind}`;
+      exactNames.add(samePos);
+      if (!isShortQuery && kindDetails.invertible) {
+        const invertedPos =
+          kindDetails.position === 'mae_kabu' ? `${cv}${canonicalKind}` : `${canonicalKind}${cv}`;
+        exactNames.add(invertedPos);
+      }
+    }
     for (const v of variants) {
       exactNames.add(v);
     }
   } else {
-    for (const v of variants.slice(0, 4)) {
+    for (const v of variants.slice(0, 6)) {
       exactNames.add(v);
       exactNames.add(`${v}株式会社`);
       exactNames.add(`${v}合同会社`);
@@ -271,7 +364,7 @@ export function buildPriorityExactNames(
     }
   }
 
-  return Array.from(exactNames).slice(0, 28);
+  return Array.from(exactNames).slice(0, 36);
 }
 
 interface RankableCorporateRow {
@@ -543,10 +636,10 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
         offset = validation.payload.offset;
       }
 
-      // 1〜2文字の語は前方一致 (LIKE 'prefix%') で text_pattern_ops 索引を活用し、
-      // 3文字以上の語は pg_trgm の部分一致 (ILIKE '%query%') を使用する。
-      // 空白・英数全半角・ひらがな→カタカナ・小書きカナ・旧字体/新字体のバリエーションを最大8件で展開する。
-      const isShortQuery = trimmedName.length <= 2;
+      // 1〜2文字（サロゲートペアを考慮したコードポイント数）の語は前方一致 (LIKE 'prefix%') で
+      // text_pattern_ops 索引を活用し、3文字以上の語は pg_trgm の部分一致 (ILIKE '%query%') を使用する。
+      // 法人格略称・前後株・空白・英数全半角・ひらがな→カタカナ・小書きカナ・旧字体のバリエーションを最大8件で展開する。
+      const isShortQuery = codePointLength(trimmedName) <= 2;
       const variants = buildSearchNameVariants(trimmedName, isShortQuery);
       const variantConditions = variants.map((v) => {
         const escaped = escapeLikeWildcards(v);
@@ -573,7 +666,7 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
       const fetchLimit = limit + 1;
 
       // Stage 1: B-tree 索引 `idx_corporate_numbers_name` による完全一致・代表法人格候補の先行取得
-      // （存続法人・完全一致・株式会社を先頭に配置し、Stage 2 と重複排除してページング整合性を保つ）
+      // （SQL 側でも存続法人・株式会社/合同会社を優先ソートしたうえで LIMIT 100 し、100件超の同名法人でも存続法人が埋もれないようにする）
       const priorityNames = buildPriorityExactNames(trimmedName, variants, isShortQuery);
       let stage1Rows: Array<typeof corporateNumbers.$inferSelect> = [];
       if (priorityNames.length > 0) {
@@ -586,11 +679,14 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
           stage1Conditions.push(eq(corporateNumbers.prefectureCode, prefecture));
         }
 
+        const activeOrderExpr = sql<number>`CASE WHEN ${corporateNumbers.closeDate} IS NULL AND ${corporateNumbers.closeCause} IS NULL THEN 0 ELSE 1 END`;
+        const kindOrderExpr = sql<number>`CASE WHEN ${corporateNumbers.kind} = '301' THEN 1 WHEN ${corporateNumbers.kind} = '305' THEN 2 ELSE 3 END`;
+
         const rawStage1 = await this.db
           .select()
           .from(corporateNumbers)
           .where(and(...stage1Conditions))
-          .orderBy(asc(corporateNumbers.corporateNumber))
+          .orderBy(asc(activeOrderExpr), asc(kindOrderExpr), asc(corporateNumbers.corporateNumber))
           .limit(100)
           .offset(0);
 

@@ -34,21 +34,35 @@ curl http://localhost:3001/health
 # => {"status":"ok","version":"1.1.0","nta_api_version":"Ver.4.0",...}
 
 curl http://localhost:3001/.well-known/mcp.json | head -c 200
-# => {"name":"@sugukuru/mcp-houjin-bangou","version":"1.1.0",...
+# => {"name":"jp.co.sugu-kuru/mcp-houjin-bangou","version":"1.1.0",...
 ```
 
-## ステップ 3: Claude Desktop / Cursor から接続
+## ステップ 3: Claude Code / Claude Desktop / Cursor から接続
 
 > [!IMPORTANT]
-> 本サーバーは Streamable HTTP 専用です。クライアント設定に `"command": "npx"`（stdio 方式）を指定すると接続が完了しないため、上記ステップ 1 でサーバーを起動した状態で `"url": "http://localhost:3001/mcp"` を指定してください。
+> 本サーバーは Streamable HTTP 専用です。クライアント設定に `@sugukuru/mcp-houjin-bangou` 自体を `"command": "npx"`（stdio 方式）で指定すると応答待ちで停止するため、上記ステップ 1 でサーバーを起動した状態で各クライアント形式に合わせて設定してください。
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）または `%APPDATA%\Claude\claude_desktop_config.json`（Windows）:
+Claude Code（`.mcp.json` または `~/.claude.json`）:
 
 ```json
 {
   "mcpServers": {
     "houjin-bangou-local": {
+      "type": "http",
       "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+Claude Desktop（`~/Library/Application Support/Claude/claude_desktop_config.json` または `%APPDATA%\Claude\claude_desktop_config.json`）:
+
+```json
+{
+  "mcpServers": {
+    "houjin-bangou-local": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3001/mcp"]
     }
   }
 }

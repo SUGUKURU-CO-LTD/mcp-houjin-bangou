@@ -495,7 +495,23 @@ describe.skipIf(!HAS_REAL_DB)(
           '6,"4010801006306","01","0","2026-09-30","2026-09-30","キヤノン株式会社","","301","東京都","大田区","下丸子３丁目","","13","111","1468501","","","","","","","","1","","","","","キヤノンカブシキガイシャ","0"',
           '7,"2010401062362","01","0","2026-09-30","2026-09-30","富士フイルム株式会社","","301","東京都","港区","西麻布２丁目","","13","103","1068620","","","","","","","","1","","","","","フジフイルムカブシキガイシャ","0"',
           '8,"9340001026142","01","0","2026-09-30","2026-09-30","スグクル株式会社","","301","鹿児島県","霧島市","国分中央１丁目","","46","218","8994332","","","","","","","","1","","","","","スグクルカブシキガイシャ","0"',
+          '9,"1010001999991","01","0","2026-09-30","2026-09-30","Ａｐｐｌｅ　Ｊａｐａｎパーツ販売閉鎖株式会社","","301","東京都","港区","赤坂１丁目","","13","103","1070052","","","2021-03-31","01","","","","1","","","","","アップルジャパンパーツ","0"',
+          '10,"6010601062093","01","0","2026-09-30","2026-09-30","株式会社ＮＴＴデータ","","301","東京都","江東区","豊洲３丁目","","13","108","1356033","","","","","","","","1","","","","","エヌティティデータ","0"',
+          '11,"8010001081781","01","0","2026-09-30","2026-09-30","株式会社𠮷野家ホールディングス","","301","東京都","中央区","日本橋箱崎町","","13","102","1030015","","","","","","","","1","","","","","ヨシノヤホールディングス","0"',
         ];
+        let nextSeq = 12;
+        for (let i = 1; i <= 100; i++) {
+          const num = `3${String(i).padStart(12, '0')}`;
+          rows.push(
+            `${nextSeq++},"${num}","01","0","2026-09-30","2026-09-30","株式会社コモン","","301","東京都","千代田区","丸の内","","13","101","1000005","","","2020-01-01","01","","","","1","","","","","コモン","0"`,
+          );
+        }
+        for (let i = 1; i <= 5; i++) {
+          const num = `8${String(i).padStart(12, '0')}`;
+          rows.push(
+            `${nextSeq++},"${num}","01","0","2026-09-30","2026-09-30","株式会社コモン","","301","東京都","港区","港南","","13","103","1080075","","","","","","","","1","","","","","コモン","0"`,
+          );
+        }
         fs.writeFileSync(path.join(corpDir, 'part_01.csv'), rows.join('\n') + '\n', 'utf-8');
 
         const logs = createLogCollector();
@@ -507,18 +523,35 @@ describe.skipIf(!HAS_REAL_DB)(
 
         const provider = new DbCorporateDataProvider(db);
 
-        // 1. 半角英字+半角空白 → 全角英字+全角空白 (U+3000) ヒット
-        const apple = await provider.searchByName('Apple Japan');
-        expect(apple.ok).toBe(true);
-        if (apple.ok) {
-          expect(apple.value.results[0]?.name).toBe('Ａｐｐｌｅ　Ｊａｐａｎ合同会社');
+        // 1. 半角英字+半角空白（Title / 小文字 / 大文字すべて） → 存続中の全角「Ａｐｐｌｅ　Ｊａｐａｎ合同会社」が閉鎖部分一致より先頭にヒット
+        for (const q of ['Apple Japan', 'apple japan', 'APPLE JAPAN']) {
+          const apple = await provider.searchByName(q);
+          expect(apple.ok).toBe(true);
+          if (apple.ok) {
+            expect(apple.value.results[0]?.name).toBe('Ａｐｐｌｅ　Ｊａｐａｎ合同会社');
+            expect(apple.value.results[0]?.status).toBe('active');
+          }
         }
 
-        // 2. 新字体 → 旧字体 双方向ヒット
+        // 1b. スペース・中点入り英和クエリ → 空白なしの全角「株式会社ＮＴＴデータ」にヒット
+        for (const q of ['NTT データ', 'NTT・データ']) {
+          const ntt = await provider.searchByName(q);
+          expect(ntt.ok).toBe(true);
+          if (ntt.ok) {
+            expect(ntt.value.results[0]?.name).toBe('株式会社ＮＴＴデータ');
+          }
+        }
+
+        // 2. 新字体 → 旧字体 双方向ヒット（サロゲートペア 𠮷⇔吉 を含む）
         const nomura = await provider.searchByName('野村証券');
         expect(nomura.ok).toBe(true);
         if (nomura.ok) {
           expect(nomura.value.results[0]?.name).toBe('野村證券株式会社');
+        }
+        const yoshinoya = await provider.searchByName('吉野家');
+        expect(yoshinoya.ok).toBe(true);
+        if (yoshinoya.ok) {
+          expect(yoshinoya.value.results[0]?.name).toBe('株式会社𠮷野家ホールディングス');
         }
 
         // 3. 小書きカナ → 大書きカナ 双方向ヒット
@@ -533,11 +566,27 @@ describe.skipIf(!HAS_REAL_DB)(
           expect(fuji.value.results[0]?.name).toBe('富士フイルム株式会社');
         }
 
-        // 4. ひらがな → カタカナ併記ヒット
-        const sugukuru = await provider.searchByName('すぐくる');
-        expect(sugukuru.ok).toBe(true);
-        if (sugukuru.ok) {
-          expect(sugukuru.value.results[0]?.corporate_number).toBe('9340001026142');
+        // 4. ひらがな → カタカナ併記ヒット + 略称・前後株逆転・空白入り法人格展開ヒット
+        for (const q of [
+          'すぐくる',
+          '(株)スグクル',
+          '㈱スグクル',
+          '株式会社スグクル',
+          '株式会社 スグクル',
+        ]) {
+          const sugukuru = await provider.searchByName(q);
+          expect(sugukuru.ok).toBe(true);
+          if (sugukuru.ok) {
+            expect(sugukuru.value.results[0]?.corporate_number).toBe('9340001026142');
+          }
+        }
+
+        // 4b. 同名完全一致が100件超（閉鎖100社 + 存続5社）でも SQL ORDER BY により存続5社が1ページ目先頭に出ること
+        const commonP1 = await provider.searchByName('コモン', undefined, undefined, 5);
+        expect(commonP1.ok).toBe(true);
+        if (commonP1.ok) {
+          expect(commonP1.value.results).toHaveLength(5);
+          expect(commonP1.value.results.every((r) => r.status === 'active')).toBe(true);
         }
 
         // 5. 2段階ランキング（存続中の完全一致株式会社が先頭、次に閉鎖完全一致、次に部分一致）＋カーソルページング

@@ -153,11 +153,13 @@ describe('Manifest & Metadata Consistency', () => {
     ]);
   });
 
-  it('ensures Claude Code and Cursor MCP server configs point to the hosted /mcp endpoint', () => {
+  it('ensures Claude Code (.mcp.json -> http) and Cursor (mcp.json / .cursor/mcp.json -> streamable-http) point to the hosted /mcp endpoint', () => {
     const expectedUrl = `${PUBLIC_BASE_URL}/mcp`;
     expect(mcpJson.mcpServers['houjin-bangou']?.url).toBe(expectedUrl);
+    expect(mcpJson.mcpServers['houjin-bangou']?.type).toBe('streamable-http');
     expect(dotMcpJson.mcpServers['houjin-bangou']?.url).toBe(expectedUrl);
-    expect(dotMcpJson.mcpServers['houjin-bangou']?.type).toBe('streamable-http');
+    expect(dotMcpJson.mcpServers['houjin-bangou']?.type).toBe('http');
     expect(cursorMcpJson.mcpServers['houjin-bangou']?.url).toBe(expectedUrl);
+    expect(cursorMcpJson.mcpServers['houjin-bangou']?.type).toBe('streamable-http');
   });
 });

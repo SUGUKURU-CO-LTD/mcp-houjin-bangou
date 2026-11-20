@@ -5,7 +5,7 @@
 ## ツール選択と標準ワークフロー
 
 1. **会社名の表記揺れ正規化 (`normalize_company_name`)**
-   - `search_corporate_by_name` は略称展開（`(株)` → `株式会社`）や旧字体変換（`髙` → `高`、`﨑` → `崎`）を自動で行いません。
+   - ローカル Web-API モードの `search_corporate_by_name` は略称展開（`(株)` → `株式会社`）や旧字体変換（`髙` → `高`、`﨑` → `崎`）を自動で行いません（ホスト版 DB モードでは主要旧字・空白・略称・前後株展開に対応）。
    - 略称・前後株・旧字体・英語表記（`K.K.`, `Co., Ltd.` 等）を含む会社名を検索する際は、**最初に `normalize_company_name`（引数: `raw_name`）を呼び出し**、`normalized_name` または `search_query_optimized` を取得してください。
 2. **法人名からの検索 (`search_corporate_by_name`)**
    - `name` に正規化後の商号またはコア商号を指定し、所在地が判明している場合は都道府県コード（JIS X 0401 の2桁 `'01'`〜`'47'`）を `prefecture` に指定してください。

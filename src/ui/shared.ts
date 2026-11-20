@@ -379,6 +379,7 @@ export function buildCorporateMasterCopyText(
  */
 export function extractQueryContextFromCursor(
   cursor: string | null | undefined,
+  pageResultCount?: number,
 ): SearchQueryContext | null {
   if (typeof cursor !== 'string' || cursor.trim() === '') {
     return null;
@@ -396,15 +397,32 @@ export function extractQueryContextFromCursor(
     if (!parsed || typeof parsed !== 'object' || typeof parsed['queryKey'] !== 'string') {
       return null;
     }
+    const rawOffset = parsed['offset'];
+    const inferredLimit =
+      typeof pageResultCount === 'number' &&
+      typeof rawOffset === 'number' &&
+      Number.isInteger(rawOffset) &&
+      rawOffset >= 1 &&
+      rawOffset <= 20 &&
+      pageResultCount === rawOffset
+        ? rawOffset
+        : undefined;
     const qk = parsed['queryKey'];
     const sepIdx = qk.lastIndexOf('|');
     if (sepIdx <= 0) {
-      return qk.trim() !== '' ? { name: qk.trim() } : null;
+      if (qk.trim() === '') return null;
+      return inferredLimit !== undefined
+        ? { name: qk.trim(), limit: inferredLimit }
+        : { name: qk.trim() };
     }
     const name = qk.slice(0, sepIdx);
     const prefecture = qk.slice(sepIdx + 1);
     if (name.trim() === '') return null;
-    return prefecture !== '' ? { name, prefecture } : { name };
+    const ctx: SearchQueryContext = prefecture !== '' ? { name, prefecture } : { name };
+    if (inferredLimit !== undefined) {
+      ctx.limit = inferredLimit;
+    }
+    return ctx;
   } catch {
     return null;
   }

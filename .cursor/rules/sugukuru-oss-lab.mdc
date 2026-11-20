@@ -22,7 +22,7 @@ alwaysApply: true
 
 - 提供プリミティブ:
   - **5 Tools**: `lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`, `validate_corporate_number`, `normalize_company_name`
-  - **3 Prompts**: `company-master-record`, `sales-list-enrichment`, `customer-master-dedup`（個人連絡先 PII 引数を含めない）
+  - **4 Prompts**: `company-master-record`, `sales-list-enrichment`, `customer-master-dedup`, `invoice-verification-check`（個人連絡先 PII 引数を含めない）
   - **2 MCP Apps UI Resources**: `ui://corporate-card/mcp-app.html`（法人カード・インボイス確認カード）、`ui://search-results/mcp-app.html`（検索結果一覧）
   - **Completion**: `ref/prompt` 引数補完
 - すべての Tool の `inputSchema` は `.strict()`（`"additionalProperties": false`）を維持する。

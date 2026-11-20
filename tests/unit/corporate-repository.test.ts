@@ -110,6 +110,40 @@ describe('ASCII 半角・全角検索バリエーション展開', () => {
     expect(shortPriority).toContain('楽天株式会社');
     expect(shortPriority).not.toContain('株式会社楽天');
   });
+
+  it('小文字/大文字英語（apple japan / APPLE JAPAN）、スペース入り英和（NTT データ）、略称・前後株逆転（(株)スグクル / 株式会社スグクル）、サロゲートペア（𠮷野 / 吉野家）を網羅する', () => {
+    const lowerAppleVariants = buildSearchNameVariants('apple japan');
+    expect(lowerAppleVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    const lowerApplePriority = buildPriorityExactNames('apple japan', lowerAppleVariants);
+    expect(lowerApplePriority).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ合同会社');
+
+    const upperAppleVariants = buildSearchNameVariants('APPLE JAPAN');
+    expect(upperAppleVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    expect(buildPriorityExactNames('APPLE JAPAN', upperAppleVariants)).toContain(
+      'Ａｐｐｌｅ\u3000Ｊａｐａｎ合同会社',
+    );
+
+    const nttSpaceVariants = buildSearchNameVariants('NTT データ');
+    expect(nttSpaceVariants).toContain('ＮＴＴデータ');
+    const nttDotVariants = buildSearchNameVariants('NTT・データ');
+    expect(nttDotVariants).toContain('ＮＴＴデータ');
+
+    for (const q of ['(株)スグクル', '㈱スグクル', '株式会社スグクル', '株式会社 スグクル']) {
+      const v = buildSearchNameVariants(q);
+      expect(v).toContain('スグクル株式会社');
+      expect(v).toContain('株式会社スグクル');
+      const p = buildPriorityExactNames(q, v);
+      expect(p).toContain('スグクル株式会社');
+    }
+
+    // サロゲートペア2文字 ("𠮷野": UTF-16 length=3, code points=2) は短語前方一致として扱う
+    const yoshinoShort = buildPriorityExactNames('𠮷野', buildSearchNameVariants('𠮷野'));
+    expect(yoshinoShort).toContain('𠮷野株式会社');
+    expect(yoshinoShort).not.toContain('株式会社𠮷野');
+
+    const yoshinoyaVariants = buildSearchNameVariants('吉野家');
+    expect(yoshinoyaVariants).toContain('𠮷野家');
+  });
 });
 
 describe('isTimeoutError (PostgreSQL タイムアウトエラー判定)', () => {

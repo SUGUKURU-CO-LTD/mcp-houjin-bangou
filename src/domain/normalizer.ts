@@ -73,6 +73,7 @@ export interface NormalizerResult {
 const OLD_TO_NEW: Record<string, string> = {
   髙: '高',
   﨑: '崎',
+  𠮷: '吉',
   齋: '斎',
   齊: '斉',
   濵: '浜',
@@ -699,24 +700,74 @@ export function hiraganaToKatakana(text: string): string {
   return text.replace(/[\u3041-\u3096]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 }
 
+export interface CorporateKindDetails {
+  core: string;
+  hadKind: boolean;
+  canonicalKind: string | null;
+  position: PrefixOrSuffix;
+  invertible: boolean;
+}
+
+/**
+ * 先頭・末尾の法人格（略称・全角記号・旧字体を含む）を最長一致で検出し、
+ * コア商号・正式法人格・前後位置・前後反転可否を返す
+ */
+export function extractCorporateKindDetails(raw: string): CorporateKindDetails {
+  const cleaned = normalizeKatakanaChoonpu(
+    raw
+      .trim()
+      .replace(/[\t\u3000]+/g, ' ')
+      .replace(/ {2,}/g, ' ')
+      .normalize('NFKC')
+      .replace(/[\uFE00-\uFE0F]|[\u{E0100}-\u{E01EF}]/gu, '')
+      .replace(/ {2,}/g, ' ')
+      .trim(),
+  );
+  if (cleaned.length === 0) {
+    return {
+      core: '',
+      hadKind: false,
+      canonicalKind: null,
+      position: 'none',
+      invertible: false,
+    };
+  }
+  const direct = detectKind(cleaned);
+  if (direct.entry !== null && direct.rawPosition !== 'none') {
+    return {
+      core: stripKindFromName(cleaned, direct),
+      hadKind: true,
+      canonicalKind: direct.entry.canonical,
+      position: direct.rawPosition,
+      invertible: Boolean(direct.entry.invertible),
+    };
+  }
+  const newForm = applyOldToNew(cleaned);
+  if (newForm !== cleaned) {
+    const onNew = detectKind(newForm);
+    if (onNew.entry !== null && onNew.rawPosition !== 'none') {
+      return {
+        core: stripKindFromName(newForm, onNew),
+        hadKind: true,
+        canonicalKind: onNew.entry.canonical,
+        position: onNew.rawPosition,
+        invertible: Boolean(onNew.entry.invertible),
+      };
+    }
+  }
+  return {
+    core: raw.trim(),
+    hadKind: false,
+    canonicalKind: null,
+    position: 'none',
+    invertible: false,
+  };
+}
+
 /**
  * 先頭・末尾の法人格（略称・旧字体を含む）を最長一致で除去し、コア商号と法人格有無を返す
  */
 export function stripCorporateKind(raw: string): { core: string; hadKind: boolean } {
-  const normalized = raw.trim().normalize('NFKC');
-  if (normalized.length === 0) {
-    return { core: '', hadKind: false };
-  }
-  const direct = detectKind(normalized);
-  if (direct.entry !== null && direct.rawPosition !== 'none') {
-    return { core: stripKindFromName(normalized, direct), hadKind: true };
-  }
-  const newForm = applyOldToNew(normalized);
-  if (newForm !== normalized) {
-    const onNew = detectKind(newForm);
-    if (onNew.entry !== null && onNew.rawPosition !== 'none') {
-      return { core: stripKindFromName(newForm, onNew), hadKind: true };
-    }
-  }
-  return { core: raw.trim(), hadKind: false };
+  const { core, hadKind } = extractCorporateKindDetails(raw);
+  return { core, hadKind };
 }

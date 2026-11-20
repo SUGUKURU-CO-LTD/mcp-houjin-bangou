@@ -370,6 +370,11 @@ describe('MCP Apps UI View-Model & Resource Resolution', () => {
       name: '多数件',
       prefecture: '46',
     });
+    expect(extractQueryContextFromCursor(prefSc.next_cursor, prefSc.results?.length)).toEqual({
+      name: '多数件',
+      prefecture: '46',
+      limit: 5,
+    });
     expect(extractQueryContextFromCursor('not-valid-base64-json')).toBeNull();
     expect(extractQueryContextFromCursor(null)).toBeNull();
     expect(

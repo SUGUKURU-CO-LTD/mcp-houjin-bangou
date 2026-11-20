@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  extractCorporateKindDetails,
   hiraganaToKatakana,
   normalizeCompanyName,
   OLD_TO_NEW_KANJI,
@@ -308,10 +309,11 @@ describe('normalizeCompanyName - 境界値', () => {
     expect(r.extracted_core_name).toBe('スグクル');
   });
 
-  it('一本化された旧字辞書（總→総、社→社を含む全74字）とひらがな→カタカナ・法人格除去ヘルパーが動作する', () => {
-    expect(Object.keys(OLD_TO_NEW_KANJI).length).toBeGreaterThanOrEqual(74);
+  it('一本化された旧字辞書（總→総、社→社、𠮷→吉を含む全75字）とひらがな→カタカナ・法人格詳細抽出ヘルパーが動作する', () => {
+    expect(Object.keys(OLD_TO_NEW_KANJI).length).toBeGreaterThanOrEqual(75);
     expect(OLD_TO_NEW_KANJI['總']).toBe('総');
     expect(OLD_TO_NEW_KANJI['社']).toBe('社');
+    expect(OLD_TO_NEW_KANJI['𠮷']).toBe('吉');
 
     const r = normalizeCompanyName('第一總合株式會社');
     expect(r.extracted_core_name).toBe('第一総合');
@@ -320,5 +322,19 @@ describe('normalizeCompanyName - 境界値', () => {
     expect(hiraganaToKatakana('すぐくる')).toBe('スグクル');
     expect(stripCorporateKind('医療法人社団葵会')).toEqual({ core: '葵会', hadKind: true });
     expect(stripCorporateKind('スグクル')).toEqual({ core: 'スグクル', hadKind: false });
+    expect(extractCorporateKindDetails('㈱ スグクル')).toEqual({
+      core: 'スグクル',
+      hadKind: true,
+      canonicalKind: '株式会社',
+      position: 'mae_kabu',
+      invertible: true,
+    });
+    expect(extractCorporateKindDetails('医療法人社団葵会')).toEqual({
+      core: '葵会',
+      hadKind: true,
+      canonicalKind: '医療法人社団',
+      position: 'mae_kabu',
+      invertible: false,
+    });
   });
 });

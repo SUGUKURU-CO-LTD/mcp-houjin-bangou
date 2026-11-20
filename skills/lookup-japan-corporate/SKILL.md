@@ -16,7 +16,7 @@ description: 日本の国税庁公表データに基づく法人番号・企業�
 2. **`search_corporate_by_name`**（MCP Apps UI `ui://search-results/mcp-app.html` 対応）
    - 入力: `name`（必須、1〜100文字）、`prefecture`（任意、JIS X 0401 2桁コード `'01'`〜`'47'`）、`limit`（1〜20、既定10）、`cursor`（次ページ取得用トークン）
    - 出力: `results`（`corporate_number`, `name`, `legal_type`, `location`, `update_date`, `status`, `address_may_be_outdated`）、`total_count`, `next_cursor`, `data_as_of`, `attribution`
-   - ※ 本ツール自体は略称展開や旧字体変換を自動実行しないため、曖昧な会社名は先に `normalize_company_name` に通してください（ホスト版DBでは英数字の半角・全角双方にマッチし、1〜2文字は前方一致・3文字以上は部分一致で検索します）。
+   - ※ ローカル Web-API モードでは略称展開や旧字体変換を自動実行しないため、曖昧な会社名は先に `normalize_company_name` に通してください（ホスト版DBでは完全一致・存続法人優先の2段階ランキングに加え、英数字・空白の半角/全角、主要旧字⇔新字、小書きカナ、ひらがな→カタカナ、略称・前後株にマッチし、1〜2文字は前方一致・3文字以上は部分一致で検索します）。
 3. **`lookup_corporate_by_number`**（MCP Apps UI `ui://corporate-card/mcp-app.html` 対応）
    - 入力: `corporate_number`（半角数字13桁）
    - 出力: `corporation`（`corporate_number`, `name`, `name_kana`, `legal_type`, `location`, `post_code`, `update_date`, `status` [`active` | `closed`], `close_date`, `close_cause`, `successor_corporate_number`, `address_may_be_outdated`）、`data_as_of`, `attribution`

@@ -41,7 +41,7 @@ An MCP server that enables Claude, ChatGPT, Cursor, Google Antigravity, VS Code 
 2. **Search corporations by name** (`search_corporate_by_name`) with optional 2-digit JIS prefecture filter (`01`–`47`), cursor-based pagination, 2-stage exact/active-first ranking, and automatic expansion across half/full-width ASCII & spaces (`Apple Japan` ⇔ `Ａｐｐｌｅ　Ｊａｐａｎ`), old/new kanji (`野村証券` ⇔ `野村證券`, `高橋` ⇔ `髙橋`), small/large katakana (`キャノン` ⇔ `キヤノン`, `富士フィルム` ⇔ `富士フイルム`), and hiragana-to-katakana (`すぐくる` → `スグクル`) in Hosted DB mode.
 3. **Verify a Qualified Invoice Issuer** by registration number (`lookup_invoice_issuer`, `T` + 13 digits), with optional factual registration check as of a specified reference date (`reference_date` → `was_registered_on_reference_date`).
 4. **Validate check digits locally** (`validate_corporate_number`) with zero external network calls.
-5. **Normalize fuzzy company names** (`normalize_company_name`) deterministically across Japanese corporate-name patterns (expansion and position swaps of `(株)` / `㈱` / `株式会社` and other legal entities, English-to-Japanese suffixes such as `K.K.` / `Co., Ltd.` / `LLC`, NFKC, 74 old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
+5. **Normalize fuzzy company names** (`normalize_company_name`) deterministically across Japanese corporate-name patterns (expansion and position swaps of `(株)` / `㈱` / `株式会社` and other legal entities, English-to-Japanese suffixes such as `K.K.` / `Co., Ltd.` / `LLC`, NFKC, 75 old-to-new kanji variants, IVS stripping, and whitespace canonicalization).
 
 ---
 

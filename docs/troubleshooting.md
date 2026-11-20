@@ -8,8 +8,8 @@
 
 **対処**:
 
-- **ホスト版を使う場合（推奨）**: `"url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"` を設定してください。
-- **ローカル実行版を使う場合**: 先に別ターミナルで `NTA_APPLICATION_ID="..." npx @sugukuru/mcp-houjin-bangou` を起動したうえで、クライアント設定には `"url": "http://localhost:3001/mcp"` を指定してください（[Getting Started](getting-started.md) 参照）。
+- **ホスト版を使う場合（推奨）**: Claude Desktop / ChatGPT はアプリ内の「設定 → コネクタ」から `https://houjin.mcp.sugu-kuru.co.jp/mcp` を追加、Claude Code / VS Code は `"type": "http"` + `"url"`、Cursor は `"type": "streamable-http"` + `"url"` を設定してください（`claude_desktop_config.json` で設定する場合は `"args": ["-y", "mcp-remote", "https://houjin.mcp.sugu-kuru.co.jp/mcp"]` を使用）。
+- **ローカル実行版を使う場合**: 先に別ターミナルで `NTA_APPLICATION_ID="..." npx @sugukuru/mcp-houjin-bangou` を起動したうえで、`http://localhost:3001/mcp` を各クライアント形式で指定してください（[Getting Started](getting-started.md) 参照）。
 
 ### `Error: Invalid environment variables: NTA_APPLICATION_ID: Required`
 
@@ -107,8 +107,8 @@ NTA_APPLICATION_ID=your-id pnpm smoke:live
 
 ### 表記揺れが期待通りにヒットしない
 
-1. まず `normalize_company_name`（引数: `raw_name`）を実行し、`normalized_name` と `search_query_optimized` を確認してください（`search_corporate_by_name` 単体では `(株)` 展開や旧字体→新字体変換を行いません）。
-2. ホスト版（`DATA_SOURCE=db`）では英数字の半角・全角（例: `NTT` と `ＮＴＴ`）の双方にマッチしますが、ローカル Web-API 版（`DATA_SOURCE=web-api`）は前方一致検索（`mode=1`, `target=1`）となるため、`normalized_name`（前株/後株を含む正式商号）と `search_query_optimized` の双方を試してください。
+1. まず `normalize_company_name`（引数: `raw_name`）を実行し、`normalized_name` と `search_query_optimized` を確認してください（ローカル Web-API 版の `search_corporate_by_name` 単体では `(株)` 展開や旧字体→新字体変換を行いません）。
+2. ホスト版（`DATA_SOURCE=db`）では英数字・空白の半角/全角、主要旧字体⇔新字体、小書きカナ、ひらがな→カタカナ、および法人格略称・前後株の双方にマッチしますが、ローカル Web-API 版（`DATA_SOURCE=web-api`）は前方一致検索（`mode=1`, `target=1`）となるため、`normalized_name`（前株/後株を含む正式商号）と `search_query_optimized` の双方を試してください。
 
 ---
 
