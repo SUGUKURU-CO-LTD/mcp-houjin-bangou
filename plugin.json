@@ -1,13 +1,14 @@
 {
   "name": "houjin-bangou",
-  "displayName": "日本 国税庁 法人番号・インボイス照合 (SUGUKURU)",
+  "displayName": "法人番号・インボイス照会 | Japan Corporate & Invoice Check (SUGUKURU)",
   "version": "1.1.0",
-  "description": "国税庁の公表データをもとに、社名正規化を行って日本の法人番号・適格請求書発行事業者（インボイス）の登録状況を照会・検証するMCPプラグイン（提供：スグクル株式会社）。",
+  "description": "国税庁公表データから日本の法人番号・適格請求書発行事業者（インボイス / T番号）を照会・検証するMCPアプリ（提供：スグクル株式会社）。Japan Corporate Number (houjin-bangou) & Qualified Invoice verification for KYB and accounting.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "スグクル株式会社の法人番号とインボイス登録状況を照会して",
     "請求書の適格請求書発行事業者番号「T9340001026142」が有効か確認して",
-    "トヨタ自動車の法人番号と本店所在地を検索して"
+    "トヨタ自動車の法人番号と本店所在地を検索して",
+    "Verify Japanese invoice registration T9340001026142 and corporate details for KYB"
   ],
   "author": {
     "name": "スグクル株式会社 (SUGUKURU CO., LTD.)",

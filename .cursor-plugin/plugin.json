@@ -1,8 +1,8 @@
 {
   "name": "houjin-bangou",
-  "displayName": "Japan Corporate & Invoice Lookup (SUGUKURU)",
+  "displayName": "Japan Corporate & Invoice Check — 法人番号・インボイス照会 (SUGUKURU)",
   "version": "1.1.0",
-  "description": "Model Context Protocol extension for looking up Japanese National Corporate Numbers and Qualified Invoice Issuers published by the National Tax Agency of Japan.",
+  "description": "MCP App for Japanese National Corporate Number (法人番号 / houjin-bangou) and Qualified Invoice Issuer (適格請求書・インボイス / T-number) lookup & KYB verification using National Tax Agency of Japan public data, with interactive UI cards and company-name normalization.",
   "publisher": "sugukuru",
   "author": {
     "name": "SUGUKURU CO., LTD.",
@@ -15,13 +15,21 @@
   "homepage": "https://sugu-kuru.co.jp/mcp/houjin",
   "keywords": [
     "mcp",
+    "mcp-app",
     "japan",
-    "invoice",
+    "houjin-bangou",
     "corporate-number",
+    "invoice",
+    "qualified-invoice",
+    "t-number",
     "kyc",
-    "nta",
+    "kyb",
     "tax",
-    "business"
+    "accounting",
+    "business",
+    "法人番号",
+    "インボイス",
+    "適格請求書"
   ],
   "rules": [
     ".cursor/rules/houjin-bangou.mdc"
