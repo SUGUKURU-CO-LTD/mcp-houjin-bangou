@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Drizzle マイグレーション `0006`（`drizzle/0006_nullable_invoice_reg_date.sql`）を追加し、国税庁インボイス公表 CSV 仕様に合わせて `invoice_issuers` / `invoice_issuers_staging` の `registration_date` を NULL 許容化。
   - `lookup_invoice_issuer` で個人事業者の登録番号（`T`+13桁で法人番号モジュラス9に従わない番号）を許容する形式検証、実在しない暦日（`2026-02-31` 等）の厳格検証（`isValidCalendarDate`）、および `reference_date > data_as_of` 時のスナップショット基準日注記を整備。
   - ホスト版 DB の `search_corporate_by_name` に完全一致・存続法人優先の2段階ランキングを導入し、半角/全角 ASCII 英数字および半角/全角スペース（`Apple Japan` ⇔ `Ａｐｐｌｅ　Ｊａｐａｎ`）、主要旧字体・小書きカナ双方向（`野村証券` ⇔ `野村證券`、`キャノン` ⇔ `キヤノン`、`富士フィルム` ⇔ `富士フイルム`）、ひらがな→カタカナ併記（`すぐくる` → `スグクル`）に対応。
-  - `normalize_company_name` の旧字体辞書を `normalizer.ts`（全74字）に一本化し、略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、および異体字セレクタ（IVS）・長音符正規化を強化。
+  - `normalize_company_name` の旧字体辞書を `normalizer.ts`（全75字）に一本化し、略称（`(株)` / `㈱` / `(有)` 等）の正式法人格展開、医療法人・学校法人・社会福祉法人・宗教法人・士業法人等の法人種別対応、および異体字セレクタ（IVS）・長音符正規化を強化。
   - npm パッケージ（`package.json` `"files"`）に `"drizzle/*.sql"` と `"drizzle/meta/_journal.json"` を同梱してセルフホスト時の `npm run db:migrate` に対応し、`server.json` に `DATABASE_URL`、`scripts/ops.sh` に `migrate` サブコマンドを追加。また Origin 拒否ミドルウェアを `/mcp` 限定として公開ディスカバリエンドポイントのブラウザ参照性を改善し、`plugin.json` から公的誤認を招く「公式」表記を削除。
 - **依存関係管理・サプライチェーン保護とドキュメント刷新**:
   - `package.json` の非推奨 `pnpm.overrides` を `pnpm-workspace.yaml`（`overrides` / `onlyBuiltDependencies` / `allowBuilds` / `minimumReleaseAge: 20160`）に移行し、`pnpm@10.34.7` で本番・開発依存とも `pnpm audit` 脆弱性 0 件を達成。
