@@ -73,7 +73,7 @@ interface RequestWithMeta extends Request {
 }
 
 const SERVER_DESCRIPTION =
-  'MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.';
+  'Japan Corporate Number (法人番号) & Qualified Invoice Issuer (適格請求書・インボイス / T-number) MCP App for KYB, vendor verification, and Japanese company lookup. Read-only, zero-auth access with interactive UI cards and company-name normalization. / 日本の法人番号・インボイス登録番号（T+13桁）を照会・検証できるMCPアプリ（提供：スグクル株式会社）。';
 
 export function createApp(options: CreateAppOptions = {}): Express {
   const logger =
