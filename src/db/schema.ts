@@ -167,7 +167,7 @@ export const invoiceIssuers = pgTable(
     kind: varchar('kind', { length: 2 }).notNull(), // 項番11 (CSV 5列目): 人格区分 (1:個人, 2:法人(人格のない社団等を含む))
     country: varchar('country', { length: 1 }), // 項番12 (CSV 6列目): 国内外区分 (1:国内, 2:特定国外, 3:その他国外)
     latest: varchar('latest', { length: 1 }).notNull().default('1'), // 項番13 (CSV 7列目): 最新履歴 (0:過去情報, 1:最新情報)
-    registrationDate: varchar('registration_date', { length: 10 }).notNull(), // 項番14 (CSV 8列目): 登録年月日 (YYYY-MM-DD)
+    registrationDate: varchar('registration_date', { length: 10 }), // 項番14 (CSV 8列目): 登録年月日 (空文字 または YYYY-MM-DD)
     updateDate: varchar('update_date', { length: 10 }).notNull(), // 項番15 (CSV 9列目): 更新年月日 (YYYY-MM-DD)
     cancelDate: varchar('cancel_date', { length: 10 }), // 項番16 (CSV 10列目): 取消年月日 (YYYY-MM-DD)
     expireDate: varchar('expire_date', { length: 10 }), // 項番17 (CSV 11列目): 失効年月日 (YYYY-MM-DD)
@@ -212,7 +212,7 @@ export const invoiceIssuersStaging = pgTable(
     kind: varchar('kind', { length: 2 }).notNull(),
     country: varchar('country', { length: 1 }),
     latest: varchar('latest', { length: 1 }).notNull().default('1'),
-    registrationDate: varchar('registration_date', { length: 10 }).notNull(),
+    registrationDate: varchar('registration_date', { length: 10 }),
     updateDate: varchar('update_date', { length: 10 }).notNull(),
     cancelDate: varchar('cancel_date', { length: 10 }),
     expireDate: varchar('expire_date', { length: 10 }),

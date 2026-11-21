@@ -17,6 +17,7 @@ usage() {
 Usage:
   scripts/ops.sh preflight
   scripts/ops.sh release
+  scripts/ops.sh migrate
   scripts/ops.sh ingest <invoice|corporate> <YYYY-MM> <YYYY-MM-DD>
   scripts/ops.sh status
 EOF
@@ -213,6 +214,12 @@ cmd_release() {
   echo "=== 5. Terraform Apply の実行 ==="
   env -u GOOGLE_APPLICATION_CREDENTIALS terraform -chdir="${TF_DIR}" apply .local/release.tfplan
 
+  local run_mig
+  read -r -p "Cloud Run Job houjin-bangou-migrate を実行しますか？ (y/N): " run_mig
+  if [[ "${run_mig}" == "y" ]]; then
+    run_migrate_job
+  fi
+
   echo "=== 6. Cloud Run サービスのイメージと最新 Ready リビジョン ==="
   gcloud run services describe houjin-bangou-mcp \
     --project="${PROJECT_ID}" \
@@ -239,6 +246,20 @@ cmd_release() {
     echo "gcloud run deploy houjin-bangou-mcp --image=\"${image_uri}\" --region=\"${REGION}\" --project=\"${PROJECT_ID}\"" >&2
     exit 1
   fi
+}
+
+run_migrate_job() {
+  local job_name="houjin-bangou-migrate"
+  echo "=== Cloud Run Job 実行: ${job_name} ==="
+  gcloud run jobs execute "${job_name}" \
+    --project="${PROJECT_ID}" \
+    --region="${REGION}" \
+    --wait
+}
+
+cmd_migrate() {
+  check_base_preflight
+  run_migrate_job
 }
 
 cmd_ingest() {
@@ -342,6 +363,13 @@ main() {
         fail "release に引数は不要です。"
       fi
       cmd_release
+      ;;
+    migrate)
+      if [[ $# -ne 0 ]]; then
+        usage >&2
+        fail "migrate に引数は不要です。"
+      fi
+      cmd_migrate
       ;;
     ingest)
       cmd_ingest "$@"

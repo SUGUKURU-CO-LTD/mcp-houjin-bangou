@@ -83,7 +83,11 @@ export function createNtaClient(config: NtaClientConfig): NtaClient {
     path: string,
     params: URLSearchParams,
   ): Promise<Result<ParsedNtaResponse, NtaApiError>> {
-    await limiter.acquire();
+    try {
+      await limiter.acquire();
+    } catch (err) {
+      return Result.err(NtaApiError.fromUnknown(err, [config.applicationId]));
+    }
 
     params.set('id', config.applicationId);
     params.set('type', '02'); // ADR-0003: CSV UTF-8 固定
@@ -132,7 +136,7 @@ export function createNtaClient(config: NtaClientConfig): NtaClient {
         );
       }
     } catch (err) {
-      return Result.err(NtaApiError.fromUnknown(err));
+      return Result.err(NtaApiError.fromUnknown(err, [config.applicationId]));
     } finally {
       clearTimeout(timeoutId);
     }

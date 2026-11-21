@@ -15,12 +15,14 @@ import { createDbClient } from '../../src/db/client.js';
 
 const { Pool } = pg;
 
+const HAS_REAL_DB = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+
 const TEST_DB_URL =
   process.env.TEST_DATABASE_URL ||
   process.env.DATABASE_URL ||
   'postgres://test:test@localhost:55069/test';
 
-describe('Database Pool Error Handling (PostgreSQL 16 実DB)', () => {
+describe.skipIf(!HAS_REAL_DB)('Database Pool Error Handling (PostgreSQL 16 実DB)', () => {
   let queryPool: pg.Pool | undefined;
   let adminPool: pg.Pool | undefined;
 

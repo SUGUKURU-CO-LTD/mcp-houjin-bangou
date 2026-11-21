@@ -1,81 +1,80 @@
 # Prompt Injection Defense
 
-本ドキュメントは `@sugukuru/mcp-houjin-bangou` における **プロンプトインジェクション攻撃** への防御設計を公開するものです。透明性を持って攻撃面と緩和策を明示することで、コミュニティからの脆弱性発見を歓迎します。
+本ドキュメントは `@sugukuru/mcp-houjin-bangou` における **プロンプトインジェクション攻撃および関連する MCP 固有脅威** への防御設計を公開するものです。透明性を持って攻撃面と緩和策を明示することで、コミュニティからの検証と報告を歓迎します。
 
-This document publishes the prompt injection defense design of `@sugukuru/mcp-houjin-bangou`. We transparently disclose our attack surface and mitigations to welcome vulnerability reports from the community.
-
-Dokumen ini menjelaskan pertahanan prompt injection di `@sugukuru/mcp-houjin-bangou`.
+This document publishes the prompt injection and MCP threat defense design of `@sugukuru/mcp-houjin-bangou`. We transparently disclose our attack surface and mitigations to welcome security reviews from the community.
 
 ## 参考文献 / References
 
 - Simon Willison, ["Model Context Protocol has prompt injection security problems"](https://simonwillison.net/2025/Apr/9/mcp-prompt-injection/), 2025-04-09
 - Invariant Labs, "Tool Poisoning Attacks" / "WhatsApp MCP Exploited"
-- Elena Cross, ["The "S" in MCP Stands for Security"](https://elenacross7.medium.com/), 2025
+- Elena Cross, ["The 'S' in MCP Stands for Security"](https://elenacross7.medium.com/), 2025
 - OWASP MCP Security Cheat Sheet, 2026
-- MCP 公式仕様 (2025-11-25) Security and Trust & Safety section
+- MCP 公式仕様 (`2025-11-25`) Security and Trust & Safety section
 
 ## 攻撃面と緩和策
 
 ### 1. Rug Pull (Silent Redefinition)
 
-**攻撃**: インストール後に tool 定義が静かに書き換わり、Day 7 に別の挙動になる。
+**攻撃**: インストール後にツール定義が動的に書き換わり、後から意図しない挙動に変化する。
 
 **本プロジェクトの緩和**:
 
-- **Tool description は `src/tools/*.ts` 内の静的定数 (`DESCRIPTION`)** で定義。ランタイム書換禁止
-- **`eslint.config.js` で `no-new-func`, `no-eval`, `no-implied-eval` を error** に設定
-- **静的 tool description + no runtime mutation**。`initialize` で `listChanged: false` を返し、起動後に tool / prompt / resource 定義を変更しない
-- **`/.well-known/mcp.json` に Server Card（`version: "1.0.0"`）を公開**し、不意のバージョン変更を発見可能
+- **Tool description は `src/tools/*.ts` 内の静的定数** で定義し、ランタイム書き換えを行わない。
+- **`eslint.config.js` で `no-new-func`, `no-eval`, `no-implied-eval` を `error`** に設定。
+- **`initialize` で `listChanged: false` を返却**（`tools`, `resources`, `prompts` すべて `listChanged: false`）し、起動後にプリミティブ定義を変更しない。
+- **`tests/integration/mcp-contract-snapshot.test.ts`** により、`tools/list`・`prompts/list`・`resources/list` の完全一致スナップショットを CI でロック。
+- **`/.well-known/mcp.json` に Server Card（現行 `version: "1.1.0"`）を公開**し、提供プリミティブと安全対策メタデータを明示。
 
 ### 2. Tool Shadowing (Cross-Server)
 
-**攻撃**: 同じ MCP ホスト内で複数サーバが動作しているとき、悪意ある別サーバが信頼できる tool の挙動を上書き。
+**攻撃**: 同一 MCP ホスト内で複数サーバーが動作しているとき、悪意ある別サーバーが信頼できるツールの挙動や誘導を上書きする。
 
 **本プロジェクトの緩和**:
 
-- **状態を持たない stateless mode** で動作 → shadowing の攻撃面を提供しない
-- **namespace 明示**: パッケージ名 `@sugukuru/mcp-houjin-bangou` でツール所有を可視化
-- **MCP ホストの責任領域**: 本サーバーから他サーバーへのツール呼び出しは一切行わない (sampling capability も未宣言)
+- **ステートレスな Streamable HTTP モード** で動作し、セッション横断の可変状態を持たない。
+- **パッケージ・名前空間の明示**: `@sugukuru/mcp-houjin-bangou`（MCP Registry 名 `jp.co.sugu-kuru/mcp-houjin-bangou`）で提供元を明確化。
+- **サンプリング非宣言**: 本サーバーからクライアント側 LLM や他サーバーへの `sampling/createMessage` 呼び出しは一切行わない。
 
-### 3. Tool Poisoning
+### 3. Tool Poisoning & Parameter Smuggling
 
-**攻撃**: tool description に隠し命令を埋め込み (`<IMPORTANT>...read ~/.cursor/mcp.json...</IMPORTANT>`)、LLM に間接的な挙動を指示。
-
-**本プロジェクトの緩和**:
-
-- **すべての tool description は人間可読のみ**。`<IMPORTANT>` や HTML タグ風メタ命令を含めない
-- **CI で description の grep 検知** — `.github/workflows/ci.yml` で `rg '<IMPORTANT|<instruction|<system|ignore previous' src/tools/` を実行、検出時 fail
-- **Tool input parameter にフリースロット型フィールド (`sidenote`, `context`, `metadata`, etc.) を設けない** — Zod strict + 必要最小限のフィールドのみ
-- **すべての output に `attribution` 必須化** — LLM が「この情報の出所」を user に伝えられるため、誤情報の出所追跡が可能
-- **Application ID は環境変数 (`NTA_APPLICATION_ID`) のみ、tool 引数経由で受け取らない** — sidenote 型インジェクション経路を構造的に阻止
-
-### 4. Response-Mediated Injection
-
-**攻撃**: 法人名フィールドに `<IMPORTANT>...</IMPORTANT>` を含む悪意ある法人名が登録された場合、LLM が指示を読んで誤動作。
+**攻撃**: ツール説明文に `<IMPORTANT>...` 等の隠し命令を埋め込む、または未定義の余剰引数（`__sidenote`, `context` 等）を通じて機密情報を外部送信させる。
 
 **本プロジェクトの緩和**:
 
-- **すべての output を JSON 文字列および定型テキスト要約としてシリアライズ**、raw HTML 化しない
-- **MCP Apps UI Resource (`ui://corporate-card/mcp-app.html`, `ui://corporate-search-results/mcp-app.html`) では `textContent` のみを使用し `innerHTML` を一切使わない**（XSS・DOM インジェクションを構造的に排除）
-- **`attribution.data_source_label` を含む国税庁正式出典表記** を明示、ユーザーが独立検証可能
+- **すべてのツール説明文は人間可読な事実説明のみ** で構成し、`<IMPORTANT>` や `<system>` 等のメタ命令タグを含めない。
+- **CI での自動 grep 検査**: `.github/workflows/ci.yml` で `grep -RInE '<IMPORTANT>|<instruction|<system>|ignore previous|disregard' src/tools/` を実行し、検出時はビルドを失敗させる。
+- **全 5 ツールの `inputSchema` に Zod `.strict()`（`"additionalProperties": false`）を適用**: スキーマ外のフリースロット引数をプロトコル層で拒否し、パラメータ密輸を構造的に遮断。
+- **`NTA_APPLICATION_ID` / `DATABASE_URL` は環境変数のみから取得**: ツール引数からは一切受け取らない。
 
-### 5. Confused Deputy (Read-Only の逆手利用)
+### 4. Response-Mediated Injection & XSS in MCP Apps UI
 
-**攻撃**: read-only とはいえ、LLM が tool を濫用して過剰リクエストを発生させる (DoS、情報exfiltration 補助)。
+**攻撃**: 公表データ内の文字列に HTML タグやスクリプト片が含まれていた場合、UI レンダリング時の XSS や LLM の誤動作を誘発する。
 
 **本プロジェクトの緩和**:
 
-- **ローカル版: 1 RPS 制限の token bucket + 指数バックオフ** — 国税庁 API の 403 (別添1 第9条第1項三号) を受ける前に内部で抑制
-- **ホスト版: Origin ホワイトリスト検証 + IP 単位レート制限（バースト30 / 60 req/min, `Retry-After` 付与）+ リクエストボディ上限 64kB**
-- **ホスト版 DB 権限分離**: API サーバーは SELECT のみを持つ `houjin_reader` ロールで接続し、DB 書き換えを構造的に不可能化
-- **単一番号照会およびページサイズ上限（1〜100件）** を Zod で強制、バルク攻撃を構造的に阻止
-- **Application ID・認証情報の redaction** およびツール引数（照会した番号・商号）の非ログ化により exfiltration を防御
+- **すべての出力を構造化 JSON（`structuredContent`）および定型テキスト要約としてシリアライズ**し、生の HTML をツール応答に含めない。
+- **MCP Apps UI Resource（`ui://corporate-card/mcp-app.html`, `ui://search-results/mcp-app.html`）では `document.createElement` と `textContent` のみを使用し、`innerHTML` / `insertAdjacentHTML` を一切使用しない**（単体テスト `tests/unit/ui-v18.test.ts` でも静的検査）。
+- **厳格な SHA-256 CSP と Air-Gapped Iframe 設定**: `scripts/compute-csp-hashes.ts` によりインラインスクリプト・スタイルの SHA-256 ハッシュのみを許可し、`connect-src 'none'`, `frame-src 'none'`, `object-src 'none'`、および `_meta.ui.csp`（`resourceDomains: []`, `connectDomains: []`）を強制。
+- **すべての照会結果に `data_as_of` と国税庁利用規約準拠の `attribution` 文字列を必須付与**し、情報の出所とデータ時点を検証可能にする。
 
-## 設計方針 (Design Principles)
+### 5. Confused Deputy, Enumeration & Log Leakage
 
-### Read-Only な性質を最大の防御に活用
+**攻撃**: Read-only ツールであっても、LLM を介した過剰リクエスト（DoS）や登録番号の連番総当たり照会、エラーメッセージ経由の内部情報漏洩を狙う。
 
-本サーバは **書き込み・削除・コマンド実行系の tool を持たない**。すべての tool annotations に:
+**本プロジェクトの緩和**:
+
+- **ローカル Web-API 版**: 1 RPS トークンバケット + 指数バックオフ（30s → 1m → 5m → 30m）により国税庁 Web-API への過剰送信を抑制。
+- **ホスト版 HTTP 保護**: `Origin` ヘッダ許可リスト検証（不一致時は HTTP `403`）、接続元 IP 単位の固定ウィンドウ型レート制限（既定: 60秒あたり最大60リクエスト、超過時は HTTP `429` + `Retry-After`）、およびリクエストボディ上限 `64kb`（超過時は HTTP `413`）。
+- **ホスト版 DB 3ロール最小権限分離**: MCP サーバープロセスは `SELECT` 権限のみを持つ `houjin_reader` ロールで接続し、DB 変更・DDL を構造的に不可能化。
+- **単一番号照会・ページサイズ上限（`limit`: 1〜20件、既定10件）・クエリ拘束カーソル（`queryKey` + `data_as_of`）**: バルク抽出や別検索条件へのカーソル流用を拒否。
+- **入力値の非ログ化と SQL バインド値秘匿**: 照会された法人番号・登録番号・検索語をアクセスログに記録せず、DB 例外時も `formatErrorWithCause()` により `\nparams:` や内部 SQL スキーマをクライアント応答・ログから除去。
+
+## 設計原則 (Design Principles)
+
+### Read-Only アノテーションの明示
+
+すべてのツールに以下の MCP Tool Annotations を明示しています（公開実体を照会する 3 ツールは `openWorldHint: true`、ローカル純粋計算の 2 ツールは `openWorldHint: false`）：
 
 ```typescript
 {
@@ -85,35 +84,28 @@ Dokumen ini menjelaskan pertahanan prompt injection di `@sugukuru/mcp-houjin-ban
 }
 ```
 
-を明示（外部通信の有無に応じて `openWorldHint` をツールごとに設定）。
+### スコープ境界と禁止用途の明文化
 
-### "When NOT to use" を必須記載
+ツールの説明文およびサーバー初期化時の `instructions`（日英併記）において、以下をモデルに対して明示しています：
 
-2026 MCP ベストプラクティスに従い、すべての tool description に **"USE THIS WHEN" + "DO NOT USE WHEN"** を構造化して記載。LLM の disambiguation を構造的に支援し、誤ったツール選択による副作用を減らす。
-
-### Confidential 情報を tool の入出力に通さない設計
-
-- `NTA_APPLICATION_ID` / `DATABASE_URL` は `src/lib/env.ts` の起動時検証のみ、tool 引数経由で受け取らない
-- ログ出力時は `redactSensitive()` (`src/lib/mcp-logger.ts`) で自動マスク
-- `src/server.ts` の pino redact paths で HTTP リクエストのヘッダも自動 redact
+- `lookup_invoice_issuer` は利用者が明示した登録番号を1件ずつ確認する用途に限定し、番号範囲の連番探索や一覧作成には使用しないこと。
+- 個人連絡先（PII）を入力しないこと。
+- 税理士法第2条に配慮し、公表データの客観的事実のみを回答して仕入税額控除の可否等の税務判断を行わないこと。
 
 ## ホスト側への推奨 (Host-Side Recommendations)
 
-本 MCP サーバを使用する MCP クライアント (Claude Desktop / Cursor / VS Code Copilot 等) には以下を推奨:
+本 MCP サーバーを利用するクライアント環境には以下を推奨します：
 
-1. **Tool description を UI でユーザに提示** — インストール時・初回使用時に静的 description を表示
-2. **Tool call の full parameters を confirmation UI で表示** — Simon Willison が強く推奨する "no hidden horizontal scrollbars"
-3. **複数 MCP サーバーの同時使用時は namespace を可視化** — cross-server shadowing への user-side defense
+1. 初回接続時にツールの静的説明文・アノテーションを確認する。
+2. 複数 MCP サーバー併用時はサーバー名（名前空間）を可視化する。
+3. セルフホスト公開時は必ず TLS リバースプロキシ配下で `ALLOWED_ORIGINS` と適切な `TRUST_PROXY` ホップ数を設定する。
 
 ## コミュニティへ
 
-本ドキュメントは完全版ではありません。**攻撃ベクターの発見を歓迎します**。
-
-- セキュリティ脆弱性の報告: `info@sugu-kuru.co.jp` または GitHub private security advisory
-- 緩和策の改善提案: PR または Issue で `security` ラベル付与
-- 共同研究: OWASP MCP Security Cheat Sheet / Invariant Labs / Simon Willison コミュニティとの連携
+セキュリティ上の問題を発見された場合は、`info@sugu-kuru.co.jp` または GitHub Private Security Advisory（[`SECURITY.md`](../../SECURITY.md)）までご連絡ください。
 
 更新履歴:
 
-- 2026-05-22: v0.1.0 初版
-- 2026-10-18: v1.0.0（凍結仕様 v1.7、MCP Apps UI `textContent` 徹底、HTTP Origin/RateLimit、DB 3ロール分離を反映）
+- 2026-04-29: v0.1.0 初版
+- 2026-10-19: v1.0.0（MCP Apps UI `textContent` 徹底、HTTP Origin/RateLimit、DB 3ロール分離を反映）
+- 2026-11-21: v1.1.0（全ツール `.strict()` 入力スキーマ、UI URI・レート制限・ページ上限・バインド値秘匿の記述を最新実装と同期）

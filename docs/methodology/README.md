@@ -4,7 +4,8 @@
 将来の Sugukuru OSS Lab MCP サーバー（`mcp-jp-subsidy-hub`、`mcp-immigration-ja` 等）で
 同じクオリティを担保するための社内手順書でもあります。
 
-ユーザーレベルでの skill 版: [`~/.cursor/skills/mcp-reference-build/SKILL.md`](../../.cursor/skills/mcp-reference-build/SKILL.md)
+> [!NOTE]
+> 本ディレクトリは v0.1.0 立上げ時の構築手法アーカイブです。現行のリポジトリ同梱スキルおよびエージェントルールは [`skills/lookup-japan-corporate/SKILL.md`](../../skills/lookup-japan-corporate/SKILL.md) および [`rules/AGENTS.md`](../../rules/AGENTS.md) を参照してください。
 
 ## 構成
 

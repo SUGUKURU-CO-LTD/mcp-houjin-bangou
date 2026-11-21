@@ -1,7 +1,67 @@
 {
-  "name": "@sugukuru/mcp-houjin-bangou",
-  "version": "1.0.2",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "jp.co.sugu-kuru/mcp-houjin-bangou",
+  "title": "Japan Corporate Number & Invoice Check",
+  "version": "1.1.0",
   "description": "MCP server for looking up and verifying Japanese corporate numbers and registered invoice issuers published by the National Tax Agency of Japan. Read-only, anonymous access with deterministic company-name normalization.",
+  "websiteUrl": "https://sugu-kuru.co.jp/mcp/houjin",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/SUGUKURU-CO-LTD/mcp-houjin-bangou/main/assets/logo.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp",
+      "supportedProtocolVersions": [
+        "2025-11-25"
+      ]
+    }
+  ],
+  "_meta": {
+    "jp.co.sugu-kuru/houjin-bangou": {
+      "npmPackage": "@sugukuru/mcp-houjin-bangou",
+      "attribution": {
+        "hosted": {
+          "corporate": "出典：国税庁法人番号公表サイト（国税庁）（https://www.houjin-bangou.nta.go.jp/download/ ）。同サイトの公表データをもとにスグクル株式会社が加工して作成",
+          "invoice": "出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html ）。同サイトの公表データをもとにスグクル株式会社が加工して作成",
+          "license": "公共データ利用規約 第1.0版"
+        },
+        "self_hosted": {
+          "data_source": "国税庁法人番号公表サイト (https://www.houjin-bangou.nta.go.jp/)",
+          "license": "公共データ利用規約 第1.0版",
+          "api_version": "Ver.4.0",
+          "service_disclaimer": "このサービスは、国税庁法人番号システム Web-API 機能を利用して取得した情報をもとに作成しているが、サービスの内容は国税庁によって保証されたものではない。"
+        }
+      },
+      "maintainer": {
+        "name": "SUGUKURU CO., LTD.",
+        "email": "info@sugu-kuru.co.jp",
+        "location": "Kagoshima, Japan"
+      },
+      "safety": {
+        "read_only": true,
+        "destructive_operations": [],
+        "prompt_injection_mitigations": [
+          "static_tool_descriptions",
+          "no_runtime_schema_mutation",
+          "application_id_only_from_env",
+          "attribution_required_on_all_outputs",
+          "zod_strict_additional_properties_false",
+          "ci_grep_for_hidden_instructions"
+        ]
+      }
+    }
+  },
   "protocol_version": "2025-11-25",
   "homepage": "https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou",
   "transport": {
@@ -30,7 +90,8 @@
     "prompts": [
       "company-master-record",
       "sales-list-enrichment",
-      "customer-master-dedup"
+      "customer-master-dedup",
+      "invoice-verification-check"
     ],
     "resource_templates": [],
     "resources": [
@@ -71,7 +132,7 @@
   },
   "specs_referenced": [
     "MCP 2025-11-25",
-    "SEP-2127 Server Card (Draft)",
+    "SEP-2127 Server Card",
     "SEP-1303 Input Validation as Tool Errors (Final)",
     "SEP-986 Tool Name Format (Final)",
     "SEP-414 OpenTelemetry Trace Context Propagation (Final)"
@@ -81,4 +142,3 @@
     "国税庁 適格請求書発行事業者公表システム Web-API 機能・ダウンロードデータ リソース定義書 (1.5版 別紙1)"
   ]
 }
-

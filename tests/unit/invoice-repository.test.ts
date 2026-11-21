@@ -75,15 +75,73 @@ describe('DbInvoiceDataProvider unit tests', () => {
       }
     });
 
-    it('DB問い合わせで例外が発生した場合、INTERNAL_ERROR を返すこと', async () => {
-      const mockDb = createMockDb({ throwError: true });
-      const provider = new DbInvoiceDataProvider(mockDb);
+    it('DB問い合わせで例外が発生した場合、SQLやT番号を漏洩せず固定文の INTERNAL_ERROR を返し、サニタイズ済みJSONログを出力すること', async () => {
+      const stderrLogs: string[] = [];
+      const origWrite = process.stderr.write;
+      process.stderr.write = ((chunk: unknown) => {
+        stderrLogs.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
 
+      try {
+        const drizzleLikeError = new Error(
+          'Failed query: select * from "invoice_issuers" where "registration_number" = $1\nparams: T9340001026142',
+        );
+        const mockDb = {
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => Promise.reject(drizzleLikeError),
+                }),
+              }),
+            }),
+          }),
+        } as unknown as DbClient;
+
+        const provider = new DbInvoiceDataProvider(mockDb);
+        const result = await provider.lookupByRegistrationNumber('T9340001026142');
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('INTERNAL_ERROR');
+          expect(result.error.message).toBe(
+            'データベースで予期しないエラーが発生しました。時間をおいて再試行してください。',
+          );
+          expect(result.error.message).not.toContain('invoice_issuers');
+          expect(result.error.message).not.toContain('T9340001026142');
+        }
+
+        const allStderr = stderrLogs.join('');
+        expect(allStderr).toContain('"logger":"invoice_repository"');
+        expect(allStderr).not.toContain('params:');
+        expect(allStderr).not.toContain('T9340001026142');
+      } finally {
+        process.stderr.write = origWrite;
+      }
+    });
+
+    it('PostgreSQL タイムアウト (57014) 発生時は DATA_UNAVAILABLE を返すこと', async () => {
+      const timeoutErr = Object.assign(new Error('canceling statement due to statement timeout'), {
+        code: '57014',
+      });
+      const mockDb = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: () => Promise.reject(timeoutErr),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbInvoiceDataProvider(mockDb);
       const result = await provider.lookupByRegistrationNumber('T9340001026142');
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('INTERNAL_ERROR');
-        expect(result.error.message).toContain('Simulated DB error');
+        expect(result.error.code).toBe('DATA_UNAVAILABLE');
+        expect(result.error.message).toContain('上限時間を超過しました');
       }
     });
   });
@@ -496,6 +554,63 @@ describe('DbInvoiceDataProvider unit tests', () => {
         expect(result.ok).toBe(true);
         if (result.ok) {
           expect(result.value.corporate_name).toBe('10番目の社名');
+        }
+      });
+
+      it('処理区分 process="99"（削除）の最新行は status: not_found として扱われること', async () => {
+        const mockDb = createMockDb({
+          rows: [
+            {
+              registrationNumber: 'T9100000000009',
+              sequenceNumber: '1',
+              process: '99',
+              kind: '2',
+              latest: '1',
+              registrationDate: null,
+              cancelDate: null,
+              expireDate: null,
+              legalName: '削除済み法人',
+              headOfficeAddress: '東京都千代田区',
+            },
+          ],
+        });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T9100000000009', '2024-01-01');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.status).toBe('not_found');
+          expect(result.value.business_type).toBe('unknown');
+          expect(result.value.corporate_name).toBeNull();
+          expect(result.value.was_registered_on_reference_date).toBeNull();
+        }
+      });
+
+      it('人格区分が空文字や不明 (kind !== "2") の行は、DBに万一名称・所在地が入っていても null で保護されること', async () => {
+        const mockDb = createMockDb({
+          rows: [
+            {
+              registrationNumber: 'T9200000000009',
+              sequenceNumber: '1',
+              process: '01',
+              kind: '',
+              latest: '1',
+              registrationDate: '2023-10-01',
+              cancelDate: null,
+              expireDate: null,
+              legalName: '万一残存していた氏名',
+              headOfficeAddress: '万一残存していた住所',
+            },
+          ],
+        });
+        const provider = new DbInvoiceDataProvider(mockDb);
+
+        const result = await provider.lookupByRegistrationNumber('T9200000000009');
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value.business_type).toBe('unknown');
+          expect(result.value.corporate_name).toBeNull();
+          expect(result.value.location).toBeNull();
         }
       });
     });

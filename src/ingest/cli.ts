@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createIngestDbClient } from '../db/client.js';
+import { isValidCalendarDate } from '../domain/invoice-number.js';
 import { DatasetImporter } from './importer.js';
 import { createIngestLogger, type IngestLogger } from './logger.js';
 import { formatErrorWithCause } from '../lib/errors.js';
@@ -27,18 +28,6 @@ export interface IngestCliArgs {
   type: IngestCliType;
   dir: string;
   dataAsOf: string;
-}
-
-const DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function isValidCalendarDate(dateStr: string): boolean {
-  const match = DATE_REGEX.exec(dateStr);
-  if (!match) return false;
-  const y = Number(match[1]);
-  const m = Number(match[2]);
-  const d = Number(match[3]);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
 /**

@@ -49,6 +49,28 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > prompts/list snapshots and inv
       "name": "customer-master-dedup",
       "title": "Customer master dedup via NTA corporate number",
     },
+    {
+      "arguments": [
+        {
+          "description": "請求書・領収書に記載された適格請求書発行事業者登録番号（例: T9340001026142） / Invoice registration number on the invoice (e.g., 'T9340001026142')",
+          "name": "registration_number",
+          "required": true,
+        },
+        {
+          "description": "請求書・領収書の取引年月日（YYYY-MM-DD形式、任意） / Optional transaction date in YYYY-MM-DD format",
+          "name": "transaction_date",
+          "required": false,
+        },
+        {
+          "description": "請求書に記載された発行元法人名（商号の一致確認用、任意。個人氏名は入力しないでください） / Optional corporate issuer name on the invoice for cross-checking",
+          "name": "issuer_name",
+          "required": false,
+        },
+      ],
+      "description": "受領した請求書・領収書の適格請求書発行事業者登録番号（T番号）・取引年月日・発行元法人名をもとに、国税庁公表データ上の登録状態と法人の存続・承継状況を一括照合し、確認記録を生成します。※個人の連絡先情報は入力しないでください。",
+      "name": "invoice-verification-check",
+      "title": "Invoice & corporate verification check for received invoices",
+    },
   ],
 }
 `;
@@ -75,9 +97,15 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
   "tools": [
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
         },
+        "ui/resourceUri": "ui://corporate-card/mcp-app.html",
       },
       "annotations": {
         "destructiveHint": false,
@@ -86,12 +114,13 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "readOnlyHint": true,
         "title": "Look up Corporation by Corporate Number",
       },
-      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。",
+      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無（合併等がある場合は承継先法人番号を含む）を返します。データの時点を併せて返します。",
       "execution": {
         "taskSupport": "forbidden",
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "corporate_number": {
             "description": "13-digit Japanese national corporate number (digits only, e.g., '9340001026142')",
@@ -115,6 +144,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
           },
           "corporation": {
             "additionalProperties": false,
+            "description": "Published corporate basic record",
             "properties": {
               "address_may_be_outdated": {
                 "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
@@ -135,37 +165,52 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                 ],
               },
               "corporate_number": {
+                "description": "13-digit Japanese national corporate number",
                 "type": "string",
               },
               "legal_type": {
+                "description": "Corporate kind label in Japanese (e.g., 株式会社, 合同会社)",
                 "type": "string",
               },
               "location": {
+                "description": "Published head office location (本店又は主たる事務所の所在地)",
                 "type": "string",
               },
               "name": {
+                "description": "Official published corporate name (商号又は名称)",
                 "type": "string",
               },
               "name_kana": {
+                "description": "Furigana reading in katakana if published; null otherwise",
                 "type": [
                   "string",
                   "null",
                 ],
               },
               "post_code": {
+                "description": "7-digit postal code without hyphen; null if absent",
                 "type": [
                   "string",
                   "null",
                 ],
               },
               "status": {
+                "description": "Registration status ('active' or 'closed')",
                 "enum": [
                   "active",
                   "closed",
                 ],
                 "type": "string",
               },
+              "successor_corporate_number": {
+                "description": "13-digit corporate number of the succeeding corporation (e.g., after merger); null if none",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
               "update_date": {
+                "description": "Last record update date (YYYY-MM-DD)",
                 "type": "string",
               },
             },
@@ -199,9 +244,15 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://search-results/mcp-app.html",
         "ui": {
           "resourceUri": "ui://search-results/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
         },
+        "ui/resourceUri": "ui://search-results/mcp-app.html",
       },
       "annotations": {
         "destructiveHint": false,
@@ -216,6 +267,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "cursor": {
             "description": "Opaque cursor for pagination returned from previous search",
@@ -229,7 +281,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "integer",
           },
           "name": {
-            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "description": "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
             "maxLength": 100,
             "minLength": 1,
             "type": "string",
@@ -266,6 +318,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             ],
           },
           "results": {
+            "description": "Page of matching corporate records",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -274,18 +327,23 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                   "type": "boolean",
                 },
                 "corporate_number": {
+                  "description": "13-digit Japanese national corporate number",
                   "type": "string",
                 },
                 "legal_type": {
+                  "description": "Corporate kind label in Japanese",
                   "type": "string",
                 },
                 "location": {
+                  "description": "Published head office location",
                   "type": "string",
                 },
                 "name": {
+                  "description": "Official published corporate name",
                   "type": "string",
                 },
                 "status": {
+                  "description": "Registration status ('active' or 'closed')",
                   "enum": [
                     "active",
                     "closed",
@@ -293,6 +351,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                   "type": "string",
                 },
                 "update_date": {
+                  "description": "Last record update date (YYYY-MM-DD)",
                   "type": "string",
                 },
               },
@@ -334,7 +393,17 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       "title": "Search Corporations by Name",
     },
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
+        "ui": {
+          "resourceUri": "ui://corporate-card/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://corporate-card/mcp-app.html",
+      },
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
@@ -348,6 +417,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "reference_date": {
             "description": "Optional reference date in 'YYYY-MM-DD' format to check registration status as of that date",
@@ -371,9 +441,11 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "additionalProperties": false,
         "properties": {
           "attribution": {
+            "description": "Attribution text required by NTA invoice site terms of service",
             "type": "string",
           },
           "business_type": {
+            "description": "Classification of issuer. 'unknown' is used when status is 'not_found' or unpublished.",
             "enum": [
               "corporation",
               "individual",
@@ -383,12 +455,14 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "cancellation_date": {
+            "description": "Date of cancellation if applicable (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "corporate_name": {
+            "description": "Published name for corporations and other entities (e.g., unincorporated associations). Always null for individuals.",
             "type": [
               "string",
               "null",
@@ -399,27 +473,32 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "expiration_date": {
+            "description": "Date of expiration if applicable (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "location": {
+            "description": "Published location for corporations. For other entities, included only when present in the public dataset. Always null for individuals.",
             "type": [
               "string",
               "null",
             ],
           },
           "registration_date": {
+            "description": "Date of initial registration (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "registration_number": {
+            "description": "Queried invoice registration number ('T' followed by 13 digits)",
             "type": "string",
           },
           "status": {
+            "description": "Registration status as of data_as_of. 'not_found' means there is no matching record in the public dataset as of data_as_of (does not establish that the entity is unregistered).",
             "enum": [
               "registered",
               "cancelled",
@@ -429,9 +508,11 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "tax_disclaimer": {
+            "description": "Notice that this tool provides public facts only and does not provide tax consultation or deduction determination",
             "type": "string",
           },
           "was_registered_on_reference_date": {
+            "description": "Whether the issuer was registered on the specified reference_date (on or after registration_date, and before cancellation/expiration dates); null if reference_date was not specified or status is not_found",
             "type": [
               "boolean",
               "null",
@@ -471,6 +552,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "corporate_number": {
             "description": "13-digit corporate number string to validate",
@@ -489,15 +571,18 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "additionalProperties": false,
         "properties": {
           "error_reason": {
+            "description": "Validation failure reason code if invalid; null when valid",
             "type": [
               "string",
               "null",
             ],
           },
           "is_valid_check_digit": {
+            "description": "True if Modulus 9 (weight 1-2) check digit matches the first digit",
             "type": "boolean",
           },
           "is_valid_format": {
+            "description": "True if input matches 13 half-width digits",
             "type": "boolean",
           },
         },
@@ -519,12 +604,13 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "readOnlyHint": true,
         "title": "Normalize Company Name (Local)",
       },
-      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。",
+      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、旧字体・異体字、特殊記号、スペース等）を正規化します（ローカル処理）。",
       "execution": {
         "taskSupport": "forbidden",
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "raw_name": {
             "description": "Raw company name string to normalize",
@@ -577,9 +663,15 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
   "tools": [
     {
       "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
         "ui": {
           "resourceUri": "ui://corporate-card/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
         },
+        "ui/resourceUri": "ui://corporate-card/mcp-app.html",
       },
       "annotations": {
         "destructiveHint": false,
@@ -588,12 +680,13 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "readOnlyHint": true,
         "title": "Look up Corporation by Corporate Number",
       },
-      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無を返します。データの時点を併せて返します。",
+      "description": "13桁の法人番号を指定して、国税庁が公表している法人の基本3情報（名称・所在地・法人番号）と、法人種別・更新年月日・閉鎖の有無（合併等がある場合は承継先法人番号を含む）を返します。データの時点を併せて返します。",
       "execution": {
         "taskSupport": "forbidden",
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "corporate_number": {
             "description": "13-digit Japanese national corporate number (digits only, e.g., '9340001026142')",
@@ -617,6 +710,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
           },
           "corporation": {
             "additionalProperties": false,
+            "description": "Published corporate basic record",
             "properties": {
               "address_may_be_outdated": {
                 "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)",
@@ -637,37 +731,52 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                 ],
               },
               "corporate_number": {
+                "description": "13-digit Japanese national corporate number",
                 "type": "string",
               },
               "legal_type": {
+                "description": "Corporate kind label in Japanese (e.g., 株式会社, 合同会社)",
                 "type": "string",
               },
               "location": {
+                "description": "Published head office location (本店又は主たる事務所の所在地)",
                 "type": "string",
               },
               "name": {
+                "description": "Official published corporate name (商号又は名称)",
                 "type": "string",
               },
               "name_kana": {
+                "description": "Furigana reading in katakana if published; null otherwise",
                 "type": [
                   "string",
                   "null",
                 ],
               },
               "post_code": {
+                "description": "7-digit postal code without hyphen; null if absent",
                 "type": [
                   "string",
                   "null",
                 ],
               },
               "status": {
+                "description": "Registration status ('active' or 'closed')",
                 "enum": [
                   "active",
                   "closed",
                 ],
                 "type": "string",
               },
+              "successor_corporate_number": {
+                "description": "13-digit corporate number of the succeeding corporation (e.g., after merger); null if none",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
               "update_date": {
+                "description": "Last record update date (YYYY-MM-DD)",
                 "type": "string",
               },
             },
@@ -701,9 +810,15 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
     },
     {
       "_meta": {
+        "openai/outputTemplate": "ui://search-results/mcp-app.html",
         "ui": {
           "resourceUri": "ui://search-results/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
         },
+        "ui/resourceUri": "ui://search-results/mcp-app.html",
       },
       "annotations": {
         "destructiveHint": false,
@@ -718,6 +833,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "cursor": {
             "description": "Opaque cursor for pagination returned from previous search",
@@ -731,7 +847,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "integer",
           },
           "name": {
-            "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+            "description": "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
             "maxLength": 100,
             "minLength": 1,
             "type": "string",
@@ -768,6 +884,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             ],
           },
           "results": {
+            "description": "Page of matching corporate records",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -776,18 +893,23 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                   "type": "boolean",
                 },
                 "corporate_number": {
+                  "description": "13-digit Japanese national corporate number",
                   "type": "string",
                 },
                 "legal_type": {
+                  "description": "Corporate kind label in Japanese",
                   "type": "string",
                 },
                 "location": {
+                  "description": "Published head office location",
                   "type": "string",
                 },
                 "name": {
+                  "description": "Official published corporate name",
                   "type": "string",
                 },
                 "status": {
+                  "description": "Registration status ('active' or 'closed')",
                   "enum": [
                     "active",
                     "closed",
@@ -795,6 +917,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
                   "type": "string",
                 },
                 "update_date": {
+                  "description": "Last record update date (YYYY-MM-DD)",
                   "type": "string",
                 },
               },
@@ -836,7 +959,17 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       "title": "Search Corporations by Name",
     },
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://corporate-card/mcp-app.html",
+        "ui": {
+          "resourceUri": "ui://corporate-card/mcp-app.html",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://corporate-card/mcp-app.html",
+      },
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
@@ -850,6 +983,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "reference_date": {
             "description": "Optional reference date in 'YYYY-MM-DD' format to check registration status as of that date",
@@ -873,9 +1007,11 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "additionalProperties": false,
         "properties": {
           "attribution": {
+            "description": "Attribution text required by NTA invoice site terms of service",
             "type": "string",
           },
           "business_type": {
+            "description": "Classification of issuer. 'unknown' is used when status is 'not_found' or unpublished.",
             "enum": [
               "corporation",
               "individual",
@@ -885,12 +1021,14 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "cancellation_date": {
+            "description": "Date of cancellation if applicable (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "corporate_name": {
+            "description": "Published name for corporations and other entities (e.g., unincorporated associations). Always null for individuals.",
             "type": [
               "string",
               "null",
@@ -901,27 +1039,32 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "expiration_date": {
+            "description": "Date of expiration if applicable (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "location": {
+            "description": "Published location for corporations. For other entities, included only when present in the public dataset. Always null for individuals.",
             "type": [
               "string",
               "null",
             ],
           },
           "registration_date": {
+            "description": "Date of initial registration (YYYY-MM-DD)",
             "type": [
               "string",
               "null",
             ],
           },
           "registration_number": {
+            "description": "Queried invoice registration number ('T' followed by 13 digits)",
             "type": "string",
           },
           "status": {
+            "description": "Registration status as of data_as_of. 'not_found' means there is no matching record in the public dataset as of data_as_of (does not establish that the entity is unregistered).",
             "enum": [
               "registered",
               "cancelled",
@@ -931,9 +1074,11 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
             "type": "string",
           },
           "tax_disclaimer": {
+            "description": "Notice that this tool provides public facts only and does not provide tax consultation or deduction determination",
             "type": "string",
           },
           "was_registered_on_reference_date": {
+            "description": "Whether the issuer was registered on the specified reference_date (on or after registration_date, and before cancellation/expiration dates); null if reference_date was not specified or status is not_found",
             "type": [
               "boolean",
               "null",
@@ -973,6 +1118,7 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "corporate_number": {
             "description": "13-digit corporate number string to validate",
@@ -991,15 +1137,18 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "additionalProperties": false,
         "properties": {
           "error_reason": {
+            "description": "Validation failure reason code if invalid; null when valid",
             "type": [
               "string",
               "null",
             ],
           },
           "is_valid_check_digit": {
+            "description": "True if Modulus 9 (weight 1-2) check digit matches the first digit",
             "type": "boolean",
           },
           "is_valid_format": {
+            "description": "True if input matches 13 half-width digits",
             "type": "boolean",
           },
         },
@@ -1021,12 +1170,13 @@ exports[`MCP Contract Snapshot Tests (SLA2-328) > tools/list snapshots and invar
         "readOnlyHint": true,
         "title": "Normalize Company Name (Local)",
       },
-      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。",
+      "description": "企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、旧字体・異体字、特殊記号、スペース等）を正規化します（ローカル処理）。",
       "execution": {
         "taskSupport": "forbidden",
       },
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
           "raw_name": {
             "description": "Raw company name string to normalize",

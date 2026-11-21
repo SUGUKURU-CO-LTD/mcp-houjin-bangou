@@ -93,4 +93,10 @@ describe('parseNtaCsv', () => {
     expect(result.header.divideSize).toBe(2);
     expect(result.header.count).toBe(2500);
   });
+
+  it('先頭に UTF-8 BOM (\\uFEFF) が付与されていても lastUpdateDate を正しくパースする', () => {
+    const csv = '\uFEFF2026-10-31,0,1,1\n';
+    const result = parseNtaCsv(csv);
+    expect(result.header.lastUpdateDate).toBe('2026-10-31');
+  });
 });

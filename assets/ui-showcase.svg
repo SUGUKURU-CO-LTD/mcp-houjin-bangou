@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430" width="920" height="430" role="img" aria-labelledby="title desc">
+  <title id="title">MCP Apps Interactive UI — Corporate Card &amp; Qualified Invoice Verification</title>
+  <desc id="desc">Interactive Corporate Card displaying published NTA corporate information, one-click vendor master TSV copy, similar company search, and inline Qualified Invoice registration verification as of a reference date.</desc>
+  <defs>
+    <style>
+      .font { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'BIZ UDPGothic', 'Noto Sans JP', system-ui, sans-serif; }
+      .mono { font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+    </style>
+  </defs>
+
+  <!-- Outer Canvas -->
+  <rect width="920" height="430" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5" />
+
+  <!-- Card Surface -->
+  <rect x="20" y="18" width="880" height="394" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" />
+
+  <!-- Header -->
+  <text x="44" y="54" class="font" font-size="20" font-weight="700" fill="#0f172a">スグクル株式会社</text>
+  <text x="44" y="74" class="font" font-size="12" fill="#64748b">スグクルカブシキガイシャ</text>
+
+  <!-- Status Badge (Active) -->
+  <rect x="748" y="36" width="128" height="28" rx="14" fill="#e6f4ea" stroke="#0d652d" stroke-width="1" />
+  <text x="812" y="54" text-anchor="middle" class="font" font-size="12" font-weight="600" fill="#0d652d">● 登記中 (active)</text>
+
+  <line x1="44" y1="88" x2="876" y2="88" stroke="#e2e8f0" stroke-width="1" />
+
+  <!-- Facts Grid -->
+  <text x="44" y="114" class="font" font-size="12" font-weight="600" fill="#64748b">法人番号</text>
+  <text x="190" y="114" class="mono" font-size="13.5" font-weight="600" fill="#0f172a">9340001026142</text>
+
+  <text x="480" y="114" class="font" font-size="12" font-weight="600" fill="#64748b">法人種別</text>
+  <text x="600" y="114" class="font" font-size="13.5" fill="#0f172a">株式会社</text>
+
+  <text x="44" y="140" class="font" font-size="12" font-weight="600" fill="#64748b">本店所在地</text>
+  <text x="190" y="140" class="font" font-size="13.5" fill="#0f172a">鹿児島県霧島市国分中央１丁目２−３２</text>
+
+  <text x="44" y="166" class="font" font-size="12" font-weight="600" fill="#64748b">郵便番号</text>
+  <text x="190" y="166" class="mono" font-size="13.5" fill="#0f172a">899-4332</text>
+
+  <text x="480" y="166" class="font" font-size="12" font-weight="600" fill="#64748b">データ時点</text>
+  <text x="600" y="166" class="mono" font-size="13.5" fill="#0f172a">2026-10-01</text>
+
+  <!-- Action Buttons -->
+  <rect x="44" y="184" width="136" height="32" rx="8" fill="#0f172a" />
+  <text x="112" y="204" text-anchor="middle" class="font" font-size="12.5" font-weight="600" fill="#ffffff">類似商号を検索</text>
+
+  <rect x="190" y="184" width="138" height="32" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1" />
+  <text x="259" y="204" text-anchor="middle" class="font" font-size="12.5" fill="#0f172a">法人番号をコピー</text>
+
+  <rect x="338" y="184" width="194" height="32" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.2" />
+  <text x="435" y="204" text-anchor="middle" class="font" font-size="12.5" font-weight="600" fill="#1e40af">マスタ登録用に一括コピー</text>
+
+  <rect x="542" y="184" width="212" height="32" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1" />
+  <text x="648" y="204" text-anchor="middle" class="font" font-size="12.5" fill="#0f172a">国税庁公表サイトで履歴確認 ↗</text>
+
+  <line x1="44" y1="230" x2="876" y2="230" stroke="#e2e8f0" stroke-width="1" />
+
+  <!-- Inline Qualified Invoice Section -->
+  <rect x="44" y="242" width="832" height="122" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+  <text x="62" y="268" class="font" font-size="14" font-weight="700" fill="#0f172a">適格請求書発行事業者 公表情報 (T9340001026142)</text>
+
+  <rect x="758" y="250" width="98" height="24" rx="12" fill="#e6f4ea" stroke="#0d652d" stroke-width="1" />
+  <text x="807" y="266" text-anchor="middle" class="font" font-size="11.5" font-weight="600" fill="#0d652d">● 登録有効</text>
+
+  <text x="62" y="298" class="font" font-size="12" font-weight="600" fill="#64748b">登録番号</text>
+  <text x="164" y="298" class="mono" font-size="13" font-weight="600" fill="#0f172a">T9340001026142</text>
+
+  <text x="350" y="298" class="font" font-size="12" font-weight="600" fill="#64748b">登録年月日</text>
+  <text x="442" y="298" class="mono" font-size="13" fill="#0f172a">2023-10-01</text>
+
+  <text x="62" y="328" class="font" font-size="12" font-weight="600" fill="#64748b">基準日判定</text>
+  <rect x="164" y="312" width="292" height="24" rx="12" fill="#e6f4ea" stroke="#0d652d" stroke-width="1" />
+  <text x="310" y="328" text-anchor="middle" class="font" font-size="11.5" font-weight="600" fill="#0d652d">● 2026-10-01: 基準日時点で有効な登録事業者</text>
+
+  <text x="62" y="352" class="font" font-size="11" fill="#64748b">※公表データの客観的事実のみを表示しており、税理士法第2条に定める税務相談・仕入税額控除の可否判断は行いません。</text>
+
+  <!-- Attribution Footer -->
+  <text x="44" y="392" class="font" font-size="11" fill="#64748b">出典：国税庁法人番号公表サイト・適格請求書発行事業者公表サイト（国税庁）の公表データをもとにスグクル株式会社が加工して作成</text>
+</svg>

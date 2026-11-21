@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "houjin-bangou": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "https://houjin.mcp.sugu-kuru.co.jp/mcp"
     }
   }

@@ -1,6 +1,6 @@
 # Usage Cookbook — 実務プロンプト例
 
-本ドキュメントは、Claude / ChatGPT / Cursor / VS Code Copilot で本 MCP サーバーを使って取引先確認・経理照合・マスタ整備を行う具体例集です。
+本ドキュメントは、Claude / ChatGPT / Cursor / Google Antigravity / VS Code Copilot で本 MCP サーバーを使って取引先確認・経理照合・マスタ整備を行う具体例集です。
 
 ---
 
@@ -8,26 +8,27 @@
 
 > 法人番号 `5111101000006` は有効ですか？チェックデジットだけでいいのでローカルで確認して。
 
-**使用ツール**: `validate_corporate_number` — ローカル計算のみ、DB や国税庁 API にはアクセスしません。
+**使用ツール**: `validate_corporate_number` — ローカル計算のみ、DB や国税庁 API にはアクセスしません（※実在確認が必要な場合は続けて `lookup_corporate_by_number` を使用します）。
 
 ---
 
 ## 2. 法人番号から本店所在地とインボイス登録状況を確認する
 
-> 法人番号 `5111101000006` の正式商号・本店所在地と、適格請求書発行事業者（インボイス）の登録状況を教えて。
+> 法人番号 `9340001026142` の正式商号・本店所在地と、適格請求書発行事業者（インボイス）の登録状況を教えて。
 
 **使用ツール**:
-1. `lookup_corporate_by_number` (`corporate_number: "5111101000006"`) — 法人の正式商号、本店所在地、法人種別を取得
-2. `lookup_invoice_issuer` (`registration_number: "T5111101000006"`) — T番号を指定して適格請求書発行事業者の登録状況を取得
+1. `lookup_corporate_by_number` (`corporate_number: "9340001026142"`) — 法人の正式商号、フリガナ、本店所在地、郵便番号、法人種別、閉鎖・承継先情報を取得（MCP Apps 対応環境では `ui://corporate-card/mcp-app.html` を表示し、カード上のボタンからワンクリックでインボイス確認も可能）
+2. `lookup_invoice_issuer` (`registration_number: "T9340001026142"`) — `T` + 法人番号を指定して適格請求書発行事業者の登録状況を取得（※ホスト版または `DATA_SOURCE=db` モードで利用可能）
 
 ---
 
 ## 3. 請求書のインボイス登録番号（T番号）が取引日時点で有効か確認する
 
-> 受け取った請求書に記載されている登録番号 `T1234567890123（※架空の番号例）` が、取引日 `2026-10-01` 時点で有効な登録期間内にあるか確認して。
+> 受け取った請求書に記載されている登録番号 `T9340001026142` が、取引日 `2026-10-01` 時点で有効な登録期間内にあるか確認して。
 
-**使用ツール**: `lookup_invoice_issuer` (`registration_number: "T1234567890123"`, `reference_date: "2026-10-01"`)
-※ `was_registered_on_reference_date` フィールドで基準日時点の有効性が判定されます。
+**使用ツール**: `lookup_invoice_issuer` (`registration_number: "T9340001026142"`, `reference_date: "2026-10-01"`)
+- `was_registered_on_reference_date` フィールドで基準日時点の登録期間照合結果（`true` / `false` / `null`）が返り、MCP Apps 対応クライアントではインボイス確認カード（`ui://corporate-card/mcp-app.html`）上で基準日ピッカーによる再確認も行えます。
+- ※ ホスト版（`https://houjin.mcp.sugu-kuru.co.jp/mcp`）またはローカル PostgreSQL モード（`DATA_SOURCE=db`）で利用可能です（`DATA_SOURCE=web-api` モードでは `DATA_UNAVAILABLE` を返します）。
 
 ---
 
@@ -35,21 +36,21 @@
 
 > 「（株）髙橋商事」という会社の法人番号と本店所在地を調べて。
 
-**実行される呼出**: `normalize_company_name` → `search_corporate_by_name`
+**実行される呼出**: `normalize_company_name` → `search_corporate_by_name` → `lookup_corporate_by_number`
 
-法人格略称（（株）→株式会社）や旧字体（髙→高）を正規化し、最適化された検索語（`search_query_optimized`）を生成して検索します。
+法人格略称（`（株）`→`株式会社`）や旧字体（`髙`→`高`）を `normalize_company_name` で正規化し、得られた正式商号（`normalized_name`）または検索用コア商号（`search_query_optimized`）で検索します（MCP Apps 対応クライアントでは `ui://search-results/mcp-app.html` の一覧から詳細カードへドリルダウンできます）。
 
 ---
 
-## 5. 表記揺れ候補だけを生成する（検索しない）
+## 5. 表記揺れ候補だけを生成する（外部通信なし）
 
-> 「SUGUKURU CO., LTD.」を国税庁の検索で使える表記候補に変換して。
+> 「SUGUKURU CO., LTD.」を国税庁データの検索で使える表記に正規化して。
 
 **使用ツール**: `normalize_company_name` (`raw_name: "SUGUKURU CO., LTD."`)
 
 ---
 
-## 6. 都道府県を指定して法人を検索する
+## 6. 都道府県コードを指定して法人を検索する
 
 > 鹿児島県の「スグクル」を含む法人を検索して。
 
@@ -87,4 +88,4 @@
 
 ## 10. データの基準日（`data_as_of`）と出典を確認する
 
-すべての照会ツール（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）の応答には、公表データの基準日（`data_as_of`）および国税庁の出典・免責情報（`attribution`）が自動的に含まれます。ホスト版では月1回（前月末時点のデータ）で更新されるため、月途中の最新変更を確認したい場合は国税庁の各公表サイトを直接参照してください。
+すべての照会ツール（`lookup_corporate_by_number`, `search_corporate_by_name`, `lookup_invoice_issuer`）の応答には、公表データの基準日（`data_as_of`）および国税庁利用規約に基づく出典・免責情報（`attribution`、インボイス照会では加えて `tax_disclaimer`）が自動的に含まれます。ホスト版では月1回（前月末時点の全件データ）で更新されるため、月途中の最新変更を確認したい場合は国税庁の各公表サイトを直接参照してください。

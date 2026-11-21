@@ -156,4 +156,47 @@ describe('NtaClient.ping', () => {
     const result = await client.ping();
     expect(Result.isOk(result)).toBe(true);
   });
+
+  it('403 バックオフ中の後続リクエストはハングせず即座に http_403 (status 429) を返す', async () => {
+    const responses = new Map([['num', { status: 403, body: '' }]]);
+    const client = createNtaClient({
+      applicationId: 'secret-app-id-999',
+      baseUrl: 'https://api.houjin-bangou.nta.go.jp/4',
+      timeoutMs: 5000,
+      rps: 100,
+      fetchImpl: mockFetch(responses),
+    });
+    const first = await client.lookupByNumber({ numbers: ['5111101000006'] });
+    expect(Result.isErr(first)).toBe(true);
+
+    const start = Date.now();
+    const second = await client.lookupByNumber({ numbers: ['5111101000006'] });
+    expect(Date.now() - start).toBeLessThan(100);
+    expect(Result.isErr(second)).toBe(true);
+    if (Result.isErr(second)) {
+      expect(second.error.code).toBe('http_403');
+      expect(second.error.httpStatus).toBe(429);
+    }
+  });
+
+  it('ネットワーク例外メッセージ内の id=... および applicationId シークレットをマスクする', async () => {
+    const failingFetch: typeof fetch = async (input) => {
+      const u = typeof input === 'string' ? input : input.toString();
+      throw new Error(`connect ECONNREFUSED for ${u}`);
+    };
+    const client = createNtaClient({
+      applicationId: 'SUPER_SECRET_APP_ID_123',
+      baseUrl: 'https://api.houjin-bangou.nta.go.jp/4',
+      timeoutMs: 5000,
+      rps: 100,
+      fetchImpl: failingFetch,
+    });
+    const res = await client.lookupByNumber({ numbers: ['5111101000006'] });
+    expect(Result.isErr(res)).toBe(true);
+    if (Result.isErr(res)) {
+      expect(res.error.code).toBe('network_error');
+      expect(res.error.message).not.toContain('SUPER_SECRET_APP_ID_123');
+      expect(res.error.message).toContain('id=***REDACTED***');
+    }
+  });
 });

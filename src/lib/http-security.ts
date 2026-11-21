@@ -14,7 +14,6 @@
  */
 
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import { createErrorResponse } from './tool-response.js';
 
 export const RATE_LIMIT_ERROR_MESSAGE =
   '利用上限（レート制限）に達しました。しばらく待ってから再試行してください。';
@@ -57,13 +56,6 @@ export function parseAllowedOrigins(raw: string): Set<string> {
  *
  * 【Origin ヘッダーが無いリクエストの扱い】
  * - `Origin` ヘッダーが存在しないリクエスト（`req.headers.origin === undefined`）は許可（通過）する。
- * - 理由:
- *   1. MCP ホストのバックエンドサーバー間通信（Claude / ChatGPT サーバーからの呼び出し）、
- *      CLI クライアント、Cloud Run の稼働確認（/health）等はブラウザを介さないため `Origin` ヘッダーを持たない。
- *   2. Streamable HTTP における Origin 検証の目的は、ブラウザの DNS リバインディング攻撃や
- *      悪意ある Web サイトからのクロスオリジン要求（CSRF）の防止にある。
- *      Web ブラウザはクロスオリジンリクエストおよび POST リクエストに必ず `Origin` ヘッダーを自動付与し、
- *      ページ内のスクリプトから `Origin` ヘッダーを削除・偽装することはできない（Fetch Standard Forbidden request-header）。
  * - 一方、`Origin` ヘッダーが存在する場合（`Origin: null` を含む）は、環境変数 `ALLOWED_ORIGINS` の
  *   許可リストと厳密照合し、含まれない場合はすべて HTTP 403 Forbidden で拒否する。
  */
@@ -172,13 +164,44 @@ export class IpRateLimiter {
   }
 }
 
+function extractJsonRpcId(payload: unknown): string | number | null {
+  if (payload !== null && typeof payload === 'object' && 'id' in payload) {
+    const rawId = (payload as { id?: unknown }).id;
+    if (typeof rawId === 'string' || typeof rawId === 'number') {
+      return rawId;
+    }
+  }
+  return null;
+}
+
+function buildJsonRpcRateLimitError(
+  id: string | number | null,
+  retryAfterSeconds: number,
+): Record<string, unknown> {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: {
+      code: -32000,
+      message: `RATE_LIMITED: ${RATE_LIMIT_ERROR_MESSAGE}`,
+      data: {
+        code: 'RATE_LIMITED',
+        error_code: 'RATE_LIMITED',
+        retryable: true,
+        retryAfterSeconds,
+        message: RATE_LIMIT_ERROR_MESSAGE,
+      },
+    },
+  };
+}
+
 /**
  * Express 用 IP レート制限ミドルウェア
  *
  * - `app.set('trust proxy', env.TRUST_PROXY)`（Cloud Run 前段 GFE に合わせて既定 1 ホップ）により
  *   算出された `req.ip` を用いてクライアントごとに利用回数を制限する。
- * - 上限超過時は HTTP 429 と Retry-After ヘッダーを返し、
- *   MCP tools/call リクエストに対しては凍結仕様 v1.7 §3.1 / §4 の共通エラー形式（code: 'RATE_LIMITED'）を返す。
+ * - 上限超過時は HTTP 429 と Retry-After ヘッダー、および標準 JSON-RPC error (-32000) を返す
+ *   （StreamableHTTPClientTransport は非2xx応答で JSON-RPC result を解釈しないため error 形式に統一）。
  */
 export function createIpRateLimitMiddleware(
   limiter: IpRateLimiter,
@@ -196,31 +219,20 @@ export function createIpRateLimitMiddleware(
     onRateLimited?.(clientIp);
     res.setHeader('Retry-After', String(check.retryAfterSeconds));
 
-    const body = req.body as
-      { jsonrpc?: unknown; id?: unknown; method?: unknown } | undefined | null;
-
-    if (body && typeof body === 'object' && body.method === 'tools/call') {
-      res.status(429).json({
-        jsonrpc: '2.0',
-        id: body.id ?? null,
-        result: createErrorResponse('RATE_LIMITED', RATE_LIMIT_ERROR_MESSAGE),
-      });
+    const body: unknown = req.body;
+    if (Array.isArray(body) && body.length > 0) {
+      res
+        .status(429)
+        .json(
+          body.map((item: unknown) =>
+            buildJsonRpcRateLimitError(extractJsonRpcId(item), check.retryAfterSeconds),
+          ),
+        );
       return;
     }
 
-    res.status(429).json({
-      jsonrpc: '2.0',
-      id: body && typeof body === 'object' && 'id' in body ? (body.id ?? null) : null,
-      error: {
-        code: -32000,
-        message: `RATE_LIMITED: ${RATE_LIMIT_ERROR_MESSAGE}`,
-        data: {
-          code: 'RATE_LIMITED',
-          error_code: 'RATE_LIMITED',
-          retryable: true,
-          message: RATE_LIMIT_ERROR_MESSAGE,
-        },
-      },
-    });
+    res
+      .status(429)
+      .json(buildJsonRpcRateLimitError(extractJsonRpcId(body), check.retryAfterSeconds));
   };
 }

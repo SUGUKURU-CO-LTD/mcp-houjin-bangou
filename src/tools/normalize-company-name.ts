@@ -3,15 +3,15 @@
  * 企業名の表記ゆれを正規化 (ローカル処理)
  *
  * 根拠 / Source:
- *   docs/plan/corp-check-interface-v1.md §1.5, §3.1, §4, §6.2 (v1.4 凍結仕様)
+ *   docs/plan/corp-check-interface-v1.md §1.5, §3.1, §4, §6.2
  *   国税庁仕様書 第二編 §4.6.2 (target=1 の内蔵あいまい検索の挙動補完)
  */
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { normalizeCompanyName, type KindHint } from '../domain/normalizer.js';
+import { applyOldToNew, normalizeCompanyName, type KindHint } from '../domain/normalizer.js';
 import { getToolAnnotations } from '../domain/tool-annotations.js';
-import { createSuccessResponse, createErrorResponse } from '../lib/tool-response.js';
+import { createSuccessResponse } from '../lib/tool-response.js';
 
 const InputSchema = z
   .object({
@@ -35,7 +35,7 @@ export type NormalizeCompanyNameInput = z.infer<typeof InputSchema>;
 export type NormalizeCompanyNameOutput = z.infer<typeof OutputSchema>;
 
 const DESCRIPTION_JA =
-  '企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、特殊記号、スペース等）を正規化します（ローカル処理）。';
+  '企業名の表記ゆれ（全角・半角英数字、(株)や株式会社の表記位置、旧字体・異体字、特殊記号、スペース等）を正規化します（ローカル処理）。';
 
 const KIND_HINT_TO_LABEL: Record<KindHint, string | null> = {
   kabushiki_kaisha: '株式会社',
@@ -56,6 +56,19 @@ const KIND_HINT_TO_LABEL: Record<KindHint, string | null> = {
   unknown: null,
 };
 
+const EXPANDABLE_CORPORATE_KIND_HINTS = new Set<KindHint>([
+  'kabushiki_kaisha',
+  'yugen_kaisha',
+  'gomei_kaisha',
+  'goshi_kaisha',
+  'godo_kaisha',
+  'ippan_shadan_hojin',
+  'ippan_zaidan_hojin',
+  'koueki_shadan_hojin',
+  'koueki_zaidan_hojin',
+  'npo_hojin',
+]);
+
 export function registerNormalizeCompanyNameTool(server: McpServer): void {
   const annotations = getToolAnnotations('normalize_company_name', 'web-api');
 
@@ -64,8 +77,8 @@ export function registerNormalizeCompanyNameTool(server: McpServer): void {
     {
       title: annotations.title,
       description: DESCRIPTION_JA,
-      inputSchema: InputSchema.shape,
-      outputSchema: OutputSchema.shape,
+      inputSchema: InputSchema,
+      outputSchema: OutputSchema,
       annotations: {
         title: annotations.title,
         readOnlyHint: annotations.readOnlyHint,
@@ -75,28 +88,26 @@ export function registerNormalizeCompanyNameTool(server: McpServer): void {
       },
     },
     async (args) => {
-      const parsedArgs = InputSchema.safeParse(args);
-      if (!parsedArgs.success) {
-        return createErrorResponse(
-          'INVALID_INPUT',
-          `企業名の入力形式が不正です: ${parsedArgs.error.issues.map((e) => e.message).join(', ')}`,
-        );
-      }
-
-      const { raw_name } = parsedArgs.data;
+      const { raw_name } = args;
       const result = normalizeCompanyName(raw_name);
 
       const topCandidate = result.normalized_candidates[0];
       const legalType = topCandidate ? (KIND_HINT_TO_LABEL[topCandidate.kind_hint] ?? null) : null;
-      const searchQueryOptimized = result.extracted_core_name || raw_name.trim();
+      const rawCoreName = result.extracted_core_name || raw_name.trim().normalize('NFKC');
+      const searchQueryOptimized = applyOldToNew(rawCoreName);
 
-      // (株) などの略称を正式名称に展開した商号を生成
+      // (株) などの略称を正式名称に展開した商号を生成（汎用区分ラベルは上書きしない）
       let normalizedName = topCandidate?.name ?? searchQueryOptimized;
-      if (topCandidate && legalType && searchQueryOptimized) {
+      if (
+        topCandidate &&
+        legalType &&
+        rawCoreName &&
+        EXPANDABLE_CORPORATE_KIND_HINTS.has(topCandidate.kind_hint)
+      ) {
         if (topCandidate.prefix_or_suffix === 'mae_kabu') {
-          normalizedName = `${legalType}${searchQueryOptimized}`;
+          normalizedName = `${legalType}${rawCoreName}`;
         } else if (topCandidate.prefix_or_suffix === 'ato_kabu') {
-          normalizedName = `${searchQueryOptimized}${legalType}`;
+          normalizedName = `${rawCoreName}${legalType}`;
         }
       }
 

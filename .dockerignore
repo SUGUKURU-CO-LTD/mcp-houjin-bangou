@@ -2,6 +2,8 @@
 .github
 .local
 .claude
+.cursor
+.cursor-plugin
 .vscode
 node_modules
 dist
@@ -11,7 +13,13 @@ benchmarks
 docs
 examples
 infra
+skills
+rules
+assets
+*.md
 *.log
+*.tgz
+tsconfig.tsbuildinfo
 .env
 .env.*
 .DS_Store

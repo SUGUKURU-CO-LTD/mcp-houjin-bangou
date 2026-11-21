@@ -52,8 +52,32 @@ export interface InvoiceValidationError {
 
 export type InvoiceValidationResult = InvoiceValidationOk | InvoiceValidationError;
 
+export interface NormalizeInvoiceNumberOptions {
+  /**
+   * true の場合、T 以降の 13 桁に対して法人番号のモジュラス9チェックデジットおよび先頭非ゼロ検証を行う。
+   * 個人事業者の登録番号は一次資料にチェックデジット計算式の定義がないため、既定値は false（^T\d{13}$ 形式検証のみ）。
+   */
+  verifyCorporateCheckDigit?: boolean;
+}
+
+const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 /**
- * T番号文字列の正規化 + チェックデジット検証
+ * YYYY-MM-DD 文字列が実在する暦日であるかを厳密検証する（例: 2026-02-31 や 2026-04-31 を拒否）
+ */
+export function isValidCalendarDate(dateStr: string): boolean {
+  const match = ISO_DATE_REGEX.exec(dateStr);
+  if (!match) return false;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * T番号文字列の正規化 + 形式検証（オプションで法人番号チェックデジット検証）
  *
  * 入力は以下を許容:
  * - `T1234567890123` (半角)
@@ -62,8 +86,12 @@ export type InvoiceValidationResult = InvoiceValidationOk | InvoiceValidationErr
  * - `Ｔ１２３４５６７８９０１２３` (全角 T + 全角数字)
  *
  * @param raw 検証対象の文字列
+ * @param options verifyCorporateCheckDigit=true 指定時のみ法人番号モジュラス9を検証（既定: false）
  */
-export function normalizeAndValidateInvoiceNumber(raw: string): InvoiceValidationResult {
+export function normalizeAndValidateInvoiceNumber(
+  raw: string,
+  options?: NormalizeInvoiceNumberOptions,
+): InvoiceValidationResult {
   if (raw.length === 0) {
     return { isValid: false, reason: 'not_prefixed_with_T' };
   }
@@ -80,21 +108,41 @@ export function normalizeAndValidateInvoiceNumber(raw: string): InvoiceValidatio
 
   const afterT = normalizedT.slice(1);
 
-  // 法人番号と同じ正規化ロジックを 13桁部分に適用
-  const cnResult = normalizeAndValidateCorporateNumber(afterT);
-  if (!cnResult.isValid) {
-    const mapReason: Record<typeof cnResult.reason, InvoiceValidationReason> = {
-      not_13_digits: 'not_13_digits_after_T',
-      check_digit_mismatch: 'check_digit_mismatch',
-      invalid_characters: 'invalid_characters',
-      first_digit_zero: 'first_digit_zero_after_T',
+  if (options?.verifyCorporateCheckDigit === true) {
+    // 法人限定でモジュラス9チェックデジットまで検証する場合
+    const cnResult = normalizeAndValidateCorporateNumber(afterT);
+    if (!cnResult.isValid) {
+      const mapReason: Record<typeof cnResult.reason, InvoiceValidationReason> = {
+        not_13_digits: 'not_13_digits_after_T',
+        check_digit_mismatch: 'check_digit_mismatch',
+        invalid_characters: 'invalid_characters',
+        first_digit_zero: 'first_digit_zero_after_T',
+      };
+      return { isValid: false, reason: mapReason[cnResult.reason] };
+    }
+
+    return {
+      isValid: true,
+      normalized: `T${cnResult.normalized}`,
+      corporateNumberPart: cnResult.normalized,
     };
-    return { isValid: false, reason: mapReason[cnResult.reason] };
+  }
+
+  // 既定: 個人事業者の登録番号も包含できるよう、ハイフン・空白除去後に 13桁数字形式のみを検証 (SLA2-326)
+  const cleanedDigits = afterT.replace(/[\s\-\u2010-\u2015\u30FC]/g, '');
+  if (cleanedDigits.length === 0) {
+    return { isValid: false, reason: 'not_13_digits_after_T' };
+  }
+  if (!/^\d+$/.test(cleanedDigits)) {
+    return { isValid: false, reason: 'invalid_characters' };
+  }
+  if (cleanedDigits.length !== 13) {
+    return { isValid: false, reason: 'not_13_digits_after_T' };
   }
 
   return {
     isValid: true,
-    normalized: `T${cnResult.normalized}`,
-    corporateNumberPart: cnResult.normalized,
+    normalized: `T${cleanedDigits}`,
+    corporateNumberPart: cleanedDigits,
   };
 }

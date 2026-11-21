@@ -1,9 +1,9 @@
-# 法人番号・インボイス照会 MCP インターフェース仕様書 v1.9
+# 法人番号・インボイス照会 MCP インターフェース仕様書 v1.10 (v1.1.0 対応)
 
-- **作成日**: 2026-10-21 JST (v1.9更新)
-- **対象ブランチ**: `a-kabe/sla2-329-attribution-spec-v19`
-- **目的**: 2026-10-24 の Claudeコネクタディレクトリ および ChatGPTアプリディレクトリ 提出に向けた全ツール・プロンプト・リソース・共通エラー・サーバー説明文のインターフェースの確定と凍結
-- **ステータス**: v1.9（承認済み・凍結）
+- **作成日**: 2026-11-21 JST (v1.10更新)
+- **対象ブランチ**: `feat/v1.1.0-mcp-app-upgrade`
+- **目的**: Claudeコネクタディレクトリ・ChatGPTアプリディレクトリ・Official MCP Registry 提出および `v1.1.0` リリースに向けた全ツール・プロンプト・UIリソース・共通エラー・サーバー説明文のインターフェース確定と同期
+- **ステータス**: v1.10（承認済み・v1.1.0 実装同期）
 
 ---
 
@@ -72,6 +72,10 @@
           "status": { "type": "string", "enum": ["active", "closed"] },
           "close_date": { "type": ["string", "null"], "description": "Date of closure (YYYY-MM-DD); null if active" },
           "close_cause": { "type": ["string", "null"], "description": "Reason for closure as published (e.g., liquidation, merger); null if active" },
+          "successor_corporate_number": {
+            "type": ["string", "null"],
+            "description": "13-digit corporate number of the succeeding corporation (e.g., after merger); null if none"
+          },
           "address_may_be_outdated": {
             "type": "boolean",
             "description": "True if registered address may differ from current address due to residential address implementation (from NTA hihyoji flag)"
@@ -119,7 +123,7 @@
     "properties": {
       "name": {
         "type": "string",
-        "description": "Corporate name to search (kanji, kana, or romaji, e.g., 'スグクル')",
+        "description": "Corporate name to search in kanji, katakana, hiragana, or registered Latin characters (e.g., 'スグクル', 'Apple Japan')",
         "minLength": 1,
         "maxLength": 100
       },
@@ -293,7 +297,7 @@
     "required": ["registration_number", "status", "business_type", "data_as_of", "attribution", "tax_disclaimer"]
   }
   ```
-- **UIリソース**: なし（UI非対応クライアントでもテキストで用が足りるよう、構造化テキストのみで返却する）。
+- **UIリソース**: `ui://corporate-card/mcp-app.html` を返却する（UI非対応クライアントでも `content` と `structuredContent` のみで完結する）。
 
 ---
 
@@ -390,7 +394,7 @@
 
 ---
 
-## 2. Promptsの扱い（3本、入力最小化後の姿）
+## 2. Promptsの扱い（4本、入力最小化後の姿）
 
 OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿うよう、プロンプトの入力項目から個人の連絡先を排除し、法人特定に必要な最小限の情報のみを受け取る仕様とします（M8）。
 
@@ -417,6 +421,15 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 - **引数（Arguments）**:
   - `company_list_text`: string（必須。企業名一覧。1行に1社、最大20社）
 
+### 2.4 `invoice-verification-check`
+
+- **目的**: 受領した請求書・領収書の適格請求書発行事業者登録番号（T番号）・取引年月日・発行元法人名から、国税庁公表データ上の登録事実と法人の存続・合併承継状況を一括照合し、経理・購買業務向けの客観的確認記録を生成する。
+- **説明文**: 受領した請求書・領収書の適格請求書発行事業者登録番号（T番号）・取引年月日・発行元法人名をもとに、国税庁公表データ上の登録状態と法人の存続・承継状況を一括照合し、確認記録を生成します。※個人の連絡先情報は入力しないでください。
+- **引数（Arguments）**:
+  - `registration_number`: string（必須。`T`+13桁または13桁数字）
+  - `transaction_date`: string（任意。`YYYY-MM-DD` 形式の取引年月日）
+  - `issuer_name`: string（任意。請求書記載の発行元法人名）
+
 ---
 
 ## 3. UIリソースの扱い
@@ -427,11 +440,13 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 
 | ツール名 | 返却するUIリソースURI | 内容 |
 | :--- | :--- | :--- |
-| `lookup_corporate_by_number` | `ui://corporate-card/mcp-app.html` | 法人の商号、法人番号、所在地、更新年月日等の詳細カード表示 |
-| `search_corporate_by_name` | `ui://search-results/mcp-app.html` | 検索結果一覧（既定10件、最大20件）のリスト表示 |
-| `lookup_invoice_issuer` | なし（構造化テキストのみ） | UI非対応クライアントでもテキストのみで用が足りる設計とする |
+| `lookup_corporate_by_number` | `ui://corporate-card/mcp-app.html` | 法人の商号、法人番号、所在地、更新年月日、承継先法人番号、ワンクリック・インボイス確認、マスタ登録用一括コピー等の詳細カード表示 |
+| `search_corporate_by_name` | `ui://search-results/mcp-app.html` | 検索結果一覧（既定10件、最大20件、状態フィルタ・カーソルページ送り）のリスト表示 |
+| `lookup_invoice_issuer` | `ui://corporate-card/mcp-app.html` | 適格請求書発行事業者の登録状態・基準日判定カード表示（UI非対応クライアントでもテキストと `structuredContent` のみで完結） |
 | `validate_corporate_number` | なし | 判定結果（真偽値）のみ |
 | `normalize_company_name` | なし | 正規化後文字列のみ |
+
+- **UI互換メタデータ**: 照会ツール3種の `_meta` には MCP Apps 標準の `ui: { resourceUri, visibility: ['model', 'app'] }` に加え、ChatGPT 互換の `'openai/outputTemplate'` を併記する。
 
 - **UI下部のクレジット表示**:
   - 実装指示書 v1 §4 の仮定数に従い、案(a) `UI_CREDIT = "提供：スグクル株式会社"`（リンクなし）を仮置きする。
@@ -443,13 +458,11 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
 全ツール共通のレスポンス形式を定めます。
 
 - **成功時**: 各ツールの出力スキーマに一致する `structuredContent` と、要約のテキスト1つを返します。公表データを返すツール（lookup_corporate_by_number、search_corporate_by_name、lookup_invoice_issuer）の要約には、data_as_of と出典表示を含めます。要約の出典行は attribution の値を 1 行で示す。値が『出典：』で始まる場合は見出しを付けない。また、`lookup_corporate_by_number` および `search_corporate_by_name` において、対象法人の `address_may_be_outdated` が `true` の場合、要約テキストに「※登記上の所在地の表記が、住居表示の実施等により現在の住所と異なる可能性があります。」を含めます。
-- **失敗時**: `isError: true` とし、`structuredContent` は次の形にします。
+- **失敗時**: `isError: true` とし、MCP SDK クライアントでの `outputSchema` 検証エラーを避けるため `structuredContent` は省略し、`content` に `"[CODE] 利用者が読める短い説明"` を格納するとともに `_meta.error` に次のオブジェクトを格納します。
   ```json
   {
-    "error": {
-      "code": "INVALID_INPUT",
-      "message": "利用者が読める短い説明"
-    }
+    "code": "INVALID_INPUT",
+    "message": "利用者が読める短い説明"
   }
   ```
   `code` は第4節の5種類のいずれかとします。`message` にスタックトレース・SQL文・内部ファイルパスは含めません。
@@ -697,5 +710,23 @@ OpenAI Apps Developer Guidelines のデータ最小化要件 [出典-B2] に沿�
   - **出力規則の明確化**: 第3.1節に「要約の出典行は attribution の値を 1 行で示す。値が『出典：』で始まる場合は見出しを付けない」を規定し、共通関数 `formatAttributionLine` により整形する仕様としました。
 - **ステータス更新**:
   - 仕様書ステータスを「v1.9（承認済み・凍結）」としました（決定日: PR 111 のマージ（2026-10-21）および本 PR のマージ）。
+
+---
+
+## 17. v1.10（v1.1.0 リリース同期）の変更点
+
+`v1.1.0` MCP Apps アップグレードおよび採用拡大施策に基づき、実装との完全整合を反映しました。
+
+- **1. `lookup_corporate_by_number` への `successor_corporate_number` 追加**:
+  - 合併等で閉鎖された法人の承継先法人番号を `corporation.successor_corporate_number`（任意項目）として返却し、UI からのドリルダウン照会に対応しました。
+- **2. `lookup_invoice_issuer` の MCP Apps UI 連携および ChatGPT `openai/outputTemplate` 併記**:
+  - `lookup_invoice_issuer` にも `ui://corporate-card/mcp-app.html` を接続し、照会3ツールすべてに `_meta['openai/outputTemplate']` を併記しました（ヘッドレス環境でのテキスト・構造化出力単独成立性は維持）。
+- **3. エラー応答契約の MCP SDK 互換化（`_meta.error`）**:
+  - 第3.1節の失敗時応答を `structuredContent` 省略＋`_meta.error` 格納へ更新しました。
+- **4. `search_corporate_by_name` の検索精度強化と入力説明文の適正化**:
+  - ホスト版 DB 検索に完全一致・存続法人優先の2段階ランキング、半角/全角スペース展開、旧字体・小書きカナ双方向展開、ひらがな→カタカナ併記検索を導入し、`name` の説明文から誤解を招く `romaji` 表記を整理しました。
+- **5. 経理実務向け第4のプロンプト `invoice-verification-check` の新設**:
+  - 受領請求書・領収書の T番号・取引年月日・発行元法人名から登録事実と法人存続・合併承継を一括確認するプロンプトを追加しました（個人連絡先非誘引・税務判断非提供の規律を共通適用）。
+
 
 

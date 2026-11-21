@@ -325,6 +325,7 @@ PR を `main` ブランチへマージした後、本番環境へ新しい版を
    - `infra/terraform/terraform.tfvars` の `image` 行の書き換え
    - `env -u GOOGLE_APPLICATION_CREDENTIALS terraform -chdir=infra/terraform plan -out=.local/release.tfplan` の実行と `add` / `change` / `destroy` 件数の表示（`destroy` が 1 以上の場合は自動で中止）
    - `y/N` の確認プロンプト表示（`y` 入力時のみ `terraform apply .local/release.tfplan` を実行）
+   - Cloud Run Job `houjin-bangou-migrate` の実行確認プロンプト表示（新しい Drizzle マイグレーションがある場合は `y` で即時適用。個別に `./scripts/ops.sh migrate` でも実行可能）
    - 反映後の Cloud Run サービスのイメージと最新 Ready リビジョンの表示
    ```bash
    ./scripts/ops.sh release

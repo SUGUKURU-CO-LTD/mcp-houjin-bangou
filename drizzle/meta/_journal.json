@@ -43,6 +43,13 @@
       "when": 1792511875321,
       "tag": "0005_spotty_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795220000000,
+      "tag": "0006_nullable_invoice_reg_date",
+      "breakpoints": true
     }
   ]
 }

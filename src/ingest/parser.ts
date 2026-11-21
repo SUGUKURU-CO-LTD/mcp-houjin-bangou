@@ -61,7 +61,8 @@ export function parseCsvLine(line: string): string[] {
  *   処理区分「99（削除）」は一連番号・法人番号・更新年月日以外が空欄となる場合に対応
  */
 export function parseCorporateCsvLine(line: string): ParseCsvResult<CorporateCsvRow> {
-  const trimmed = line.trim();
+  const withoutBom = line.startsWith('\uFEFF') ? line.slice(1) : line;
+  const trimmed = withoutBom.trim();
   if (!trimmed) {
     return { ok: false, errorColumn: 'line' };
   }
@@ -147,7 +148,8 @@ export function parseCorporateCsvLine(line: string): ParseCsvResult<CorporateCsv
  *   - 国税庁の全件データにおいて人格区分が空文字の行が存在するため空文字を許容し、2文字を超える不正値は拒否する。
  */
 export function parseInvoiceCsvLine(line: string): ParseCsvResult<InvoiceCsvRow> {
-  const trimmed = line.trim();
+  const withoutBom = line.startsWith('\uFEFF') ? line.slice(1) : line;
+  const trimmed = withoutBom.trim();
   if (!trimmed) {
     return { ok: false, errorColumn: 'line' };
   }

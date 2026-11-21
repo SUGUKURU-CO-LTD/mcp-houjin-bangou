@@ -1,11 +1,10 @@
 /**
  * MCP Contract Snapshot Tests
  *
- * 根拠 / Source: Linear issue SLA2-328
+ * 根拠 / Source: Linear issue SLA2-328 & Phase 2 Cross-Slice Contract (#10)
  * - tools/list と prompts/list の出力を丸ごと保存して比較するスナップショットテスト。
- * - 今後の SDK v2・ext-apps 2.x 移行時にも、ツールの定義（名前・説明文・引数スキーマ・
- *   出力スキーマ・アノテーション・_meta）およびプロンプトの定義が1文字も変わらないことを保証する。
- *   （ChatGPT Directory は掲載後のツール定義変更で再審査となるため）
+ * - 全5ツールで inputSchema.additionalProperties === false (ADR-0004) と
+ *   照会3ツールの registerAppTool UI メタデータを検証する。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -32,10 +31,8 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
       const client = await createConnectedClient('db');
       const response = await client.listTools();
 
-      // スナップショット検証: ツール定義の完全一致（順序・スキーマ・文言・アノテーション・_meta）
       expect(response).toMatchSnapshot();
 
-      // 契約不変表明 (Invariants)
       expect(response.tools).toHaveLength(5);
       const toolNames = response.tools.map((t) => t.name).sort();
       expect(toolNames).toEqual([
@@ -46,43 +43,56 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
         'validate_corporate_number',
       ]);
 
-      // ホストDB版のアノテーション契約（仕様 v1.8：照会ツール3種は openWorldHint: true、純粋関数2種は false）
       for (const tool of response.tools) {
+        expect(tool.inputSchema.additionalProperties).toBe(false);
         expect(tool.annotations?.readOnlyHint).toBe(true);
         expect(tool.annotations?.destructiveHint).toBe(false);
         expect(tool.annotations?.idempotentHint).toBe(true);
       }
-      expect(
-        response.tools.find((t) => t.name === 'lookup_corporate_by_number')?.annotations
-          ?.openWorldHint,
-      ).toBe(true);
-      expect(
-        response.tools.find((t) => t.name === 'search_corporate_by_name')?.annotations
-          ?.openWorldHint,
-      ).toBe(true);
-      expect(
-        response.tools.find((t) => t.name === 'lookup_invoice_issuer')?.annotations?.openWorldHint,
-      ).toBe(true);
-      expect(
-        response.tools.find((t) => t.name === 'validate_corporate_number')?.annotations
-          ?.openWorldHint,
-      ).toBe(false);
-      expect(
-        response.tools.find((t) => t.name === 'normalize_company_name')?.annotations?.openWorldHint,
-      ).toBe(false);
 
-      // UIメタデータ (_meta.ui.resourceUri) の登録対象確認
       const numberTool = response.tools.find((t) => t.name === 'lookup_corporate_by_number');
       const searchTool = response.tools.find((t) => t.name === 'search_corporate_by_name');
       const invoiceTool = response.tools.find((t) => t.name === 'lookup_invoice_issuer');
       const validateTool = response.tools.find((t) => t.name === 'validate_corporate_number');
       const normalizeTool = response.tools.find((t) => t.name === 'normalize_company_name');
 
-      const numberMeta = numberTool?._meta as { ui?: { resourceUri?: string } } | undefined;
-      const searchMeta = searchTool?._meta as { ui?: { resourceUri?: string } } | undefined;
+      expect(numberTool?.annotations?.openWorldHint).toBe(true);
+      expect(searchTool?.annotations?.openWorldHint).toBe(true);
+      expect(invoiceTool?.annotations?.openWorldHint).toBe(true);
+      expect(validateTool?.annotations?.openWorldHint).toBe(false);
+      expect(normalizeTool?.annotations?.openWorldHint).toBe(false);
+
+      const numberMeta = numberTool?._meta as
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
+        | undefined;
+      const searchMeta = searchTool?._meta as
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
+        | undefined;
+      const invoiceMeta = invoiceTool?._meta as
+        | {
+            ui?: { resourceUri?: string; visibility?: string[] };
+            'ui/resourceUri'?: string;
+            'openai/outputTemplate'?: string;
+          }
+        | undefined;
+
       expect(numberMeta?.ui?.resourceUri).toBe('ui://corporate-card/mcp-app.html');
+      expect(numberMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(numberMeta?.['openai/outputTemplate']).toBe('ui://corporate-card/mcp-app.html');
       expect(searchMeta?.ui?.resourceUri).toBe('ui://search-results/mcp-app.html');
-      expect(invoiceTool?._meta).toBeUndefined();
+      expect(searchMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(searchMeta?.['openai/outputTemplate']).toBe('ui://search-results/mcp-app.html');
+      expect(invoiceMeta?.ui?.resourceUri).toBe('ui://corporate-card/mcp-app.html');
+      expect(invoiceMeta?.ui?.visibility).toEqual(['model', 'app']);
+      expect(invoiceMeta?.['openai/outputTemplate']).toBe('ui://corporate-card/mcp-app.html');
       expect(validateTool?._meta).toBeUndefined();
       expect(normalizeTool?._meta).toBeUndefined();
     });
@@ -91,10 +101,8 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
       const client = await createConnectedClient('web-api');
       const response = await client.listTools();
 
-      // スナップショット検証
       expect(response).toMatchSnapshot();
 
-      // ローカルWeb-API版では外部通信を行うツールのみ openWorldHint が true
       const numberTool = response.tools.find((t) => t.name === 'lookup_corporate_by_number');
       const searchTool = response.tools.find((t) => t.name === 'search_corporate_by_name');
       const invoiceTool = response.tools.find((t) => t.name === 'lookup_invoice_issuer');
@@ -114,19 +122,17 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
       const client = await createConnectedClient('db');
       const response = await client.listPrompts();
 
-      // スナップショット検証: プロンプト定義の完全一致
       expect(response).toMatchSnapshot();
 
-      // 契約不変表明
-      expect(response.prompts).toHaveLength(3);
+      expect(response.prompts).toHaveLength(4);
       const promptNames = response.prompts.map((p) => p.name).sort();
       expect(promptNames).toEqual([
         'company-master-record',
         'customer-master-dedup',
+        'invoice-verification-check',
         'sales-list-enrichment',
       ]);
 
-      // 全プロンプトで個人情報除外の注記と禁止用語の不使用を検証
       for (const prompt of response.prompts) {
         expect(prompt.description).toContain('※個人の連絡先情報は入力しないでください。');
         expect(prompt.description).not.toContain('名刺');
@@ -141,8 +147,10 @@ describe('MCP Contract Snapshot Tests (SLA2-328)', () => {
       const client = await createConnectedClient('db');
       const response = await client.listResources();
 
-      // スナップショット検証: UIリソース2件のみ
-      expect(response).toMatchSnapshot();
+      const coreResources = {
+        resources: response.resources.map(({ uri, name, mimeType }) => ({ uri, name, mimeType })),
+      };
+      expect(coreResources).toMatchSnapshot();
 
       expect(response.resources).toHaveLength(2);
       const uris = response.resources.map((r) => r.uri).sort();

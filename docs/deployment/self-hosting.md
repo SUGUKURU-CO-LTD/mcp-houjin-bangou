@@ -4,11 +4,13 @@
 
 ## 前提
 
-- Node.js 20.19.0 (本番では LTS を推奨)
-- 国税庁 Web-API アプリケーション ID
-- systemd / Docker Compose / pm2 / supervisord 等のプロセス管理ツール
+- Node.js `20.19.0` 以上（本番では Node.js 22 LTS 推奨）
+- 以下のいずれかのデータソース：
+  - **Web-API モード (`DATA_SOURCE=web-api`)**: 国税庁 法人番号 Web-API アプリケーション ID（`NTA_APPLICATION_ID`）
+  - **DB モード (`DATA_SOURCE=db`)**: PostgreSQL 16（`pg_trgm` 拡張導入済み）と国税庁公開ダウンロード CSV
+- systemd / Docker / pm2 等のプロセス管理ツール
 
-## インストール
+## インストールとビルド
 
 ```bash
 git clone https://github.com/SUGUKURU-CO-LTD/mcp-houjin-bangou.git
@@ -40,29 +42,31 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/mcp-houjin-bangou
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`/etc/mcp-houjin-bangou/.env` (chmod 600, chown nodeuser:nodeuser):
+`/etc/mcp-houjin-bangou/.env` (`chmod 600`, `chown nodeuser:nodeuser`):
 
 ```env
+DATA_SOURCE=web-api
 NTA_APPLICATION_ID=your-id
 LOG_LEVEL=info
 PORT=3001
 NODE_ENV=production
+TRUST_PROXY=1
+ALLOWED_ORIGINS=https://claude.ai,https://chatgpt.com
 ```
 
-## プロセス監視
+## プロセス監視とログ
 
-`systemd` の場合 `systemctl status mcp-houjin-bangou` + journald。
-pino の JSON ログが journald 経由で Datadog/Loki 等に転送できます。
+`systemd` の場合、`systemctl status mcp-houjin-bangou` および `journalctl -u mcp-houjin-bangou` で監視できます。
+アプリケーションログはすべて標準エラー出力（`stderr`）に JSON 形式で出力され、入力された法人番号・登録番号・検索語は記録されません。
 
-## 3 年無利用停止防止 (第一編 §5.3 + 別添1 第4条第5項)
+## 3 年無利用停止防止 (`DATA_SOURCE=web-api` 利用時: 第一編 §5.3 + 別添1 第4条第5項)
 
-国税庁は 3 年間 API にアクセスがないとアプリケーション ID を停止できます。本プロジェクトには健康チェック cron が同梱されています:
+国税庁 Web-API は 3 年間アクセスがないとアプリケーション ID が停止される場合があります。定期 keep-alive スクリプトが同梱されています：
 
 ```bash
 # crontab -e
@@ -70,17 +74,17 @@ pino の JSON ログが journald 経由で Datadog/Loki 等に転送できます
 0 1 * * 1 cd /opt/mcp-houjin-bangou && NTA_APPLICATION_ID=$(cat /etc/mcp-houjin-bangou/id) pnpm health-check
 ```
 
-または GitHub Actions の `api-health-check.yml` を使えば、自社サーバ側での cron 設定は不要です。
+または GitHub Actions の `.github/workflows/api-health-check.yml` を利用できます。
 
 ## セキュリティ運用
 
-1. **Application ID は `.env` に保存、git commit 禁止** — `.gitignore` で除外済み
-2. **HTTPS 化** — nginx/Caddy/Cloudflare 経由で TLS を提供
-3. **Origin validation** — 本サーバーの `ALLOWED_ORIGINS` 環境変数、および nginx で制御
-4. **rate limiting** — 本サーバー内の HTTP レート制限（`RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_REQUESTS`）および nginx 側で IP 毎に制限
-5. **DoS 対策** — `client_max_body_size 64k;` (本 MCP も 64kB に制限)
+1. **秘密情報は `.env` または Secret Manager で管理し、Git コミット禁止**
+2. **HTTPS 化**: nginx / Caddy / Cloudflare / Cloud Load Balancing 経由で TLS を終端
+3. **Origin 検証**: `ALLOWED_ORIGINS` 環境変数に許可するブラウザオリジンを明示設定
+4. **レート制限と `TRUST_PROXY`**: 前段リバースプロキシの段数に合わせて `TRUST_PROXY` を設定（直結は `0`、nginx 1段は `1`）し、`RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_REQUESTS` で IP ごとに制限
+5. **リクエストサイズ制限**: nginx 側で `client_max_body_size 64k;`（本サーバーも `64kb` に制限）
 
-## nginx reverse proxy 例
+## nginx リバースプロキシ例
 
 ```nginx
 server {
@@ -106,19 +110,13 @@ server {
   location /mcp {
     proxy_pass http://127.0.0.1:3001;
     proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header Connection "";
     proxy_read_timeout 60s;
-    proxy_buffering off;  # SSE の場合
+    proxy_buffering off;
   }
 }
-```
-
-## ログローテーション
-
-pino → journald/fluentd に流すのが最も簡単ですが、ファイルに落とすなら:
-
-```bash
-node dist/server.js 2>&1 | logger -t mcp-houjin-bangou
 ```
 
 ## アップデート手順
@@ -126,21 +124,21 @@ node dist/server.js 2>&1 | logger -t mcp-houjin-bangou
 ```bash
 cd /opt/mcp-houjin-bangou
 git fetch --tags
-git checkout v1.0.0  # 新バージョン
+git checkout v1.1.0  # 対象バージョンタグ
 pnpm install --frozen-lockfile
 pnpm build
 sudo systemctl restart mcp-houjin-bangou
 ```
 
-breaking change がある場合は `CHANGELOG.md` を必ず確認。
+更新時は事前に [`CHANGELOG.md`](../../CHANGELOG.md) を確認してください。
 
-## ローカル（Web-API）運用と DB（公開ダウンロードデータ）運用の比較
+## Web-API モードと PostgreSQL DB モードの比較
 
 | 項目 | Web-API モード (`DATA_SOURCE=web-api`) | DB モード (`DATA_SOURCE=db`) |
 |---|---|---|
-| データ取得元 | 国税庁 Web-API (リアルタイム) | 国税庁 公開ダウンロードデータ CSV を PostgreSQL に取り込み |
+| データ取得元 | 国税庁 法人番号 Web-API Ver.4.0（リアルタイム） | 国税庁 公開ダウンロードデータ CSV を PostgreSQL 16 に月次取込 |
 | Application ID | 利用者自身の `NTA_APPLICATION_ID` が必要 | 不要（Web-API ID を使用しない） |
-| DB ロール分離 | なし | `houjin_admin` / `houjin_ingest` / `houjin_reader`（[db-roles.md](db-roles.md) 参照） |
-| インボイス登録確認 (`lookup_invoice_issuer`) | ローカル DB 接続時、またはリモート接続時に対応 | 対応 |
+| DB ロール分離 | なし | `houjin_admin` / `houjin_ingest` / `houjin_reader`（[`db-roles.md`](db-roles.md) 参照） |
+| インボイス登録確認 (`lookup_invoice_issuer`) | **非対応**（`DATA_UNAVAILABLE` を返却） | **対応** |
 
 お問い合わせは `info@sugu-kuru.co.jp` まで。

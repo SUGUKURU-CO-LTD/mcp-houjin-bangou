@@ -15,6 +15,12 @@ import {
   DbCorporateDataProvider,
   escapeLikeWildcards,
   isTimeoutError,
+  toHalfWidthAscii,
+  toFullWidthAscii,
+  buildAsciiWidthSearchVariants,
+  buildSearchNameVariants,
+  buildPriorityExactNames,
+  MAX_SEARCH_VARIANTS,
 } from '../../src/repository/corporate-repository.js';
 import { encodeNameSearchCursor } from '../../src/lib/pagination.js';
 import { NTA_CORPORATE_HOST_ATTRIBUTION } from '../../src/lib/tool-response.js';
@@ -31,6 +37,112 @@ describe('escapeLikeWildcards (LIKE/ILIKE特殊文字エスケープ)', () => {
   it('特殊文字を含まない通常の文字列はそのまま維持されること', () => {
     expect(escapeLikeWildcards('スグクル株式会社')).toBe('スグクル株式会社');
     expect(escapeLikeWildcards('Test-Company. 123')).toBe('Test-Company. 123');
+  });
+});
+
+describe('ASCII 半角・全角検索バリエーション展開', () => {
+  it('半角英数字から全角英数字バリエーション（大文字・小文字）を生成すること', () => {
+    expect(toFullWidthAscii('NTTデータ')).toBe('ＮＴＴデータ');
+    expect(toHalfWidthAscii('株式会社ＮＴＴデータ')).toBe('株式会社NTTデータ');
+
+    const variants = buildAsciiWidthSearchVariants('DeNA');
+    expect(variants).toContain('DeNA');
+    expect(variants).toContain('ＤｅＮＡ');
+    expect(variants).toContain('ＤＥＮＡ');
+    expect(variants).toContain('ｄｅｎａ');
+
+    // 純日本語のみの場合は単一要素のまま余計な OR 条件を増やさない
+    expect(buildAsciiWidthSearchVariants('スグクル')).toEqual(['スグクル']);
+
+    // スペースを含む英字商号は全角スペース (U+3000) との組も展開する
+    const spaceVariants = buildAsciiWidthSearchVariants('Apple Japan');
+    expect(spaceVariants).toContain('Apple Japan');
+    expect(spaceVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    expect(spaceVariants).toContain('ＡＰＰＬＥ\u3000ＪＡＰＡＮ');
+  });
+
+  it('buildSearchNameVariants がスペース・旧字/新字・小書きカナ・ひらがな→カタカナを上限8件で展開する', () => {
+    // 1. カタカナ空白（アマゾン ウェブ → 全角空白・中点・空白除去）
+    const amazon = buildSearchNameVariants('アマゾン ウェブ');
+    expect(amazon).toContain('アマゾン ウェブ');
+    expect(amazon).toContain('アマゾン\u3000ウェブ');
+    expect(amazon).toContain('アマゾン・ウェブ');
+    expect(amazon).toContain('アマゾンウェブ');
+
+    // 3文字クエリで空白除去後が2文字未満になる場合（"A B" → "AB"）は pg_trgm 保護のため 2文字候補を出さない
+    const shortSpace = buildSearchNameVariants('A B', false);
+    expect(shortSpace.every((v) => v.length >= 3)).toBe(true);
+
+    // 2. 旧字体 ⇔ 新字体 双方向展開（野村証券 ⇔ 野村證券、高橋 ⇔ 髙橋）
+    expect(buildSearchNameVariants('野村証券')).toContain('野村證券');
+    expect(buildSearchNameVariants('野村證券')).toContain('野村証券');
+    expect(buildSearchNameVariants('高橋商事')).toContain('髙橋商事');
+    expect(buildSearchNameVariants('髙橋商事')).toContain('高橋商事');
+
+    // 3. 小書きカナ ⇔ 大書きカナ 双方向展開（キャノン ⇔ キヤノン、富士フィルム ⇔ 富士フイルム）
+    expect(buildSearchNameVariants('キャノン')).toContain('キヤノン');
+    expect(buildSearchNameVariants('キヤノン')).toContain('キャノン');
+    expect(buildSearchNameVariants('富士フィルム')).toContain('富士フイルム');
+    expect(buildSearchNameVariants('キューピー')).toContain('キユーピー');
+    expect(buildSearchNameVariants('シャチハタ')).toContain('シヤチハタ');
+
+    // 4. ひらがな → カタカナ併記（すぐくる → スグクル、すぐくる株式会社 → スグクル株式会社）
+    expect(buildSearchNameVariants('すぐくる')).toEqual(['すぐくる', 'スグクル']);
+    expect(buildSearchNameVariants('すぐくる株式会社')).toContain('スグクル株式会社');
+
+    // 5. 組合せ爆発の防止（最大 MAX_SEARCH_VARIANTS = 8 件）
+    const manyKanji = buildSearchNameVariants('高橋山崎斎藤横浜大沢広島桜井渡辺鉄工');
+    expect(manyKanji.length).toBeLessThanOrEqual(MAX_SEARCH_VARIANTS);
+    expect(new Set(manyKanji).size).toBe(manyKanji.length);
+  });
+
+  it('buildPriorityExactNames が代表法人格の完全一致候補を生成し、法人格単独語では空配列を返す', () => {
+    const toyotaPriority = buildPriorityExactNames('トヨタ', ['トヨタ']);
+    expect(toyotaPriority).toContain('トヨタ');
+    expect(toyotaPriority).toContain('株式会社トヨタ');
+    expect(toyotaPriority).toContain('トヨタ株式会社');
+    expect(toyotaPriority).toContain('合同会社トヨタ');
+
+    expect(buildPriorityExactNames('株式会社', ['株式会社'])).toEqual([]);
+
+    // 1〜2文字クエリ (isShortQuery=true) では前方一致仕様を守るため前株を除外し後株のみとする
+    const shortPriority = buildPriorityExactNames('楽天', ['楽天'], true);
+    expect(shortPriority).toContain('楽天株式会社');
+    expect(shortPriority).not.toContain('株式会社楽天');
+  });
+
+  it('小文字/大文字英語（apple japan / APPLE JAPAN）、スペース入り英和（NTT データ）、略称・前後株逆転（(株)スグクル / 株式会社スグクル）、サロゲートペア（𠮷野 / 吉野家）を網羅する', () => {
+    const lowerAppleVariants = buildSearchNameVariants('apple japan');
+    expect(lowerAppleVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    const lowerApplePriority = buildPriorityExactNames('apple japan', lowerAppleVariants);
+    expect(lowerApplePriority).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ合同会社');
+
+    const upperAppleVariants = buildSearchNameVariants('APPLE JAPAN');
+    expect(upperAppleVariants).toContain('Ａｐｐｌｅ\u3000Ｊａｐａｎ');
+    expect(buildPriorityExactNames('APPLE JAPAN', upperAppleVariants)).toContain(
+      'Ａｐｐｌｅ\u3000Ｊａｐａｎ合同会社',
+    );
+
+    const nttSpaceVariants = buildSearchNameVariants('NTT データ');
+    expect(nttSpaceVariants).toContain('ＮＴＴデータ');
+    const nttDotVariants = buildSearchNameVariants('NTT・データ');
+    expect(nttDotVariants).toContain('ＮＴＴデータ');
+
+    for (const q of ['(株)スグクル', '㈱スグクル', '株式会社スグクル', '株式会社 スグクル']) {
+      const v = buildSearchNameVariants(q);
+      expect(v).toContain('スグクル株式会社');
+      expect(v).toContain('株式会社スグクル');
+      const p = buildPriorityExactNames(q, v);
+      expect(p).toContain('スグクル株式会社');
+    }
+
+    // サロゲートペア2文字 ("𠮷野": UTF-16 length=3, code points=2) は短語前方一致として扱う
+    const yoshinoShort = buildPriorityExactNames('𠮷野', buildSearchNameVariants('𠮷野'));
+    expect(yoshinoShort).toContain('𠮷野株式会社');
+    expect(yoshinoShort).not.toContain('株式会社𠮷野');
+
+    const yoshinoyaVariants = buildSearchNameVariants('吉野家');
+    expect(yoshinoyaVariants).toContain('𠮷野家');
   });
 });
 
@@ -113,7 +225,10 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
     },
   ];
 
-  function createMockDb(records = mockCorporateData, hasActiveVersion = true): DbClient {
+  function createMockDb(
+    records: ReadonlyArray<Record<string, unknown>> = mockCorporateData,
+    hasActiveVersion = true,
+  ): DbClient {
     return {
       select: (fields?: unknown) => ({
         from: () => ({
@@ -413,6 +528,299 @@ describe('DbCorporateDataProvider (合成テストデータ使用)', () => {
 
       expect(result.error.code).toBe('INVALID_INPUT');
       expect(result.error.message).toContain('公表データが更新されたため');
+    });
+
+    it('検索条件（法人名・都道府県）が異なる queryKey のカーソルを使い回した場合は INVALID_INPUT を返す', async () => {
+      const db = createMockDb();
+      const provider = new DbCorporateDataProvider(db);
+
+      const otherQueryCursor = encodeNameSearchCursor({
+        offset: 10,
+        data_as_of: currentDataAsOf,
+        queryKey: '別の会社|13',
+      });
+
+      const result = await provider.searchByName('テスト', '46', otherQueryCursor);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      expect(result.error.code).toBe('INVALID_INPUT');
+      expect(result.error.message).toContain('検索条件が変更されたため');
+    });
+
+    it('処理区分 99（削除）のレコードは lookupByNumber で NOT_FOUND、searchByName で除外されること', async () => {
+      const deletedRow = {
+        corporateNumber: '9000000000009',
+        datasetVersionId: 1,
+        process: '99',
+        name: '削除テスト株式会社',
+        kind: '301',
+        prefectureCode: '46',
+        cityCode: '201',
+        prefectureName: '鹿児島県',
+        cityName: '鹿児島市',
+        streetNumber: '山下町一丁目',
+        addressOutside: null,
+        postCode: '8920816',
+        updateDate: '2026-04-01',
+        closeDate: null,
+        closeCause: null,
+        furigana: 'サクジョテストカブシキガイシャ',
+      };
+      const recordsWithDeleted = [...mockCorporateData, deletedRow];
+      const db = createMockDb(recordsWithDeleted);
+      const provider = new DbCorporateDataProvider(db);
+
+      const singleDeletedDb = createMockDb([deletedRow]);
+      const singleDeletedProvider = new DbCorporateDataProvider(singleDeletedDb);
+      const directDeleted = await singleDeletedProvider.lookupByNumber('9000000000009');
+      expect(directDeleted.ok).toBe(false);
+      if (!directDeleted.ok) {
+        expect(directDeleted.error.code).toBe('NOT_FOUND');
+      }
+
+      const searchRes = await provider.searchByName('テスト');
+      expect(searchRes.ok).toBe(true);
+      if (searchRes.ok) {
+        expect(searchRes.value.results.map((r) => r.corporate_number)).not.toContain(
+          '9000000000009',
+        );
+      }
+    });
+
+    it('吸収合併等で承継先法人番号がある場合 successorCorporateNumber / successor_corporate_number が設定され、非列挙互換であること', async () => {
+      const mergedRecord = {
+        corporateNumber: '1000000000003',
+        datasetVersionId: 1,
+        name: '閉鎖テスト株式会社',
+        kind: '301',
+        prefectureCode: '13',
+        cityCode: '101',
+        prefectureName: '東京都',
+        cityName: '千代田区',
+        streetNumber: '丸の内一丁目',
+        addressOutside: null,
+        postCode: '1000005',
+        updateDate: '2026-06-01',
+        closeDate: '2026-06-01',
+        closeCause: '11',
+        successorCorporateNumber: '9340001026142',
+        furigana: 'ヘイサテストカブシキガイシャ',
+      };
+      const db = createMockDb([mergedRecord]);
+      const provider = new DbCorporateDataProvider(db);
+
+      const res = await provider.lookupByNumber('1000000000003');
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.value.corporation.successorCorporateNumber).toBe('9340001026142');
+        expect(res.value.corporation.successor_corporate_number).toBe('9340001026142');
+        // strict JSON Schema (additionalProperties: false) を壊さないよう camelCase は非列挙
+        expect(Object.keys(res.value.corporation)).not.toContain('successorCorporateNumber');
+      }
+    });
+
+    it('DBエラー時の stderr ログから SQL バインドパラメータ (\\nparams:) が除去されること', async () => {
+      const stderrLogs: string[] = [];
+      const origWrite = process.stderr.write;
+      process.stderr.write = ((chunk: unknown) => {
+        stderrLogs.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+
+      try {
+        const drizzleErr = new Error(
+          'Failed query: select * from "corporate_numbers" where "corporate_number" = $1\nparams: 9340001026142',
+        );
+        const failingDb = {
+          select: (fields?: unknown) => ({
+            from: () => ({
+              where: () => {
+                if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                  return {
+                    orderBy: () => ({
+                      limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                    }),
+                  };
+                }
+                return {
+                  limit: () => Promise.reject(drizzleErr),
+                };
+              },
+            }),
+          }),
+        } as unknown as DbClient;
+
+        const provider = new DbCorporateDataProvider(failingDb);
+        const res = await provider.lookupByNumber('9340001026142');
+        expect(res.ok).toBe(false);
+
+        const logText = stderrLogs.join('');
+        expect(logText).toContain('"logger":"corporate_repository"');
+        expect(logText).not.toContain('params:');
+        expect(logText).not.toContain('9340001026142');
+      } finally {
+        process.stderr.write = origWrite;
+      }
+    });
+
+    it('2段階ランキングで完全一致・存続法人を先頭に配置し、複数ページにまたがるカーソル送りで重複・欠落が発生しないこと', async () => {
+      // 若い法人番号に閉鎖法人や部分一致法人が並び、本家の存続「株式会社ソニックス」が大きい法人番号を持つケース
+      const allDataset = [
+        {
+          corporateNumber: '1000000000001',
+          datasetVersionId: 1,
+          process: '01',
+          name: 'ソニックス部品販売有限会社',
+          kind: '302',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '港区',
+          streetNumber: '芝浦一丁目',
+          addressOutside: null,
+          postCode: '1050023',
+          updateDate: '2026-01-10',
+          closeDate: '2020-03-31',
+          closeCause: '01',
+          furigana: 'ソニックスブヒンハンバイ',
+          hihyoji: '0',
+        },
+        {
+          corporateNumber: '1000000000002',
+          datasetVersionId: 1,
+          process: '01',
+          name: '株式会社ソニックス', // 同名の旧閉鎖法人（番号が若い）
+          kind: '301',
+          prefectureCode: '27',
+          prefectureName: '大阪府',
+          cityName: '大阪市北区',
+          streetNumber: '梅田一丁目',
+          addressOutside: null,
+          postCode: '5300001',
+          updateDate: '2021-05-01',
+          closeDate: '2021-04-30',
+          closeCause: '11',
+          furigana: 'カブシキガイシャソニックス',
+          hihyoji: '0',
+        },
+        ...Array.from({ length: 6 }, (_, i) => ({
+          corporateNumber: `200000000000${i + 1}`,
+          datasetVersionId: 1,
+          process: '01',
+          name: `ソニックス開発第${i + 1}株式会社`,
+          kind: '301',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '品川区',
+          streetNumber: '北品川一丁目',
+          addressOutside: null,
+          postCode: '1400001',
+          updateDate: '2026-04-01',
+          closeDate: null,
+          closeCause: null,
+          furigana: 'ソニックスカイハツ',
+          hihyoji: '0',
+        })),
+        {
+          corporateNumber: '8000000000099',
+          datasetVersionId: 1,
+          process: '01',
+          name: '株式会社ソニックス', // 存続中の本家株式会社（法人番号は一番大きい）
+          kind: '301',
+          prefectureCode: '13',
+          prefectureName: '東京都',
+          cityName: '港区',
+          streetNumber: '港南一丁目',
+          addressOutside: null,
+          postCode: '1080075',
+          updateDate: '2026-09-01',
+          closeDate: null,
+          closeCause: null,
+          furigana: 'カブシキガイシャソニックス',
+          hihyoji: '0',
+        },
+      ];
+
+      // Stage 1 (inArray: exact priority names) と Stage 2 (notInArray + ilike) を模擬する DB
+      const prioritySet = new Set(buildPriorityExactNames('ソニックス', ['ソニックス']));
+      let queryCallIndex = 0;
+      const twoStageDb = {
+        select: (fields?: unknown) => ({
+          from: () => ({
+            where: () => {
+              if (fields && typeof fields === 'object' && 'dataAsOf' in (fields as object)) {
+                return {
+                  orderBy: () => ({
+                    limit: () => Promise.resolve([{ id: 1, dataAsOf: currentDataAsOf }]),
+                  }),
+                };
+              }
+              const currentCall = queryCallIndex++;
+              const isStage1 = currentCall % 2 === 0;
+              return {
+                orderBy: () => ({
+                  limit: (limitCount: number) => ({
+                    offset: (offsetCount: number) => {
+                      const matched = isStage1
+                        ? allDataset.filter((r) => prioritySet.has(r.name))
+                        : allDataset.filter((r) => !prioritySet.has(r.name));
+                      const sorted = [...matched].sort((a, b) =>
+                        a.corporateNumber.localeCompare(b.corporateNumber),
+                      );
+                      return Promise.resolve(sorted.slice(offsetCount, offsetCount + limitCount));
+                    },
+                  }),
+                }),
+              };
+            },
+          }),
+        }),
+      } as unknown as DbClient;
+
+      const provider = new DbCorporateDataProvider(twoStageDb);
+
+      // limit=4 で全9件を3ページにわたり取得
+      const p1 = await provider.searchByName('ソニックス', undefined, undefined, 4);
+      expect(p1.ok).toBe(true);
+      if (!p1.ok) return;
+
+      // 1件目は存続中の「株式会社ソニックス」(8000000000099)、2件目は同名の閉鎖法人 (1000000000002)
+      expect(p1.value.results[0]?.corporate_number).toBe('8000000000099');
+      expect(p1.value.results[0]?.status).toBe('active');
+      expect(p1.value.results[1]?.corporate_number).toBe('1000000000002');
+      expect(p1.value.results[1]?.status).toBe('closed');
+      expect(p1.value.next_cursor).not.toBeNull();
+
+      const p2 = await provider.searchByName(
+        'ソニックス',
+        undefined,
+        p1.value.next_cursor ?? undefined,
+        4,
+      );
+      expect(p2.ok).toBe(true);
+      if (!p2.ok) return;
+      expect(p2.value.results).toHaveLength(4);
+      expect(p2.value.next_cursor).not.toBeNull();
+
+      const p3 = await provider.searchByName(
+        'ソニックス',
+        undefined,
+        p2.value.next_cursor ?? undefined,
+        4,
+      );
+      expect(p3.ok).toBe(true);
+      if (!p3.ok) return;
+      expect(p3.value.results).toHaveLength(1);
+      expect(p3.value.next_cursor).toBeNull();
+      expect(p3.value.total_count).toBe(9);
+
+      const allReturnedNumbers = [
+        ...p1.value.results,
+        ...p2.value.results,
+        ...p3.value.results,
+      ].map((r) => r.corporate_number);
+      expect(allReturnedNumbers).toHaveLength(allDataset.length);
+      expect(new Set(allReturnedNumbers).size).toBe(allDataset.length);
     });
   });
 });
