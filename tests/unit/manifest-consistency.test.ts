@@ -162,4 +162,27 @@ describe('Manifest & Metadata Consistency', () => {
     expect(cursorMcpJson.mcpServers['houjin-bangou']?.url).toBe(expectedUrl);
     expect(cursorMcpJson.mcpServers['houjin-bangou']?.type).toBe('streamable-http');
   });
+
+  it('provides bilingual JA+EN discovery metadata within registry limits and without official-agency claims', () => {
+    const serverDesc = String((serverJson as Record<string, unknown>).description ?? '');
+    expect(serverDesc.length).toBeGreaterThan(0);
+    expect(serverDesc.length).toBeLessThanOrEqual(100);
+    expect(serverDesc).toContain('Japan');
+    expect(serverDesc).toContain('KYB');
+    expect(serverDesc).toContain('法人番号');
+    expect(serverDesc).toContain('インボイス');
+
+    for (const desc of [
+      serverDesc,
+      String(serverCardFile.description ?? ''),
+      String(pluginJson.description ?? ''),
+      String(cursorPluginJson.description ?? ''),
+      String((pkg as Record<string, unknown>).description ?? ''),
+    ]) {
+      expect(desc).toContain('法人番号');
+      expect(desc).toContain('インボイス');
+      expect(desc).toContain('KYB');
+      expect(desc).not.toContain('公式');
+    }
+  });
 });
