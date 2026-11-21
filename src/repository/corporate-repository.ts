@@ -720,18 +720,34 @@ export class DbCorporateDataProvider implements CorporateDataProvider {
           conditions.push(eq(corporateNumbers.prefectureCode, prefecture));
         }
 
-        const fetchedRows = await this.db
-          .select()
-          .from(corporateNumbers)
-          .where(and(...conditions))
-          .orderBy(asc(corporateNumbers.corporateNumber))
-          .limit(neededFromStage2)
-          .offset(stage2Offset);
+        // 複数バリアントの OR 条件 + LIMIT では PostgreSQL プランナが pg_trgm GIN / text_pattern_ops 索引より
+        // 主キー順 Index Scan（573万件走査）を誤選択する場合があるため、法人格単独クエリ（priorityNames 空）以外は
+        // 式ソート `(corporate_number || '')` を用いて GIN / pattern Bitmap Index Scan を強制する。
+        const stage2OrderExpr =
+          priorityNames.length > 0
+            ? sql<string>`(${corporateNumbers.corporateNumber} || '')`
+            : corporateNumbers.corporateNumber;
 
-        // モック DB 環境への防御的フィルタ（実 DB では WHERE 句で既に除外済み）
-        stage2ValidRows = fetchedRows.filter(
-          (r) => r.process !== '99' && !stage1CorpNumberSet.has(r.corporateNumber),
-        );
+        try {
+          const fetchedRows = await this.db
+            .select()
+            .from(corporateNumbers)
+            .where(and(...conditions))
+            .orderBy(asc(stage2OrderExpr))
+            .limit(neededFromStage2)
+            .offset(stage2Offset);
+
+          // モック DB 環境への防御的フィルタ（実 DB では WHERE 句で既に除外済み）
+          stage2ValidRows = fetchedRows.filter(
+            (r) => r.process !== '99' && !stage1CorpNumberSet.has(r.corporateNumber),
+          );
+        } catch (stage2Err) {
+          if (isTimeoutError(stage2Err) && stage1Slice.length > 0) {
+            stage2ValidRows = [];
+          } else {
+            throw stage2Err;
+          }
+        }
       }
 
       const validFetchedRows = [...stage1Slice, ...stage2ValidRows];
