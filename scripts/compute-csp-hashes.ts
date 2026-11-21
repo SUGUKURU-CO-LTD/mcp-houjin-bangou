@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, ftruncateSync, openSync, readdirSync, readFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,38 +81,70 @@ export function injectCspIntoHtml(html: string): string {
   throw new Error('HTML file is missing <head> element for CSP injection');
 }
 
+function isEnoent(err: unknown): boolean {
+  return Boolean(
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 'ENOENT',
+  );
+}
+
+function injectCspIfPresent(filePath: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(filePath, 'r+');
+  } catch (err) {
+    if (isEnoent(err)) {
+      return false;
+    }
+    throw err;
+  }
+  try {
+    const html = readFileSync(fd, 'utf8');
+    const updated = injectCspIntoHtml(html);
+    ftruncateSync(fd, 0);
+    writeSync(fd, updated, 0, 'utf8');
+    return true;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function injectCsp(filePath: string): void {
-  if (!existsSync(filePath)) {
+  if (!injectCspIfPresent(filePath)) {
     throw new Error(`Built UI file not found: ${filePath}. Run "pnpm build:ui" first.`);
   }
-  const html = readFileSync(filePath, 'utf8');
-  const updated = injectCspIntoHtml(html);
-  writeFileSync(filePath, updated, 'utf8');
 }
 
 function main(): void {
   const uiRoot = path.resolve(process.cwd(), 'dist/ui');
-  if (!existsSync(uiRoot)) {
-    process.stderr.write(`Error: ${uiRoot} does not exist. Run "pnpm build:ui" first.\n`);
-    process.exitCode = 1;
-    return;
+  let entries;
+  try {
+    entries = readdirSync(uiRoot, { withFileTypes: true });
+  } catch (err) {
+    if (isEnoent(err)) {
+      process.stderr.write(`Error: ${uiRoot} does not exist. Run "pnpm build:ui" first.\n`);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
   }
 
   let count = 0;
   const sharedHtmlPath = path.join(uiRoot, 'mcp-app.html');
-  if (existsSync(sharedHtmlPath)) {
-    injectCsp(sharedHtmlPath);
+  if (injectCspIfPresent(sharedHtmlPath)) {
     process.stdout.write(`Injected CSP into ${sharedHtmlPath}\n`);
     count += 1;
   }
 
-  for (const dir of readdirSync(uiRoot, { withFileTypes: true })) {
+  for (const dir of entries) {
     if (!dir.isDirectory()) continue;
     const htmlPath = path.join(uiRoot, dir.name, 'mcp-app.html');
-    if (!existsSync(htmlPath)) continue;
-    injectCsp(htmlPath);
-    process.stdout.write(`Injected CSP into ${htmlPath}\n`);
-    count += 1;
+    if (injectCspIfPresent(htmlPath)) {
+      process.stdout.write(`Injected CSP into ${htmlPath}\n`);
+      count += 1;
+    }
   }
 
   if (count === 0) {

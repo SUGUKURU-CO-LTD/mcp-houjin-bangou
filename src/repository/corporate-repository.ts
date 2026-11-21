@@ -128,7 +128,7 @@ export function buildAsciiWidthSearchVariants(
 
 export const MAX_SEARCH_VARIANTS = 8;
 
-const HIRAGANA_ONLY_PATTERN = /^(?=.*[\u3041-\u3096])[\u3041-\u3096\u30FC\s\u3000・ー]+$/u;
+const HIRAGANA_ONLY_PATTERN = /^(?=.*[\u3041-\u3096])[\u3041-\u3096\u30FC\s\u3000・]+$/u;
 
 /**
  * 商業登記の旧かな表記（キヤノン、富士フイルム、キユーピー、シヤチハタ、チヨダ等）と
